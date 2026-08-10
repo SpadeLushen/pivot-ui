@@ -55,8 +55,8 @@ export async function POST(req: Request) {
     const model = runtime.getModel(providerName, modelId);
     if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
 
-    const auth = await runtime.getAuth(model);
-    if (!auth?.auth.apiKey) return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
+    const authResult = await runtime.getAuth(model);
+    if (!authResult?.auth.apiKey) return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
@@ -71,8 +71,8 @@ export async function POST(req: Request) {
           timestamp: Date.now(),
         }],
       }, {
-        apiKey: auth.auth.apiKey,
-        headers: auth.auth.headers,
+        apiKey: authResult.auth.apiKey,
+        headers: authResult.auth.headers,
         maxTokens: 16,
         timeoutMs: TEST_TIMEOUT_MS,
         maxRetries: 0,

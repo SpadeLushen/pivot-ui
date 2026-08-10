@@ -1,11 +1,12 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getOAuthProviders } from "@/lib/model-runtime";
 import { getAuthStore } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const runtime = await ModelRuntime.create();
-  const oauthProviders = runtime.getProviders().filter((p) => p.auth.oauth);
+  const oauthProviders = getOAuthProviders(runtime);
 
   const EXCLUDED = new Set(["anthropic"]);
   const DISPLAY_NAMES: Record<string, string> = {
@@ -22,7 +23,6 @@ export async function GET() {
         return {
           id: p.id,
           name: DISPLAY_NAMES[p.id] ?? p.name,
-          usesCallbackServer: false,
           loggedIn: credential !== undefined,
         };
       })

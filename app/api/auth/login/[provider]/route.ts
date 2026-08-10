@@ -1,4 +1,5 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export async function GET(
   const stream = new ReadableStream({
     async start(controller) {
       const runtime = await ModelRuntime.create();
-      const providers = runtime.getProviders().filter((p) => p.auth.oauth);
+      const providers = getOAuthProviders(runtime);
       const providerInfo = providers.find((p) => p.id === provider);
       if (!providerInfo) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
@@ -150,22 +151,25 @@ export async function GET(
             }
           },
           prompt: async (prompt) => {
-            const request = getManualInputRequest();
             if (prompt.type === "select") {
+              // Fresh token per select: a flow may emit auth_url then a select
+              // prompt, and each prompt must resolve its own submission.
+              const request = createClientInputRequest();
               send(controller, {
                 type: "select_request",
                 message: prompt.message,
                 options: prompt.options.map((o) => ({ id: o.id, label: o.label })),
                 token: request.token,
               });
-            } else {
-              send(controller, {
-                type: "prompt_request",
-                message: prompt.message,
-                placeholder: prompt.placeholder ?? null,
-                token: request.token,
-              });
+              return request.promise;
             }
+            const request = getManualInputRequest();
+            send(controller, {
+              type: "prompt_request",
+              message: prompt.message,
+              placeholder: prompt.placeholder ?? null,
+              token: request.token,
+            });
             return request.promise;
           },
         });

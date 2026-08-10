@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync } from "fs";
-import { writeFile } from "fs/promises";
+import { rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
@@ -34,7 +34,11 @@ async function readAuthData(): Promise<Record<string, Credential>> {
 async function writeAuthData(data: Record<string, Credential>): Promise<void> {
   const path = authPath();
   mkdirSync(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(data, null, 2), "utf8");
+  // Atomic write (tmp + rename) so concurrent readers never see a torn file;
+  // 0600 keeps stored API keys private (pi's own store chmods the same way).
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(tmpPath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
+  await rename(tmpPath, path);
 }
 
 class FileCredentialStore implements CredentialStore {

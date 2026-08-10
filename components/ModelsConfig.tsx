@@ -89,7 +89,6 @@ const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }>
 interface OAuthProvider {
   id: string;
   name: string;
-  usesCallbackServer: boolean;
   loggedIn: boolean;
 }
 

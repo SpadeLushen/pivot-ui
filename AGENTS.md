@@ -103,6 +103,7 @@ lib/
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   attachment-config.ts reads ~/.pivot-ui/config.json maxAttachmentBytes + attachment dir helpers
   auth-store.ts        file-backed CredentialStore for ~/.pi/agent/auth.json (pi 0.84 no longer exports AuthStorage)
+  model-runtime.ts     helpers over pi 0.84 ModelRuntime (getOAuthProviders)
   skill-library.ts     library scan/import/delete primitives
   skill-packs-store.ts global skill-pack config and pack CRUD
   skill-pack-apply.ts  preview, atomic apply/rollback, and unapply
