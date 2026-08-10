@@ -1,4 +1,4 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -8,12 +8,12 @@ export async function POST(
   { params }: { params: Promise<{ provider: string }> }
 ) {
   const { provider } = await params;
-  const authStorage = AuthStorage.create();
-  const providers = authStorage.getOAuthProviders();
-  if (!providers.find((p) => p.id === provider)) {
+  const runtime = await ModelRuntime.create();
+  const oauthProviders = runtime.getProviders().filter((p) => p.auth.oauth);
+  if (!oauthProviders.some((p) => p.id === provider)) {
     return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
   }
-  authStorage.logout(provider);
+  await runtime.logout(provider);
   invalidateModelsCache();
   return Response.json({ ok: true });
 }

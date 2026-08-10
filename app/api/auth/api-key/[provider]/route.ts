@@ -1,5 +1,6 @@
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
+import { getAuthStore } from "@/lib/auth-store";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -9,11 +10,10 @@ type Params = { params: Promise<{ provider: string }> };
 // GET /api/auth/api-key/[provider] — returns auth status (never returns the actual key)
 export async function GET(_req: Request, { params }: Params) {
   const { provider } = await params;
-  const authStorage = AuthStorage.create();
-  const registry = ModelRegistry.create(authStorage);
-  const status = registry.getProviderAuthStatus(provider);
-  const displayName = registry.getProviderDisplayName(provider);
-  const models = registry.getAll().filter((m) => m.provider === provider).length;
+  const runtime = await ModelRuntime.create();
+  const status = runtime.getProviderAuthStatus(provider);
+  const displayName = runtime.getProvider(provider)?.name ?? provider;
+  const models = runtime.getModels(provider).length;
   return NextResponse.json({ provider, displayName, configured: status.configured, source: status.source, models });
 }
 
@@ -25,8 +25,8 @@ export async function POST(req: Request, { params }: Params) {
     if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
       return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
     }
-    const authStorage = AuthStorage.create();
-    authStorage.set(provider, { type: "api_key", key: apiKey.trim() });
+    const authStore = getAuthStore();
+    await authStore.modify(provider, async () => ({ type: "api_key", key: apiKey.trim() }));
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -38,8 +38,8 @@ export async function POST(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
   const { provider } = await params;
   try {
-    const authStorage = AuthStorage.create();
-    authStorage.remove(provider);
+    const authStore = getAuthStore();
+    await authStore.delete(provider);
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {

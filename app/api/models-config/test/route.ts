@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
 
@@ -48,16 +48,15 @@ export async function POST(req: Request) {
       },
     }, null, 2), "utf8");
 
-    const registry = ModelRegistry.create(AuthStorage.create(), modelsPath);
-    const loadError = registry.getError();
+    const runtime = await ModelRuntime.create({ modelsPath });
+    const loadError = runtime.getError();
     if (loadError) return NextResponse.json({ ok: false, error: loadError });
 
-    const model = registry.find(providerName, modelId);
+    const model = runtime.getModel(providerName, modelId);
     if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
 
-    const auth = await registry.getApiKeyAndHeaders(model);
-    if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error });
-    if (!auth.apiKey) return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
+    const auth = await runtime.getAuth(model);
+    if (!auth?.auth.apiKey) return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
@@ -72,8 +71,8 @@ export async function POST(req: Request) {
           timestamp: Date.now(),
         }],
       }, {
-        apiKey: auth.apiKey,
-        headers: auth.headers,
+        apiKey: auth.auth.apiKey,
+        headers: auth.auth.headers,
         maxTokens: 16,
         timeoutMs: TEST_TIMEOUT_MS,
         maxRetries: 0,

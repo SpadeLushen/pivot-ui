@@ -1,4 +1,4 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -52,14 +52,14 @@ export async function GET(
     controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
   };
 
-  // AbortController propagates client disconnect into authStorage.login()
+  // AbortController propagates client disconnect into ModelRuntime.login()
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
 
   const stream = new ReadableStream({
     async start(controller) {
-      const authStorage = AuthStorage.create();
-      const providers = authStorage.getOAuthProviders();
+      const runtime = await ModelRuntime.create();
+      const providers = runtime.getProviders().filter((p) => p.auth.oauth);
       const providerInfo = providers.find((p) => p.id === provider);
       if (!providerInfo) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
@@ -118,57 +118,56 @@ export async function GET(
       abort.signal.addEventListener("abort", cleanup);
 
       try {
-        await authStorage.login(provider, {
-          onAuth: (info: { url: string; instructions?: string }) => {
-            const request = getManualInputRequest();
-            send(controller, {
-              type: "auth",
-              url: info.url,
-              instructions: info.instructions ?? null,
-              token: request.token,
-            });
-          },
-          onDeviceCode: (info: {
-            userCode: string;
-            verificationUri: string;
-            intervalSeconds?: number;
-            expiresInSeconds?: number;
-          }) => {
-            send(controller, {
-              type: "device_code",
-              userCode: info.userCode,
-              verificationUri: info.verificationUri,
-              intervalSeconds: info.intervalSeconds ?? null,
-              expiresInSeconds: info.expiresInSeconds ?? null,
-            });
-          },
-          onPrompt: async (prompt: { message: string; placeholder?: string }) => {
-            const request = getManualInputRequest();
-            send(controller, {
-              type: "prompt_request",
-              message: prompt.message,
-              placeholder: prompt.placeholder ?? null,
-              token: request.token,
-            });
-            const value = await request.promise;
-            return value;
-          },
-          onProgress: (message: string) => {
-            send(controller, { type: "progress", message });
-          },
-          onSelect: async (prompt: { message: string; options: { id: string; label: string }[] }) => {
-            const request = createClientInputRequest();
-            send(controller, {
-              type: "select_request",
-              message: prompt.message,
-              options: prompt.options,
-              token: request.token,
-            });
-            const value = await request.promise;
-            return value || undefined;
-          },
-          onManualCodeInput: () => getManualInputRequest().promise,
+        await runtime.login(provider, "oauth", {
           signal: abort.signal,
+          notify: (event) => {
+            switch (event.type) {
+              case "auth_url": {
+                const request = getManualInputRequest();
+                send(controller, {
+                  type: "auth",
+                  url: event.url,
+                  instructions: event.instructions ?? null,
+                  token: request.token,
+                });
+                break;
+              }
+              case "device_code":
+                send(controller, {
+                  type: "device_code",
+                  userCode: event.userCode,
+                  verificationUri: event.verificationUri,
+                  intervalSeconds: event.intervalSeconds ?? null,
+                  expiresInSeconds: event.expiresInSeconds ?? null,
+                });
+                break;
+              case "progress":
+                send(controller, { type: "progress", message: event.message });
+                break;
+              case "info":
+                // Informational only; no dedicated frontend handler.
+                break;
+            }
+          },
+          prompt: async (prompt) => {
+            const request = getManualInputRequest();
+            if (prompt.type === "select") {
+              send(controller, {
+                type: "select_request",
+                message: prompt.message,
+                options: prompt.options.map((o) => ({ id: o.id, label: o.label })),
+                token: request.token,
+              });
+            } else {
+              send(controller, {
+                type: "prompt_request",
+                message: prompt.message,
+                placeholder: prompt.placeholder ?? null,
+                token: request.token,
+              });
+            }
+            return request.promise;
+          },
         });
 
         invalidateModelsCache();

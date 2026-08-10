@@ -102,6 +102,7 @@ lib/
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   attachment-config.ts reads ~/.pivot-ui/config.json maxAttachmentBytes + attachment dir helpers
+  auth-store.ts        file-backed CredentialStore for ~/.pi/agent/auth.json (pi 0.84 no longer exports AuthStorage)
   skill-library.ts     library scan/import/delete primitives
   skill-packs-store.ts global skill-pack config and pack CRUD
   skill-pack-apply.ts  preview, atomic apply/rollback, and unapply
@@ -234,9 +235,9 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Tests: `lib/content-hash.test.mjs`, `lib/skill-library.test.mjs`, `lib/mcp-library.test.mjs`, `lib/skill-packs-store.test.mjs`, `lib/workspace-packs.test.mjs`, `lib/skill-pack-apply.test.mjs`, `lib/mcp-pack-apply.test.mjs`, and `components/ChatWindow.test.mjs`. See `docs/skill-packs.md` for the implementation-level behavior.
 
 ### Auth and model config
-- `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.
+- `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `ModelRuntime`.
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
-- API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
+- API-key routes persist keys through `lib/auth-store.ts` (a file-backed `CredentialStore` writing `~/.pi/agent/auth.json` in pi's format; pi 0.84 no longer exports `AuthStorage`). Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
 
 ### Completion sound

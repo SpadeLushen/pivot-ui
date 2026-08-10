@@ -72,7 +72,16 @@ class PlainTextTheme extends Theme {
   constructor() {
     super(
       { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
-      {} as ConstructorParameters<typeof Theme>[1],
+      {
+        // 0.84's ThemeBg requires every non-scrollbar key; empty strings keep
+        // the web UI's own styling (bgAnsi("") is the ANSI reset code).
+        selectedBg: "",
+        userMessageBg: "",
+        customMessageBg: "",
+        toolPendingBg: "",
+        toolSuccessBg: "",
+        toolErrorBg: "",
+      },
       "truecolor",
     );
   }
@@ -377,8 +386,8 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        const registry = this.inner.modelRegistry;
-        const model = registry.find(provider, modelId);
+        const registry = this.inner.modelRuntime;
+        const model = registry.getModel(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         invalidateModelsCache();

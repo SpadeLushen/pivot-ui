@@ -1,10 +1,11 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAuthStore } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const authStorage = AuthStorage.create();
-  const providers = authStorage.getOAuthProviders();
+  const runtime = await ModelRuntime.create();
+  const oauthProviders = runtime.getProviders().filter((p) => p.auth.oauth);
 
   const EXCLUDED = new Set(["anthropic"]);
   const DISPLAY_NAMES: Record<string, string> = {
@@ -12,16 +13,17 @@ export async function GET() {
     "github-copilot": "GitHub Copilot",
   };
 
+  const authStore = getAuthStore();
   const result = await Promise.all(
-    providers
+    oauthProviders
       .filter((p) => !EXCLUDED.has(p.id))
       .map(async (p) => {
-        const loggedIn = authStorage.has(p.id);
+        const credential = await authStore.read(p.id);
         return {
           id: p.id,
           name: DISPLAY_NAMES[p.id] ?? p.name,
-          usesCallbackServer: p.usesCallbackServer ?? false,
-          loggedIn,
+          usesCallbackServer: false,
+          loggedIn: credential !== undefined,
         };
       })
   );
