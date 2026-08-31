@@ -2,6 +2,34 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+test("uses the configured streaming Enter action and keeps Alt+Enter as follow-up", async () => {
+  const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+
+  assert.match(chatInput, /enterBehavior\?: EnterBehavior/);
+  assert.match(chatInput, /e\.altKey\s*\n\s*\? "followup"/);
+  assert.match(chatInput, /enterBehavior === "followUp"/);
+  assert.match(chatInput, /onToggleQueuedMessage/);
+});
+
+test("renders queue mode badges as controls that can switch a queued message", async () => {
+  const [chatInput, hook, rpc] = await Promise.all([
+    readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/rpc-manager.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(chatInput, /onClick=\{\(\) => onToggle\?\.\(\)\}/);
+  assert.match(chatInput, /onToggleQueuedMessage\?\.\("steer", i, text\)/);
+  assert.match(chatInput, /onToggleQueuedMessage\?\.\("followUp", i, text\)/);
+  assert.match(hook, /type: "toggle_queue_message"/);
+  assert.match(hook, /queueToggleInFlightRef\.current/);
+  assert.match(hook, /addNotice\(\{[\s\S]*?message: e instanceof Error/);
+  assert.match(hook, /finally[\s\S]*?queueToggleInFlightRef\.current = false/);
+  assert.match(rpc, /case "toggle_queue_message"/);
+  assert.match(rpc, /sourceTracked\.splice\(index, 1\)/);
+  assert.match(rpc, /destinationTracked\.push\(expectedText\)/);
+});
+
 test("chat input attaches any file type (not just images)", async () => {
   const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 

@@ -3,6 +3,8 @@ import type { ToolPreset } from "./tool-presets";
 export const TOOL_PRESET_STORAGE_KEY = "pi-tool-preset";
 export const SOUND_ENABLED_STORAGE_KEY = "pi-sound-enabled";
 export const TPS_ENABLED_STORAGE_KEY = "pi-tps-enabled";
+export const ENTER_BEHAVIOR_STORAGE_KEY = "pi-enter-behavior";
+export type EnterBehavior = "steer" | "followUp";
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -54,4 +56,13 @@ export function readTpsEnabledPreference(): boolean {
 
 export function writeTpsEnabledPreference(value: boolean): void {
   writeValue(TPS_ENABLED_STORAGE_KEY, String(value));
+}
+
+export function readEnterBehaviorPreference(): EnterBehavior {
+  const value = readValue(ENTER_BEHAVIOR_STORAGE_KEY);
+  return value === "followUp" ? "followUp" : "steer";
+}
+
+export function writeEnterBehaviorPreference(value: EnterBehavior): void {
+  writeValue(ENTER_BEHAVIOR_STORAGE_KEY, value);
 }

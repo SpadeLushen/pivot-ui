@@ -379,6 +379,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const queueToggleInFlightRef = useRef(false);
   const agentRunRef = useRef(new AgentRunState());
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
@@ -1382,6 +1383,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
+  const handleToggleQueuedMessage = useCallback(async (
+    mode: "steer" | "followUp",
+    index: number,
+    message: string,
+  ) => {
+    const sid = sessionIdRef.current;
+    if (!sid || queueToggleInFlightRef.current) return;
+    queueToggleInFlightRef.current = true;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "toggle_queue_message",
+        mode,
+        index,
+        message,
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+    } catch (e) {
+      console.error("Failed to switch queued message mode:", e);
+      addNotice({
+        type: "error",
+        message: e instanceof Error ? e.message : "Failed to switch queued message mode",
+      });
+    } finally {
+      queueToggleInFlightRef.current = false;
+    }
+  }, [addNotice]);
+
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
     behavior: "steer" | "followUp",
@@ -1571,6 +1599,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
+    handleToggleQueuedMessage,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId, addNotice,

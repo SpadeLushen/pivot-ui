@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { EnterBehavior } from "@/lib/ui-preferences";
 import { clearDraft, getDraft, setDraft, type ChatDraftAttachment } from "@/lib/draft-store";
 import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
@@ -41,6 +42,8 @@ export interface Props {
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   queuedMessages?: QueuedMessages | null;
   onRecallQueue?: () => void;
+  onToggleQueuedMessage?: (mode: "steer" | "followUp", index: number, text: string) => void | Promise<void>;
+  enterBehavior?: EnterBehavior;
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
@@ -176,7 +179,9 @@ function revokeAttachmentPreview(attachment: ChatAttachment): void {
   }
 }
 
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up"; text: string; onToggle?: () => void }) {
+  const { t } = useI18n();
+  const switchTitle = kind === "steer" ? t("chat.switchToFollowUp") : t("chat.switchToSteer");
   return (
     <div
       title={text}
@@ -190,7 +195,12 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
         minWidth: 0,
       }}
     >
-      <span
+      <button
+        type="button"
+        onClick={() => onToggle?.()}
+        disabled={!onToggle}
+        title={switchTitle}
+        aria-label={switchTitle}
         style={{
           flexShrink: 0,
           fontSize: 10,
@@ -199,10 +209,12 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
           borderRadius: 999,
           border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
           color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
+          background: "transparent",
+          cursor: onToggle ? "pointer" : "default",
         }}
       >
         {kind}
-      </span>
+      </button>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
     </div>
   );
@@ -212,7 +224,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
-  retryInfo, queuedMessages, onRecallQueue,
+  retryInfo, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "steer",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -905,14 +917,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup");
+          // Plain Enter follows the preference. Alt+Enter retains pi TUI's
+          // explicit follow-up shortcut.
+          const mode = e.altKey
+            ? "followup"
+            : enterBehavior === "followUp" && onFollowUp
+              ? "followup"
+              : onSteer
+                ? "steer"
+                : "followup";
+          sendQueued(mode);
         } else {
           handleSend();
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion]
+    [isStreaming, onSteer, onFollowUp, enterBehavior, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion]
   );
 
   const handleInput = useCallback(() => {
@@ -1115,10 +1135,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
             {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
+              <QueuedMessageRow
+                key={`steer-${i}`}
+                kind="steer"
+                text={text}
+                onToggle={() => onToggleQueuedMessage?.("steer", i, text)}
+              />
             ))}
             {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
+              <QueuedMessageRow
+                key={`followup-${i}`}
+                kind="follow-up"
+                text={text}
+                onToggle={() => onToggleQueuedMessage?.("followUp", i, text)}
+              />
             ))}
           </div>
         )}

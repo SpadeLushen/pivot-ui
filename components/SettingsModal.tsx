@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Cpu, Gauge, X } from "lucide-react";
+import { Globe, Cpu, Gauge, Keyboard, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { ModelsConfigTab } from "./ModelsConfig";
@@ -13,9 +13,11 @@ interface SettingsModalProps {
   onModelsChanged?: () => void;
   showTps: boolean;
   onTpsToggle: () => void;
+  enterBehavior: "steer" | "followUp";
+  onEnterBehaviorChange: (behavior: "steer" | "followUp") => void;
 }
 
-export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle }: SettingsModalProps) {
+export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const { t, locale, setLocale } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -338,6 +340,63 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle }
                   />
                   {t("settings.showTps")}
                 </label>
+              </section>
+
+              {/* Enter behavior while the agent is running */}
+              <section style={{ marginTop: 32 }}>
+                <h3
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Keyboard size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.enterBehavior")}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {t("settings.enterBehaviorDescription")}
+                </p>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {([
+                    ["steer", t("settings.enterBehaviorSteer")],
+                    ["followUp", t("settings.enterBehaviorFollowUp")],
+                  ] as const).map(([behavior, label]) => {
+                    const isActive = enterBehavior === behavior;
+                    return (
+                      <button
+                        key={behavior}
+                        type="button"
+                        onClick={() => onEnterBehaviorChange(behavior)}
+                        aria-pressed={isActive}
+                        style={{
+                          padding: "10px 20px",
+                          background: isActive ? "var(--accent)" : "var(--bg)",
+                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          borderRadius: 8,
+                          color: isActive ? "#fff" : "var(--text)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 400,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
             </div>
           )}

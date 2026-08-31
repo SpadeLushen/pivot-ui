@@ -63,6 +63,49 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
+type QueueStorageLike = {
+  messages: unknown[];
+};
+
+type AgentSessionQueueInternals = AgentSessionLike & {
+  _steeringMessages: string[];
+  _followUpMessages: string[];
+  _emitQueueUpdate: () => void;
+  agent: AgentSessionLike["agent"] & {
+    steeringQueue: QueueStorageLike;
+    followUpQueue: QueueStorageLike;
+  };
+};
+
+function queueMessageText(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (
+      block && typeof block === "object"
+        && (block as { type?: unknown }).type === "text"
+        && typeof (block as { text?: unknown }).text === "string"
+        ? (block as { text: string }).text
+        : ""
+    ))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function findTrackedQueueMessageIndex(messages: unknown[], tracked: readonly string[], targetIndex: number): number {
+  const targetText = tracked[targetIndex];
+  if (targetText === undefined) return -1;
+  let trackedIndex = 0;
+  for (let messageIndex = 0; messageIndex < messages.length && trackedIndex < tracked.length; messageIndex += 1) {
+    if (queueMessageText(messages[messageIndex]) !== tracked[trackedIndex]) continue;
+    if (trackedIndex === targetIndex) return messageIndex;
+    trackedIndex += 1;
+  }
+  return -1;
+}
+
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const MODEL_START_TIMEOUT_MS = 300_000;
 const MODEL_ABORT_GRACE_MS = 10_000;
@@ -265,6 +308,52 @@ export class AgentSessionWrapper {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
       this.inner.agent.state.systemPrompt = "";
     }
+  }
+
+  private toggleQueuedMessageMode(
+    mode: "steer" | "followUp",
+    index: number,
+    expectedText: string,
+  ): { steering: string[]; followUp: string[] } {
+    // AgentSession exposes queue contents but not a single-item move API. Its
+    // underlying Agent queues are ordinary (non-#) fields in the pi 0.84
+    // runtime, so mutate both layers synchronously. Doing this without an
+    // await prevents the agent loop from draining between removal and insert.
+    const inner = this.inner as unknown as AgentSessionQueueInternals;
+    if (
+      !Array.isArray(inner._steeringMessages)
+      || !Array.isArray(inner._followUpMessages)
+      || typeof inner._emitQueueUpdate !== "function"
+      || !inner.agent
+    ) {
+      throw new Error("Queued message switching is unavailable with this pi version");
+    }
+
+    const sourceTracked = mode === "steer" ? inner._steeringMessages : inner._followUpMessages;
+    const destinationTracked = mode === "steer" ? inner._followUpMessages : inner._steeringMessages;
+    const sourceQueue = mode === "steer" ? inner.agent.steeringQueue : inner.agent.followUpQueue;
+    const destinationQueue = mode === "steer" ? inner.agent.followUpQueue : inner.agent.steeringQueue;
+
+    if (!Number.isInteger(index) || index < 0 || sourceTracked[index] !== expectedText) {
+      throw new Error("Queued message is stale; refresh and try again");
+    }
+    if (!Array.isArray(sourceQueue?.messages) || !Array.isArray(destinationQueue?.messages)) {
+      throw new Error("Queued message switching is unavailable with this pi version");
+    }
+
+    const coreIndex = findTrackedQueueMessageIndex(sourceQueue.messages, sourceTracked, index);
+    if (coreIndex < 0) throw new Error("Queued message is no longer pending");
+    const [queuedMessage] = sourceQueue.messages.splice(coreIndex, 1);
+    if (!queuedMessage) throw new Error("Queued message is no longer pending");
+
+    destinationQueue.messages.push(queuedMessage);
+    sourceTracked.splice(index, 1);
+    destinationTracked.push(expectedText);
+    inner._emitQueueUpdate();
+    return {
+      steering: [...inner._steeringMessages],
+      followUp: [...inner._followUpMessages],
+    };
   }
 
   private emit(event: AgentEvent): void {
@@ -480,6 +569,18 @@ export class AgentSessionWrapper {
       case "set_auto_compaction": {
         this.inner.setAutoCompactionEnabled(command.enabled as boolean);
         return null;
+      }
+
+      case "toggle_queue_message": {
+        const mode = command.mode;
+        const index = command.index;
+        const message = command.message;
+        if (mode !== "steer" && mode !== "followUp") throw new Error("Invalid queued message mode");
+        if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+          throw new Error("Invalid queued message index");
+        }
+        if (typeof message !== "string") throw new Error("Invalid queued message text");
+        return this.toggleQueuedMessageMode(mode, index, message);
       }
 
       case "clear_queue": {

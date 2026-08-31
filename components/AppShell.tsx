@@ -17,7 +17,13 @@ import { RightPanel } from "./right-panel/RightPanel";
 import type { RightPanelHandle } from "./right-panel/types";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { readTpsEnabledPreference, writeTpsEnabledPreference } from "@/lib/ui-preferences";
+import {
+  readEnterBehaviorPreference,
+  readTpsEnabledPreference,
+  writeEnterBehaviorPreference,
+  writeTpsEnabledPreference,
+  type EnterBehavior,
+} from "@/lib/ui-preferences";
 import { copyText } from "@/lib/clipboard";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
@@ -57,6 +63,7 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showTps, setShowTps] = useState(true);
+  const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("steer");
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
@@ -67,6 +74,7 @@ export function AppShell() {
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   useEffect(() => {
     setShowTps(readTpsEnabledPreference());
+    setEnterBehavior(readEnterBehaviorPreference());
   }, []);
 
   const handleTpsToggle = useCallback(() => {
@@ -75,6 +83,11 @@ export function AppShell() {
       writeTpsEnabledPreference(next);
       return next;
     });
+  }, []);
+
+  const handleEnterBehaviorChange = useCallback((behavior: EnterBehavior) => {
+    setEnterBehavior(behavior);
+    writeEnterBehaviorPreference(behavior);
   }, []);
 
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -921,6 +934,7 @@ export function AppShell() {
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               showTps={showTps}
+              enterBehavior={enterBehavior}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
               onSystemPromptChange={handleSystemPromptChange}
@@ -958,7 +972,7 @@ export function AppShell() {
         }}
       />
     </div>
-    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} />}
+    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}

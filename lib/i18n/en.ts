@@ -107,6 +107,10 @@ const en: Record<string, string> = {
   "settings.tps": "Session TPS",
   "settings.showTps": "Show TPS",
   "settings.tpsDescription": "Show the model's token generation speed while it responds.",
+  "settings.enterBehavior": "Enter behavior while running",
+  "settings.enterBehaviorDescription": "Choose what plain Enter does while the agent is running. Alt+Enter always queues a follow-up, and Shift+Enter still inserts a newline.",
+  "settings.enterBehaviorSteer": "Steer (interrupt and inject now)",
+  "settings.enterBehaviorFollowUp": "Follow-up (send after completion)",
 
   // Models config
   "models.title": "Models",
@@ -240,6 +244,8 @@ const en: Record<string, string> = {
   "chat.compactContext": "Compact context",
   "chat.compacting": "Compacting...",
   "chat.stopAgent": "Stop Agent",
+  "chat.switchToSteer": "Switch this message to Steer",
+  "chat.switchToFollowUp": "Switch this message to Follow-up",
 
   // Session info
   "session.info": "Session Info",

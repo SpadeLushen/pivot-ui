@@ -109,6 +109,10 @@ const zh: Record<string, string> = {
   "settings.tps": "会话 TPS",
   "settings.showTps": "显示 TPS",
   "settings.tpsDescription": "模型响应时显示 token 生成速度。",
+  "settings.enterBehavior": "运行期间的 Enter 行为",
+  "settings.enterBehaviorDescription": "选择 Agent 运行期间普通 Enter 的行为。Alt+Enter 始终排队为 Follow-up，Shift+Enter 仍然换行。",
+  "settings.enterBehaviorSteer": "Steer（立即引导并注入）",
+  "settings.enterBehaviorFollowUp": "Follow-up（完成后发送）",
 
   // Models config
   "models.title": "Models",
@@ -242,6 +246,8 @@ const zh: Record<string, string> = {
   "chat.compactContext": "压缩上下文",
   "chat.compacting": "正在压缩...",
   "chat.stopAgent": "停止 Agent",
+  "chat.switchToSteer": "将此消息切换为 Steer",
+  "chat.switchToFollowUp": "将此消息切换为 Follow-up",
 
   // Session info
   "session.info": "会话信息",
