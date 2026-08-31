@@ -110,6 +110,12 @@ const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"
 const MODEL_START_TIMEOUT_MS = 300_000;
 const MODEL_ABORT_GRACE_MS = 10_000;
 
+// Pivot UI provides a browser-backed implementation of the extension UI
+// protocol (including dialogs and custom components). Expose it as the
+// interactive mode so extensions that gate commands on ctx.mode === "tui"
+// can use the UI instead of incorrectly treating the browser as headless.
+const EXTENSION_MODE = "tui" as const;
+
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
   constructor() {
@@ -246,14 +252,14 @@ export class AgentSessionWrapper {
       if (typeof this.inner.bindExtensions === "function") {
         const bindExtensions = this.inner.bindExtensions as (bindings: {
           uiContext?: ExtensionUiContextLike;
-          mode?: "rpc";
+          mode?: "tui" | "rpc";
           commandContextActions?: ExtensionCommandContextActionsLike;
           shutdownHandler?: () => void;
           onError?: (error: { extensionPath: string; event: string; error: string }) => void;
         }) => Promise<void>;
         await bindExtensions.call(this.inner, {
           uiContext,
-          mode: "rpc",
+          mode: EXTENSION_MODE,
           commandContextActions: this.createExtensionCommandContextActions(),
           shutdownHandler: () => this.emit({
             type: "extension_ui_request",
@@ -270,7 +276,7 @@ export class AgentSessionWrapper {
           }),
         });
       } else {
-        this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
+        this.inner.extensionRunner.setUIContext?.(uiContext, EXTENSION_MODE);
       }
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
@@ -1032,7 +1038,7 @@ export class AgentSessionWrapper {
         this.extensionWidgets.clear();
         await this.inner.reload({
           beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), EXTENSION_MODE);
           },
         });
         this.applyForcedEmptySystemPrompt();
