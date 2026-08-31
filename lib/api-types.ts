@@ -111,6 +111,7 @@ export interface SkippedConflictInfo {
 
 export interface WorkspaceSkillPacksResponse {
   revision: number;
+  configured: boolean;
   appliedPacks: AppliedPackInfo[];
   skippedConflicts: SkippedConflictInfo[];
 }

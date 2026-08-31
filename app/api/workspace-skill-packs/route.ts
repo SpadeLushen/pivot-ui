@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureLibraryRoot, getPackById, readConfig } from "@/lib/skill-packs-store";
-import { readWorkspaceState } from "@/lib/workspace-packs";
+import { readWorkspaceState, workspacePackStateExists } from "@/lib/workspace-packs";
 import { applyWorkspacePackChange, previewWorkspacePackChange, WorkspacePlanBlocked, WorkspaceRevisionConflict } from "@/lib/skill-pack-apply";
 import { getMcpAdapterStatus, McpAdapterRequired, requireMcpAdapter } from "@/lib/mcp-adapter";
 import type { WorkspaceSkillPacksResponse } from "@/lib/api-types";
@@ -11,6 +11,7 @@ function readState(cwd: string): WorkspaceSkillPacksResponse {
   const config = ensureLibraryRoot(readConfig());
   const ws = readWorkspaceState({ cwd });
   return {
+    configured: workspacePackStateExists(cwd),
     revision: ws.revision,
     appliedPacks: ws.appliedPacks.map((p) => ({
       ...p,

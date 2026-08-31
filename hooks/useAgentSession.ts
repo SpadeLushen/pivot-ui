@@ -14,6 +14,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import { inheritLastSessionPacks, rememberLastSessionPacks } from "@/lib/pack-preferences";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -370,6 +371,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
+  // Keep the last opened session's active Pack set available for future
+  // unconfigured workspaces. New/unsaved sessions must not overwrite it.
+  useEffect(() => {
+    if (!session?.cwd) return;
+    void rememberLastSessionPacks(session.cwd);
+  }, [session?.cwd]);
+
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
 
@@ -523,6 +531,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
     const promise = (async () => {
+      await inheritLastSessionPacks(newSessionCwd);
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
       const toolNames = getToolNamesForPreset(toolPreset);
@@ -678,8 +687,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const sid = sessionIdRef.current;
       if (sid) await sendAgentCommand(sid, { type: "reload" });
       await loadSlashCommands();
+      if (session?.cwd) await rememberLastSessionPacks(session.cwd);
     });
-  }, [loadSlashCommands]);
+  }, [loadSlashCommands, session?.cwd]);
 
   useEffect(() => {
     if (prevPacksRefreshKeyRef.current === packsRefreshKey) return;

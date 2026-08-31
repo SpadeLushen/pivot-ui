@@ -65,6 +65,10 @@ export function getWorkspaceStatePath(cwd: string): string {
   return join(cwd, ".pi", "skill-packs.json");
 }
 
+export function workspacePackStateExists(cwd: string): boolean {
+  return existsSync(getWorkspaceStatePath(cwd));
+}
+
 function resolvePath(opts: PathOpts): string {
   if (opts.statePath) return opts.statePath;
   if (opts.cwd) return getWorkspaceStatePath(opts.cwd);

@@ -24,6 +24,10 @@ Skill Pack 将技能快照和 MCP 服务器定义组合成可复用的工作环�
 
 库中的单项技能也可通过 `POST /api/skills/install-from-library` 直接安装到工作空间。该路径不创建 pack receipt，因此不应把它当成 pack apply 的替代状态管理。
 
+### 新工作区的 Pack 继承
+
+Pivot UI 会在浏览器本地记录最后打开的 session 所在 workspace 的已应用 Pack ID。创建新 session 时，如果目标 workspace 尚未有 `<cwd>/.pi/skill-packs.json`，就会先按该记录执行一次正常的 preview/apply，再启动 AgentSession。已存在但明确为空的 workspace Pack 状态不会触发继承；因此用户主动移除全部 Pack 后，不会被自动重新加回。已从全局 Pack 配置删除的 ID 会被跳过，剩余 Pack 仍可继续继承。
+
 ## Apply 与 Unapply 语义
 
 `preview()` 先合并所选 pack 的引用，再产生不可变的 `ApplyPlan`：
