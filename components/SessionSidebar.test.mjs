@@ -14,6 +14,9 @@ test("workspace menus keep actions separate", async () => {
   assert.doesNotMatch(sidebar, /visibleProjects\.map/);
   assert.doesNotMatch(sidebar, /confirm\(t\("app\.removeWorkspaceConfirm"/);
   assert.match(sidebar, /<PathLabel text=\{projectLabel\(project\)\}/);
+  assert.match(sidebar, /className="sidebar-project-menu-button"[\s\S]*?<Trash2/);
+  assert.match(sidebar, /hoveredWorkspace === project/);
+  assert.doesNotMatch(sidebar, /MoreHorizontal/);
 });
 
 test("directory picker can create and select a named workspace", async () => {

@@ -1474,12 +1474,14 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 
 .sidebar-project-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0;
   width: 100%;
   min-width: 0;
   min-height: 30px;
+  overflow: hidden;
   padding: 0;
   background: none;
   border: none;
@@ -1498,6 +1500,8 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  max-width: 100%;
   flex: 1 1 0;
   min-width: 0;
   min-height: 30px;
@@ -1519,6 +1523,9 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 
 .sidebar-project-select > span {
+  display: block;
+  width: 0;
+  max-width: 100%;
   min-width: 0;
   flex: 1 1 0;
   overflow: hidden;
@@ -1531,8 +1538,10 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   align-items: center;
   justify-content: center;
   width: 30px;
+  min-width: 30px;
   height: 30px;
   flex: 0 0 30px;
+  flex-shrink: 0;
   margin: 0 4px 0 0;
   padding: 0;
   background: none;
@@ -1540,6 +1549,14 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   border-radius: 5px;
   color: var(--text-dim);
   cursor: pointer;
+}
+
+.sidebar-project-menu-button svg {
+  width: 16px;
+  max-width: 16px;
+  height: 16px;
+  max-height: 16px;
+  flex: 0 0 16px;
 }
 
 .sidebar-project-menu-button:hover {
@@ -3267,8 +3284,11 @@ html.dark .user-message-bubble {
     margin-right: 4px;
   }
   .sidebar-container .sidebar-project-menu-button svg {
-    width: 28px;
-    height: 28px;
+    width: 16px;
+    max-width: 16px;
+    height: 16px;
+    max-height: 16px;
+    flex-basis: 16px;
   }
   /* .sidebar-container .sidebar-session-section {
     margin-top: 14px;

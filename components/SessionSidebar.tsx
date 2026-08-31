@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Folder, FolderPlus, GitFork, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Folder, FolderPlus, GitFork, LoaderCircle, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -526,6 +526,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [workspaceMenu, setWorkspaceMenu] = useState<"active" | "new" | null>(null);
+  const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const newWorkspaceMenuRef = useRef<HTMLDivElement>(null);
@@ -940,7 +941,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {flatWorkspaceProjects.map((project) => {
               const isSelected = project === selectedProject;
               return (
-                <div key={project} style={{ position: "relative" }}>
+                <div
+                  key={project}
+                  style={{ position: "relative" }}
+                  onMouseEnter={() => setHoveredWorkspace(project)}
+                  onMouseLeave={() => setHoveredWorkspace(null)}
+                >
                   <div className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
                     <button
                       type="button"
@@ -952,7 +958,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
                       <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
                     </button>
-                    {isSelected && (
+                    {isSelected && (hoveredWorkspace === project || workspaceMenu === "active") && (
                       <button
                         type="button"
                         className="sidebar-project-menu-button"
@@ -962,7 +968,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         aria-haspopup="menu"
                         aria-expanded={workspaceMenu === "active"}
                       >
-                        <MoreHorizontal size={isMobile ? 28 : 24} strokeWidth={1.8} aria-hidden="true" />
+                        <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
                       </button>
                     )}
                   </div>
