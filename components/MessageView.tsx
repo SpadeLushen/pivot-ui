@@ -5,7 +5,7 @@ import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFor
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { isEmptyThinkingBlock } from "@/lib/message-display";
+import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock, updateStreamingThinkingDurations, type StreamingThinkingTiming } from "@/lib/message-display";
 import { useI18n } from "@/lib/i18n";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import {
@@ -549,7 +549,8 @@ function AssistantMessageView({
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
-  const blockItems = (message.content ?? [])
+  const streamingBlockItems = isStreaming ? getStreamingAssistantBlockItems(message).blockItems : null;
+  const blockItems = streamingBlockItems ?? (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }));
   const blocks = blockItems.map(({ block }) => block);
@@ -560,12 +561,48 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
-  // Streaming-based timing for thinking blocks
-  const blockStartTimesRef = useRef<Map<number, number>>(new Map());
-  const [streamingDurations, setStreamingDurations] = useState<Map<number, number>>(new Map());
+  // Keep one timing record per thinking block. The provisional block uses -1;
+  // when Pi later supplies the first real thinking block, its start time is
+  // transferred so the timer does not jump backwards.
+  const thinkingTimingsRef = useRef<Map<number, StreamingThinkingTiming>>(new Map());
+  const [thinkingDurations, setThinkingDurations] = useState<Map<number, number>>(new Map());
+  const thinkingStructureKey = blockItems
+    .map(({ block, originalIndex }) => `${originalIndex}:${block.type}`)
+    .join("|");
 
-  // Thinking duration derived from file timestamps: time from prev message end to this message end
-  // This is the total generation time (thinking + any text before first tool call)
+  // Update each block once per second. A thinking block ends when its next
+  // content block appears, including another thinking block. This keeps
+  // consecutive thinking blocks from sharing one cumulative duration.
+  useEffect(() => {
+    const tick = () => {
+      const nextDurations = updateStreamingThinkingDurations(
+        blockItemsRef.current,
+        thinkingTimingsRef.current,
+        Date.now(),
+      );
+      setThinkingDurations((previous) => {
+        if (
+          previous.size === nextDurations.size
+          && [...nextDurations].every(([key, value]) => previous.get(key) === value)
+        ) {
+          return previous;
+        }
+        return nextDurations;
+      });
+    };
+
+    if (!isStreaming) {
+      if (thinkingTimingsRef.current.size > 0) tick();
+      return;
+    }
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isStreaming, thinkingStructureKey]);
+
+  // Thinking duration for completed history is derived from file timestamps:
+  // time from the previous message to this assistant message.
   const thinkingDurationFromFile = useMemo<number | undefined>(() => {
     if (!message.timestamp || !prevTimestamp) return undefined;
     const secs = Math.round((message.timestamp - prevTimestamp) / 1000);
@@ -601,15 +638,11 @@ function AssistantMessageView({
 
   useEffect(() => {
     if (!isStreaming) {
-      // Finalise any un-finished thinking block durations on stream end
-      const now = new Date().getTime();
-      setStreamingDurations((prev: Map<number, number>) => {
-        const next = new Map(prev);
-        for (const [idx, start] of blockStartTimesRef.current) {
-          if (!next.has(idx)) next.set(idx, Math.round((now - start) / 1000));
-        }
-        return next;
-      });
+      streamStartRef.current = null;
+      setTps(null);
+      return;
+    }
+    if (!showTps) {
       streamStartRef.current = null;
       setTps(null);
       return;
@@ -618,34 +651,6 @@ function AssistantMessageView({
       const items = blockItemsRef.current;
       const bs = items.map(({ block }) => block);
       const now = Date.now();
-
-      // Record start time for each block the first time we see it
-      items.forEach(({ originalIndex }) => {
-        if (!blockStartTimesRef.current.has(originalIndex)) blockStartTimesRef.current.set(originalIndex, now);
-      });
-
-      // When a non-last block has a successor already started, finalise its duration
-      setStreamingDurations((prev: Map<number, number>) => {
-        let changed = false;
-        const next = new Map(prev);
-        for (let i = 0; i < items.length - 1; i++) {
-          const originalIndex = items[i].originalIndex;
-          const nextOriginalIndex = items[i + 1].originalIndex;
-          if (!next.has(originalIndex) && blockStartTimesRef.current.has(originalIndex)) {
-            const start = blockStartTimesRef.current.get(originalIndex)!;
-            const nextStart = blockStartTimesRef.current.get(nextOriginalIndex) ?? now;
-            next.set(originalIndex, Math.round((nextStart - start) / 1000));
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-
-      if (!showTps) {
-        streamStartRef.current = null;
-        setTps(null);
-        return;
-      }
 
       let chars = 0;
       for (const b of bs) {
@@ -718,7 +723,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? (thinkingDurations.get(originalIndex) ?? 0) : thinkingDurationFromFile) : undefined} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
@@ -771,7 +776,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -786,9 +791,10 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex }: {
   block: ThinkingContent;
   duration?: number;
+  isLive?: boolean;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
@@ -797,6 +803,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const preview = getLastThinkingLine(content ?? block.thinkingPreview ?? block.thinking);
 
   const toggle = async () => {
     const nextExpanded = !expanded;
@@ -828,11 +835,13 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
       }}
     >
       <button
+        type="button"
+        aria-expanded={expanded}
         onClick={() => void toggle()}
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 7,
           width: "100%",
           padding: "6px 10px",
           background: "var(--bg-panel)",
@@ -841,12 +850,45 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
           cursor: "pointer",
           fontSize: 12,
           textAlign: "left",
+          minWidth: 0,
         }}
       >
-        <span>Thinking</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        <span style={{ flexShrink: 0 }}>Thinking</span>
+        {!expanded ? (
+          <span
+            title={preview || undefined}
+            style={{
+              color: "var(--text-dim)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+              minWidth: 0,
+              direction: "rtl",
+              textAlign: "left",
+            }}
+          >
+            <span style={{ unicodeBidi: "plaintext" }}>{preview}</span>
+          </span>
+        ) : (
+          <span style={{ flex: 1, minWidth: 0 }} />
         )}
+        {duration !== undefined && (duration > 0 || isLive) && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        )}
+        <ChevronDown
+          size={10}
+          strokeWidth={1.6}
+          aria-hidden="true"
+          style={{
+            color: "var(--text-dim)",
+            flexShrink: 0,
+            transform: expanded ? "rotate(180deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        />
       </button>
       {expanded && (
         <div

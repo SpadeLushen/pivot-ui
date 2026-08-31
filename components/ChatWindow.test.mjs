@@ -84,6 +84,20 @@ test("resumes following when the user returns to the live tail", async () => {
   assert.match(state, /if \(now < ignoreProgrammaticScrollUntil \|\| now > userScrollIntentUntil\) return current;/);
 });
 
+test("keeps the live tail visible when the chat viewport is resized", async () => {
+  const viewport = await readFile(new URL("./useChatViewport.ts", import.meta.url), "utf8");
+
+  assert.match(viewport, /const scrollTailPinnedRef = useRef\(true\)/);
+  assert.match(viewport, /const resizeObserver = new ResizeObserver/);
+  assert.match(viewport, /resizeObserver\.observe\(container\)/);
+  assert.match(viewport, /if \(content\) resizeObserver\.observe\(content\)/);
+  assert.match(viewport, /shouldFollowScrollTailOnResize\(\{/);
+  assert.match(viewport, /scrollTailPinned: scrollTailPinnedRef\.current/);
+  assert.match(viewport, /scrollToBottom\("instant"\)/);
+  assert.match(viewport, /resizeObserver\.disconnect\(\)/);
+  assert.match(viewport, /\}, \[agentRunning, loading, scrollToBottom\]\);/);
+});
+
 test("clears the transient draft after a successful new-session send", async () => {
   const [appShell, chatWindow, chatInput, hook] = await Promise.all([
     readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
@@ -108,10 +122,13 @@ test("clears the transient draft after a successful new-session send", async () 
   // composer then clears the original transient draft key, while clicking
   // New Session itself does not own draft cleanup.
   assert.match(hook, /promoteNewSession\(1, message\)/);
+  assert.match(hook, /clearDraft\(`new:\$\{newSessionCwd\}`\)/);
+  assert.match(hook, /opts\.chatInputRef\?\.current\?\.clearInput\(\)/);
   assert.match(handleSend, /const ok = await onSend\(msg, attachments\.length \? attachments : undefined\)/);
   assert.match(handleSend, /if \(ok !== false\) clearInput\(\)/);
   assert.match(clearInput, /valueRef\.current = ""/);
   assert.match(clearInput, /if \(draftKey\) clearDraft\(draftKey\)/);
+  assert.match(chatInput, /clearInput\(\) \{\s+clearInputRef\.current\?\.\(\);/);
   assert.doesNotMatch(newSessionHandler, /clearDraft/);
   assert.match(appShell, /key=\{sessionKey\}/);
   assert.match(chatWindow, /newSessionCwd \? `new:\$\{newSessionCwd\}`/);
@@ -151,4 +168,41 @@ test("propagates the TPS visibility preference to session messages", async () =>
   assert.match(chatWindow, /showTps=\{showTps\}/);
   assert.match(messageView, /showTps && tps !== null/);
   assert.match(settings, /id="settings-show-tps"/);
+});
+
+test("keeps thinking previews collapsed while retaining positive duration and toggle controls", async () => {
+  const messageView = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
+  const thinkingBlock = messageView.slice(
+    messageView.indexOf("function ThinkingBlock"),
+    messageView.indexOf("function ToolCallBlock"),
+  );
+
+  assert.match(thinkingBlock, /const preview = getLastThinkingLine\(content \?\? block\.thinkingPreview \?\? block\.thinking\)/);
+  assert.match(thinkingBlock, /!expanded \? \(/);
+  assert.match(thinkingBlock, /direction: "rtl"/);
+  assert.match(thinkingBlock, /textOverflow: "ellipsis"/);
+  assert.match(thinkingBlock, /duration !== undefined && \(duration > 0 \|\| isLive\)/);
+  assert.match(thinkingBlock, /<ChevronDown/);
+  assert.match(thinkingBlock, /transform: expanded \? "rotate\(180deg\)" : "none"/);
+});
+
+
+test("starts live thinking at the model header and removes empty provider thinking", async () => {
+  const [chatWindow, messageView] = await Promise.all([
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // A new prompt gets a fresh live-message instance, so its local timer starts
+  // when the assistant/model header first becomes visible.
+  assert.match(chatWindow, /key=\{`stream-\$\{promptGeneration\}`\}/);
+  assert.match(messageView, /const thinkingTimingsRef = useRef<Map<number, StreamingThinkingTiming>>/);
+  assert.match(messageView, /setInterval\(tick, 1000\)/);
+  assert.match(messageView, /return \(\) => clearInterval\(id\)/);
+
+  // A real thinking block replaces the provisional one; an empty one is
+  // removed as soon as the first non-thinking block arrives.
+  assert.match(messageView, /getStreamingAssistantBlockItems\(message\)/);
+  assert.match(messageView, /thinkingStructureKey/);
+  assert.match(messageView, /updateStreamingThinkingDurations/);
 });
