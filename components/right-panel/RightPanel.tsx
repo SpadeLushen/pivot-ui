@@ -155,7 +155,7 @@ export const RightPanel = forwardRef<RightPanelHandle, Props>(function RightPane
     setFileTabs(saved?.fileTabs ?? []);
     setToolTabs(saved?.toolTabs ?? []);
     setActiveTabId(saved?.activeTabId ?? null);
-    setPanelOpen(saved?.panelOpen ?? window.matchMedia("(min-width: 641px)").matches);
+    setPanelOpen(saved?.panelOpen ?? false);
     setMenuOpen(false);
     setFileTreeRevealRequest(null);
     projectRef.current = project;
