@@ -88,6 +88,8 @@ export interface ImageContent {
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
+  /** Last non-empty line kept for collapsed historical thinking blocks. */
+  thinkingPreview?: string;
   /** Historical content omitted from the initial response and loaded on demand. */
   deferred?: boolean;
 }

@@ -8,6 +8,7 @@ import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
+import { getLastThinkingLine } from "./message-display";
 import { normalizeToolCalls } from "./normalize";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
@@ -296,7 +297,7 @@ function entryToUiMessage(
         ...message,
         content: message.content.map((block) => (
           block.type === "thinking" && block.thinking.trim() !== ""
-            ? { ...block, thinking: "", deferred: true }
+            ? { ...block, thinking: "", thinkingPreview: getLastThinkingLine(block.thinking), deferred: true }
             : block
         )),
       };
