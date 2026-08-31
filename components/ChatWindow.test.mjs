@@ -48,3 +48,17 @@ test("resumes following when the user returns to the live tail", async () => {
   assert.match(state, /if \(atTail\) return true;/);
   assert.match(state, /if \(now < ignoreProgrammaticScrollUntil \|\| now > userScrollIntentUntil\) return current;/);
 });
+
+test("uses Pi's default thinking level for new sessions", async () => {
+  const [route, hook] = await Promise.all([
+    readFile(new URL("../app/api/models/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /settings\.getDefaultThinkingLevel\(\) \?\? null/);
+  assert.match(route, /defaultThinkingLevel/);
+  assert.match(hook, /defaultThinkingLevel\?: string \| null/);
+  assert.match(hook, /setThinkingLevel\(normalizeThinkingLevel\(d\.defaultThinkingLevel\)\)/);
+  assert.match(hook, /!thinkingLevelUserSelectedRef\.current/);
+  assert.doesNotMatch(hook, /readThinkingLevelPreference|writeThinkingLevelPreference|pi-thinking-level/);
+});

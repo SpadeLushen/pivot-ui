@@ -157,6 +157,21 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+function normalizeThinkingLevel(value: string | null | undefined): ThinkingLevelOption {
+  switch (value) {
+    case "off":
+    case "minimal":
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+    case "max":
+      return value;
+    default:
+      return "auto";
+  }
+}
+
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -309,6 +324,7 @@ type ModelsResponse = {
   defaultModel?: SelectedModel | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
+  defaultThinkingLevel?: string | null;
 };
 
 type SlashCommandsResponse = {
@@ -365,6 +381,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const agentRunRef = useRef(new AgentRunState());
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
+  const thinkingLevelUserSelectedRef = useRef(false);
   const newSessionPromotedRef = useRef(false);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const prevPacksRefreshKeyRef = useRef(packsRefreshKey);
@@ -1244,6 +1261,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
     const nextModelList = d.modelList ?? [];
     setModelList(nextModelList);
+    if (isNew && !thinkingLevelUserSelectedRef.current) {
+      setThinkingLevel(normalizeThinkingLevel(d.defaultThinkingLevel));
+    }
     if (isNew) {
       const match = d.defaultModel
         ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
@@ -1412,6 +1432,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [opts.chatInputRef, addNotice]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
+    thinkingLevelUserSelectedRef.current = true;
     setThinkingLevel(level);
     if (level === "auto") return; // "auto" leaves pi's current setting untouched
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;

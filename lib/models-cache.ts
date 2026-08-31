@@ -2,6 +2,7 @@ export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string }[];
   defaultModel: { provider: string; modelId: string } | null;
+  defaultThinkingLevel: string | null;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
 }

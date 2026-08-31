@@ -66,17 +66,19 @@ async function loadModels(cwd: string): Promise<ModelsData> {
 
   const provider = settings.getDefaultProvider();
   const modelId = settings.getDefaultModel();
+  const defaultThinkingLevel = settings.getDefaultThinkingLevel() ?? null;
   if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
     defaultModel = { provider, modelId };
   }
 
-  return { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps };
+  return { models: Object.fromEntries(nameMap), modelList, defaultModel, defaultThinkingLevel, thinkingLevels, thinkingLevelMaps };
 }
 
 const EMPTY_MODELS: ModelsData = {
   models: {},
   modelList: [],
   defaultModel: null,
+  defaultThinkingLevel: null,
   thinkingLevels: {},
   thinkingLevelMaps: {},
 };
