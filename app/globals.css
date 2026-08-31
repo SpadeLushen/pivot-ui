@@ -1476,15 +1476,15 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 .sidebar-project-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   width: 100%;
+  min-width: 0;
   min-height: 30px;
-  padding: 0 8px;
+  padding: 0;
   background: none;
   border: none;
   border-radius: 7px;
   color: var(--text-muted);
-  cursor: pointer;
   font-size: 12px;
   text-align: left;
 }
@@ -1494,30 +1494,57 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   color: var(--text);
 }
 
-.sidebar-project-row svg {
+.sidebar-project-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+}
+
+.sidebar-project-select > svg {
+  width: 17px;
+  height: 17px;
   flex: 0 0 auto;
   color: var(--text-dim);
 }
 
-.sidebar-project-row > svg:first-child {
-  width: 17px;
-  height: 17px;
-}
-
-.sidebar-project-row.is-active > svg:last-child {
-  width: 24px;
-  height: 24px;
-}
-
-.sidebar-project-row span {
+.sidebar-project-select > span {
   min-width: 0;
+  flex: 1 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sidebar-project-row > span:first-of-type {
-  flex: 1;
+.sidebar-project-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  margin: 0 4px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.sidebar-project-menu-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .sidebar-project-row.is-active {
@@ -1525,8 +1552,42 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   color: var(--text);
 }
 
-.sidebar-project-row.is-active > svg:first-child {
+.sidebar-project-row.is-active .sidebar-project-select > svg {
   color: var(--accent);
+}
+
+.sidebar-workspace-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sidebar-workspace-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-workspace-menu-item svg {
+  flex: 0 0 auto;
+}
+
+.sidebar-workspace-menu-item.is-danger {
+  color: #bf4f42;
+}
+
+.sidebar-workspace-menu-item.is-danger:hover {
+  background: color-mix(in srgb, #d06254 14%, transparent);
+  color: #bf4f42;
 }
 
 .sidebar-session-section {
@@ -3183,17 +3244,29 @@ html.dark .user-message-bubble {
     margin-top: 0;
   }
   .sidebar-container .sidebar-project-row {
-    min-height: 30px;
-    gap: 10px;
-    padding: 0 10px;
+    min-height: 36px;
+    gap: 0;
+    padding: 0;
     border-radius: 8px;
     font-size: 14px;
   }
-  .sidebar-container .sidebar-project-row svg {
+  .sidebar-container .sidebar-project-select {
+    min-height: 36px;
+    gap: 10px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+  .sidebar-container .sidebar-project-select > svg {
     width: 20px;
     height: 20px;
   }
-  .sidebar-container .sidebar-project-row.is-active > svg:last-child {
+  .sidebar-container .sidebar-project-menu-button {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    margin-right: 4px;
+  }
+  .sidebar-container .sidebar-project-menu-button svg {
     width: 28px;
     height: 28px;
   }

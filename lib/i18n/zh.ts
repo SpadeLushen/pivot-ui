@@ -60,6 +60,7 @@ const zh: Record<string, string> = {
   "app.workspace": "工作区",
   "app.workspaceCount": "工作区",
   "app.newWorkspace": "新建工作区",
+  "app.workspaceActions": "工作区操作",
   "app.selectWorkspace": "选择工作区...",
   "app.noSessions": "未找到会话",
   "app.refreshSessions": "刷新会话列表",

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, type CSSProperties, type Reac
 import { createPortal } from "react-dom";
 import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Folder, FolderPlus, GitFork, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
+import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
@@ -130,7 +131,7 @@ function getRecentProjects(sessions: SessionInfo[]): string[] {
     .map(([root]) => root);
 }
 
-/** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
+/** Substitute the home dir prefix with ~ (no path truncation) */
 function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
 }
@@ -140,22 +141,16 @@ function projectLabel(cwd: string): string {
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
 }
 
-/**
- * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
- * segments visible: "…orkspace/pivot-ui". Shows as much of the path as fits
- * instead of a fixed number of segments. The rtl container moves the ellipsis
- * to the left edge; the inner plaintext bidi isolation keeps the path itself
- * rendered strictly left-to-right (no punctuation reordering).
- */
+/** Ellipsize the least significant part of a path/name on the left. */
 function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
   return (
     <span
       style={{
+        display: "block",
+        minWidth: 0,
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        display: "block",
-        minWidth: 0,
         lineHeight: 1.35,
         direction: "rtl",
         textAlign: "left",
@@ -530,12 +525,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [workspaceMenu, setWorkspaceMenu] = useState<"active" | "new" | null>(null);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
-  const [projectFilter, setProjectFilter] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const projectListRef = useRef<HTMLDivElement>(null);
-  const [projectListMaxHeight, setProjectListMaxHeight] = useState<number | null>(null);
+  const newWorkspaceMenuRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -745,7 +738,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       });
       setCustomWorkspaces((current) => [project, ...current.filter((item) => item !== project)]);
       setSelectedCwd(cwd);
-      setDropdownOpen(false);
+      setWorkspaceMenu(null);
       return null;
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
@@ -764,13 +757,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [selectWorkspaceDirectory]);
 
-  // Close dropdowns on outside click
+  // Close workspace menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-        setProjectFilter("");
-      }
+      const target = e.target as Node;
+      if (dropdownRef.current?.contains(target) || newWorkspaceMenuRef.current?.contains(target)) return;
+      setWorkspaceMenu(null);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -797,12 +789,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleProjectSelect = useCallback((project: string) => {
     setSelectedCwd(project);
-    setProjectFilter("");
-    setDropdownOpen(false);
+    setWorkspaceMenu(null);
   }, []);
 
   const handleNewWorkspace = useCallback(() => {
-    setDirectoryPickerOpen(true);
+    setWorkspaceMenu((current) => current === "new" ? null : "new");
   }, []);
 
   const recentProjects = [...customWorkspaces, ...getRecentProjects(allSessions)]
@@ -814,46 +805,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     ? [selectedProject, ...recentProjects.filter((project) => project !== selectedProject)]
     : recentProjects;
   const flatWorkspaceProjects = workspaceProjects.slice(0, isMobile ? 1 : 5);
-  const showProjectFilter = workspaceProjects.length > 8;
-  const visibleProjects = projectFilter.trim()
-    ? workspaceProjects.filter((p) => p.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : workspaceProjects;
-
-  useEffect(() => {
-    if (!dropdownOpen || !isMobile) {
-      setProjectListMaxHeight(null);
-      return;
-    }
-
-    const updateMaxHeight = () => {
-      const list = projectListRef.current;
-      const dropdown = list?.parentElement;
-      if (!list || !dropdown) return;
-      const listRect = list.getBoundingClientRect();
-      const dropdownRect = dropdown.getBoundingClientRect();
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      const footerHeight = dropdownRect.bottom - listRect.bottom;
-      setProjectListMaxHeight(Math.max(0, Math.min(viewportHeight * 0.5, 380, viewportHeight - 72 - listRect.top - footerHeight)));
-    };
-
-    const timeout = window.setTimeout(updateMaxHeight, DROPDOWN_ANIMATION_MS + 20);
-    window.addEventListener("resize", updateMaxHeight);
-    window.visualViewport?.addEventListener("resize", updateMaxHeight);
-    return () => {
-      window.clearTimeout(timeout);
-      window.removeEventListener("resize", updateMaxHeight);
-      window.visualViewport?.removeEventListener("resize", updateMaxHeight);
-    };
-  }, [dropdownOpen, isMobile, showProjectFilter, visibleProjects.length]);
+  const workspaceActivityByProject = new Map(
+    workspaceProjects.map((project) => [
+      project,
+      getWorkspaceActivity(project, allSessions, runningSessionIds, unreadSessionIds),
+    ] as const),
+  );
 
   const handleWorkspaceRemove = useCallback((project: string) => {
-    if (!confirm(t("app.removeWorkspaceConfirm", { path: displayCwd(project, homeDir) }))) return;
+    setWorkspaceMenu(null);
     setHiddenWorkspaces((current) => new Set(current).add(project));
     setCustomWorkspaces((current) => current.filter((item) => item !== project));
     if (project === selectedProject) {
       setSelectedCwd(workspaceProjects.find((candidate) => candidate !== project) ?? null);
     }
-  }, [homeDir, selectedProject, t, workspaceProjects]);
+  }, [selectedProject, workspaceProjects]);
 
   const filteredSessions = selectedProject
     ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
@@ -920,154 +886,140 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("app.workspace")}
             <span className="sidebar-workspace-count">{workspaceProjects.length}</span>
           </span>
-          <button
-            type="button"
-            className="sidebar-workspace-add"
-            onClick={handleNewWorkspace}
-            title={t("app.newWorkspace")}
-            aria-label={t("app.newWorkspace")}
-          >
-            <FolderPlus size={14} strokeWidth={1.8} aria-hidden="true" />
-          </button>
+          <div ref={newWorkspaceMenuRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="sidebar-workspace-add"
+              onClick={handleNewWorkspace}
+              title={t("app.newWorkspace")}
+              aria-label={t("app.newWorkspace")}
+              aria-haspopup="menu"
+              aria-expanded={workspaceMenu === "new"}
+            >
+              <FolderPlus size={14} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <AnimatedDropdown
+              open={workspaceMenu === "new"}
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                zIndex: 110,
+                minWidth: 182,
+                border: "1px solid var(--border)",
+                borderRadius: 7,
+                boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+                overflow: "hidden",
+              }}
+            >
+              <div role="menu">
+                <button
+                  type="button"
+                  className="sidebar-workspace-menu-item"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); void handleDefaultCwd(); }}
+                >
+                  <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{t("app.useDefaultDir")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-workspace-menu-item"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); setDirectoryPickerOpen(true); }}
+                >
+                  <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{t("app.chooseFolder")}</span>
+                </button>
+              </div>
+            </AnimatedDropdown>
+          </div>
         </div>
         <div ref={dropdownRef} className="sidebar-project-picker" style={{ position: "relative" }}>
           <div className="sidebar-project-list">
             {flatWorkspaceProjects.map((project) => {
               const isSelected = project === selectedProject;
               return (
-                <button
-                  key={project}
-                  type="button"
-                  className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}
-                  onClick={() => isSelected ? setDropdownOpen(true) : handleProjectSelect(project)}
-                  title={displayCwd(project, homeDir)}
-                >
-                  <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{projectLabel(project)}</span>
+                <div key={project} style={{ position: "relative" }}>
+                  <div className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
+                    <button
+                      type="button"
+                      className="sidebar-project-select"
+                      onClick={() => handleProjectSelect(project)}
+                      title={displayCwd(project, homeDir)}
+                    >
+                      <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
+                      <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                      <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+                    </button>
+                    {isSelected && (
+                      <button
+                        type="button"
+                        className="sidebar-project-menu-button"
+                        onClick={(e) => { e.stopPropagation(); setWorkspaceMenu((current) => current === "active" ? null : "active"); }}
+                        title={t("app.workspaceActions")}
+                        aria-label={t("app.workspaceActions")}
+                        aria-haspopup="menu"
+                        aria-expanded={workspaceMenu === "active"}
+                      >
+                        <MoreHorizontal size={isMobile ? 28 : 24} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
                   {isSelected && (
-                    <MoreHorizontal size={isMobile ? 28 : 24} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
+                    <AnimatedDropdown
+                      open={workspaceMenu === "active"}
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        right: 0,
+                        zIndex: 105,
+                        minWidth: 150,
+                        border: "1px solid var(--border)",
+                        borderRadius: 7,
+                        boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div role="menu">
+                        <button
+                          type="button"
+                          className="sidebar-workspace-menu-item is-danger"
+                          role="menuitem"
+                          onClick={() => handleWorkspaceRemove(project)}
+                        >
+                          <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{t("general.delete")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="sidebar-workspace-menu-item"
+                          role="menuitem"
+                          onClick={() => setWorkspaceMenu(null)}
+                        >
+                          <X size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{t("general.cancel")}</span>
+                        </button>
+                      </div>
+                    </AnimatedDropdown>
                   )}
-                </button>
+                </div>
               );
             })}
             {flatWorkspaceProjects.length === 0 && (
-              <button
-                type="button"
-                className="sidebar-project-row"
-                onClick={() => setDropdownOpen(true)}
-              >
-                <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
-                <span>{initialSessionId && !restoredRef.current ? "" : t("app.selectWorkspace")}</span>
-              </button>
+              <div className="sidebar-project-row">
+                <button
+                  type="button"
+                  className="sidebar-project-select"
+                  onClick={() => setWorkspaceMenu("new")}
+                  title={t("app.selectWorkspace")}
+                >
+                  <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{initialSessionId && !restoredRef.current ? "" : t("app.selectWorkspace")}</span>
+                </button>
+              </div>
             )}
           </div>
-
-          <AnimatedDropdown
-            open={dropdownOpen}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 100,
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-              overflow: "hidden",
-            }}
-          >
-              {showProjectFilter && (
-                <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-                  <input
-                    value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setProjectFilter("");
-                        setDropdownOpen(false);
-                      }
-                    }}
-                    placeholder={t("app.filterProjects")}
-                    autoFocus
-                    style={{
-                      width: "100%",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      padding: "5px 8px",
-                      border: "1px solid var(--border)",
-                      borderRadius: 5,
-                      outline: "none",
-                      background: "var(--bg)",
-                      color: "var(--text)",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              )}
-              <div ref={projectListRef} style={{ maxHeight: projectListMaxHeight ?? "min(50vh, 380px)", overflowY: "auto", overscrollBehavior: "contain" }}>
-                {visibleProjects.map((project) => (
-                  <div key={project} style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
-                    <button
-                      type="button"
-                      onClick={() => handleProjectSelect(project)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        flex: 1,
-                        minWidth: 0,
-                        padding: "8px 10px",
-                        background: "var(--bg)",
-                        border: "none",
-                        color: project === selectedProject ? "var(--text)" : "var(--text-muted)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        fontSize: 11,
-                        fontFamily: "var(--font-mono)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={project}
-                    >
-                      {project === selectedProject && <Check size={11} strokeWidth={2.2} color="var(--accent)" aria-hidden="true" style={{ flexShrink: 0 }} />}
-                      {project !== selectedProject && <span style={{ width: 10, flexShrink: 0 }} />}
-                      <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleWorkspaceRemove(project)}
-                      title={t("app.removeWorkspace")}
-                      aria-label={t("app.removeWorkspace")}
-                      style={{ display: "grid", placeItems: "center", width: 32, flex: "0 0 32px", padding: 0, background: "var(--bg)", border: "none", color: "var(--text-dim)", cursor: "pointer" }}
-                    >
-                      <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-                {visibleProjects.length === 0 && projectFilter.trim() && (
-                  <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("app.noMatchingProjects")}</div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); void handleDefaultCwd(); }}
-                style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 10px", background: "none", border: "none", borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 11 }}
-              >
-                <Folder size={10} strokeWidth={1.1} aria-hidden="true" style={{ flexShrink: 0 }} />
-                <span>Use default directory</span>
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setDirectoryPickerOpen(true); }}
-                style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "8px 10px", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 11 }}
-              >
-                <Folder size={10} strokeWidth={1.1} aria-hidden="true" style={{ flexShrink: 0 }} />
-                <span>Choose folder...</span>
-              </button>
-          </AnimatedDropdown>
         </div>
 
       </div>
@@ -1272,6 +1224,25 @@ function SessionTreeItem({
         </div>
       )}
     </div>
+  );
+}
+
+function WorkspaceActivityIndicator({ activity }: { activity?: WorkspaceActivity }) {
+  if (!activity || (!activity.isRunning && !activity.hasUnread)) return null;
+
+  return (
+    <span
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "0 0 14px",
+      }}
+    >
+      {activity.isRunning ? <RunningSessionIndicator /> : <UnreadSessionIndicator />}
+    </span>
   );
 }
 
