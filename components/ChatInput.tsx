@@ -73,6 +73,8 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   prependText: (text: string) => void;
   addFiles: (files: File[]) => void;
+  /** Clears the composer and its current draft. */
+  clearInput: () => void;
   /** @deprecated use addFiles — accepts any file, not just images */
   addImages: (files: File[]) => void;
 }
@@ -276,6 +278,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachmentsRef = useRef(attachments);
+  const clearInputRef = useRef<(() => void) | null>(null);
   valueRef.current = value;
   attachmentsRef.current = attachments;
 
@@ -335,6 +338,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addFiles(files: File[]) {
       void addFiles(files);
+    },
+    clearInput() {
+      clearInputRef.current?.();
     },
     addImages(files: File[]) {
       void addFiles(files);
@@ -479,6 +485,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       textareaRef.current.style.height = "auto";
     }
   }, [clearAttachments, draftKey]);
+  clearInputRef.current = clearInput;
 
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
