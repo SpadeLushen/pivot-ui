@@ -114,7 +114,11 @@ const MODEL_ABORT_GRACE_MS = 10_000;
 class PlainTextTheme extends Theme {
   constructor() {
     super(
-      { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
+      {
+        thinkingXhigh: "",
+        // Newer pi versions derive searchMatchText from this value.
+        text: "",
+      } as ConstructorParameters<typeof Theme>[0],
       {
         // 0.84's ThemeBg requires every non-scrollbar key; empty strings keep
         // the web UI's own styling (bgAnsi("") is the ANSI reset code).
