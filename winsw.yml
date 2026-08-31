@@ -1,0 +1,23 @@
+id: pivot-ui
+name: Pivot UI
+description: Web UI for Pi coding agent.
+executable: '%BASE%\node_modules\.bin\next.cmd'
+workingdirectory: '%BASE%'
+arguments: start --port 30131
+env:
+  - name: PIVOT_ALLOWED_DEV_ORIGINS
+    value: 10.2.1.4
+  - name: PIVOT_UI_NO_OPEN
+    value: 1
+log:
+  mode: roll-by-time
+  logPath: '%BASE%\winsw_logs'
+  pattern: yyyyMMdd
+  keepFiles: 7
+onFailure:
+  - action: restart
+    delay: 5 sec
+  - action: restart
+    delay: 5 sec
+  - action: restart
+    delay: 5 sec
