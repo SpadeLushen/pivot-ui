@@ -116,7 +116,7 @@ PIVOT_ALLOWED_DEV_ORIGINS=home.sinc.lol
 
 - 会话历史仍保存在 pi 的本机 `~/.pi/agent/sessions` 目录。可通过 `PI_CODING_AGENT_DIR` 使用其他 pi agent 目录。
 - 文件浏览仅面向当前选择的项目和会话中出现过的工作目录，不是通用文件系统浏览器。
-- 默认 Skill Library 位于 `~/.pivot-ui/lib/skills`。pi 的 Skill Pack 配置中已明确设置的库路径不会被自动修改。
+- 默认 Skill Library 位于 `~/.pivot-ui/lib/skills`。pi 的 Skill Pack 配置中已明确设置的库路径不会被自动修改。如果 `libraryRoot` 是相对路径，则会以 `skill-packs.json` 所在目录为基准解析；配置文件中的相对路径值会保持不变。
 
 ## 开发
 

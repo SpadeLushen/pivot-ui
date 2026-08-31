@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getLibrarySkillsDir } from "./skill-library";
 import type { McpPackReference } from "./mcp-library";
@@ -52,6 +52,22 @@ export function getDefaultConfigPath(): string {
 /** Default skill library root when the user has not configured one. */
 export function getDefaultLibraryRoot(): string {
   return join(homedir(), ".pivot-ui", "lib", "skills");
+}
+
+/**
+ * Resolve a configured library root for filesystem operations.
+ *
+ * Relative roots are anchored to the directory containing the Skill Packs
+ * config, while absolute roots are returned unchanged. The configured value
+ * itself remains untouched so writing the config does not rewrite a user's
+ * relative path as an absolute one.
+ */
+export function resolveLibraryRoot(config: SkillPacksConfig, opts: PathOpts = {}): string | null {
+  const root = config.libraryRoot;
+  if (!root) return null;
+  if (isAbsolute(root)) return root;
+  const configPath = opts.configPath ?? getDefaultConfigPath();
+  return resolve(dirname(configPath), root);
 }
 
 /**

@@ -13,6 +13,8 @@ Skill Pack 将技能快照和 MCP 服务器定义组合成可复用的工作环�
 | 实际项目技能 | `<cwd>/.pi/skills/<skillKey>/` | apply 复制的目标，也是 Pi runtime 发现工作空间技能的位置。 |
 | 实际项目 MCP | `<cwd>/.pi/mcp.json` | Pack 只新增、更新或删除它明确拥有且未被手工修改的 `mcpServers` 条目。 |
 
+`libraryRoot` 可以填写绝对路径；如果填写相对路径，则以全局 `skill-packs.json` 所在目录为基准解析。解析只用于文件系统操作，配置文件中的相对路径文本不会被自动改写为绝对路径。
+
 `contentHash` 是技能目录的确定性 SHA-256，覆盖所有文件并排除 `.DS_Store`、`Thumbs.db` 和 `~*` 备份文件。`configHash` 是 MCP 定义的确定性哈希。修改任一库项后，现有 Pack 引用会变 stale；必须显式保存新哈希，不能静默升级。
 
 ## 用户路径

@@ -8,6 +8,7 @@ npm run dev   # port 30141
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
 Lint: `npm run lint`  
+完成代码开发任务后，使用 `npm run build` 进行编译。  
 **Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
 
 ---

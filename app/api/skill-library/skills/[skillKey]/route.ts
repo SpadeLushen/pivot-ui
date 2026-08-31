@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteLibrarySkill, getLibrarySkill } from "@/lib/skill-library";
-import { findPacksReferencingSkillKey, readConfig } from "@/lib/skill-packs-store";
+import { findPacksReferencingSkillKey, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +13,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const { skillKey } = await params;
     const config = readConfig();
-    if (!config.libraryRoot) {
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) {
       return NextResponse.json({ error: "library not configured" }, { status: 404 });
     }
-    const skill = getLibrarySkill(config.libraryRoot, skillKey);
+    const skill = getLibrarySkill(libraryRoot, skillKey);
     if (!skill) return NextResponse.json({ error: "skill not found" }, { status: 404 });
     return NextResponse.json(skill);
   } catch (e) {
@@ -29,11 +30,12 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const { skillKey } = await params;
     const config = readConfig();
-    if (!config.libraryRoot) {
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) {
       return NextResponse.json({ error: "library not configured" }, { status: 404 });
     }
     const referencedBy = findPacksReferencingSkillKey(config, skillKey);
-    const result = deleteLibrarySkill(config.libraryRoot, skillKey, referencedBy);
+    const result = deleteLibrarySkill(libraryRoot, skillKey, referencedBy);
     if (!result.ok) {
       return NextResponse.json(result, { status: 409 });
     }

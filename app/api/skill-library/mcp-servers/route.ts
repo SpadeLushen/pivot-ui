@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createLibraryMcpServer, scanLibraryMcpServers, type McpServerDefinition } from "@/lib/mcp-library";
-import { ensureLibraryRoot, readConfig } from "@/lib/skill-packs-store";
+import { ensureLibraryRoot, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,8 @@ function toInfo(server: ReturnType<typeof scanLibraryMcpServers>[number]) {
 
 export async function GET() {
   const config = ensureLibraryRoot(readConfig());
-  return NextResponse.json({ mcpServers: config.libraryRoot ? scanLibraryMcpServers(config.libraryRoot).map(toInfo) : [] });
+  const libraryRoot = resolveLibraryRoot(config);
+  return NextResponse.json({ mcpServers: libraryRoot ? scanLibraryMcpServers(libraryRoot).map(toInfo) : [] });
 }
 
 export async function POST(req: Request) {
@@ -28,8 +29,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "serverKey and definition required" }, { status: 400 });
     }
     const config = ensureLibraryRoot(readConfig());
-    if (!config.libraryRoot) return NextResponse.json({ error: "library not configured" }, { status: 400 });
-    const server = createLibraryMcpServer(config.libraryRoot, body.serverKey.trim(), { ...body, definition: body.definition as McpServerDefinition });
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) return NextResponse.json({ error: "library not configured" }, { status: 400 });
+    const server = createLibraryMcpServer(libraryRoot, body.serverKey.trim(), { ...body, definition: body.definition as McpServerDefinition });
     return NextResponse.json({ server: toInfo(server) }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

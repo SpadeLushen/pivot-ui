@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteLibraryMcpServer, getLibraryMcpServer, updateLibraryMcpServer, type McpServerDefinition } from "@/lib/mcp-library";
-import { ensureLibraryRoot, findPacksReferencingMcpServerKey, readConfig } from "@/lib/skill-packs-store";
+import { ensureLibraryRoot, findPacksReferencingMcpServerKey, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ function toInfo(server: NonNullable<ReturnType<typeof getLibraryMcpServer>>) {
 }
 
 function libraryRoot(): string | null {
-  return ensureLibraryRoot(readConfig()).libraryRoot;
+  return resolveLibraryRoot(ensureLibraryRoot(readConfig()));
 }
 
 export async function GET(_req: Request, { params }: RouteParams) {
@@ -47,10 +47,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const config = ensureLibraryRoot(readConfig());
-    if (!config.libraryRoot) return NextResponse.json({ error: "library not configured" }, { status: 400 });
+    const root = resolveLibraryRoot(config);
+    if (!root) return NextResponse.json({ error: "library not configured" }, { status: 400 });
     const { serverKey } = await params;
     const result = deleteLibraryMcpServer(
-      config.libraryRoot,
+      root,
       serverKey,
       findPacksReferencingMcpServerKey(config, serverKey),
     );

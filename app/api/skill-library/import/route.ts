@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNpx } from "@/lib/npx";
 import { scanLibrary, discoverSkillDir, writeLibrarySkill, getLibrarySkillsDir } from "@/lib/skill-library";
-import { readConfig } from "@/lib/skill-packs-store";
+import { readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 import { getAllowedFileRoots, isFilePathAllowed, allowFileRoot } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,9 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
 function getLibraryRoot(): string {
   const config = readConfig();
-  if (!config.libraryRoot) throw new Error("Skill library not configured");
-  return config.libraryRoot;
+  const root = resolveLibraryRoot(config);
+  if (!root) throw new Error("Skill library not configured");
+  return root;
 }
 
 async function marketImport(pkg: string) {

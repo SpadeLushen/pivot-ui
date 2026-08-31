@@ -6,7 +6,7 @@ import type { WorkspaceMcpServerInfo } from "@/lib/api-types";
 import { getLibraryMcpServer } from "@/lib/mcp-library";
 import { McpAdapterRequired, requireMcpAdapter } from "@/lib/mcp-adapter";
 import { installLibraryMcpServer, McpWorkspaceConflict, removeWorkspaceMcpServer } from "@/lib/workspace-mcp";
-import { ensureLibraryRoot, readConfig } from "@/lib/skill-packs-store";
+import { ensureLibraryRoot, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -61,12 +61,13 @@ export async function POST(req: Request) {
     const serverKey = body.serverKey?.trim();
     if (!cwd || !serverKey) return NextResponse.json({ error: "cwd and serverKey required" }, { status: 400 });
     const config = ensureLibraryRoot(readConfig());
-    if (!config.libraryRoot) return NextResponse.json({ error: "library not configured" }, { status: 400 });
-    if (!getLibraryMcpServer(config.libraryRoot, serverKey)) {
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) return NextResponse.json({ error: "library not configured" }, { status: 400 });
+    if (!getLibraryMcpServer(libraryRoot, serverKey)) {
       return NextResponse.json({ error: `MCP server "${serverKey}" not found in library` }, { status: 404 });
     }
     requireMcpAdapter(cwd);
-    const server = installLibraryMcpServer(cwd, config.libraryRoot, serverKey);
+    const server = installLibraryMcpServer(cwd, libraryRoot, serverKey);
     return NextResponse.json({ success: true, server });
   } catch (error) {
     if (error instanceof McpAdapterRequired) return NextResponse.json({ error: "MCP_ADAPTER_REQUIRED", adapter: error.adapter }, { status: 412 });

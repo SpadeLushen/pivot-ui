@@ -6,6 +6,7 @@ import {
   ensureLibraryRoot,
   getPackById,
   readConfig,
+  resolveLibraryRoot,
   updatePack,
   writeConfig,
   type SkillPack,
@@ -29,9 +30,10 @@ function buildDetail(packId: string): SkillPackDetail | null {
   if (!pack) return null;
   const skills: LibrarySkillInfo[] = [];
   const mcpServers: LibraryMcpServerInfo[] = [];
-  if (config.libraryRoot) {
+  const libraryRoot = resolveLibraryRoot(config);
+  if (libraryRoot) {
     for (const ref of pack.skills) {
-      const lib = getLibrarySkill(config.libraryRoot, ref.skillKey);
+      const lib = getLibrarySkill(libraryRoot, ref.skillKey);
       if (lib) {
         skills.push(lib);
       } else {
@@ -46,7 +48,7 @@ function buildDetail(packId: string): SkillPackDetail | null {
       }
     }
     for (const ref of pack.mcpServers) {
-      const server = getLibraryMcpServer(config.libraryRoot, ref.serverKey);
+      const server = getLibraryMcpServer(libraryRoot, ref.serverKey);
       if (server) {
         mcpServers.push({
           serverKey: server.serverKey,

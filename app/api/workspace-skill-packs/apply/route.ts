@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { applyWorkspacePackChange, previewWorkspacePackChange, WorkspacePlanBlocked, WorkspaceRevisionConflict } from "@/lib/skill-pack-apply";
 import { getMcpAdapterStatus, McpAdapterRequired, requireMcpAdapter } from "@/lib/mcp-adapter";
-import { ensureLibraryRoot, readConfig } from "@/lib/skill-packs-store";
+import { ensureLibraryRoot, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -17,19 +17,20 @@ export async function POST(req: Request) {
     const cwd = body.cwd?.trim();
     if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     const config = ensureLibraryRoot(readConfig());
-    if (!config.libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
     const packIds = Array.isArray(body.packIds) ? body.packIds : [];
     if (packIds.length === 0 || typeof body.workspaceRevision !== "number" || !Number.isInteger(body.workspaceRevision)) {
       return NextResponse.json({ error: "packIds and workspaceRevision required" }, { status: 400 });
     }
-    const preview = previewWorkspacePackChange(cwd, config.libraryRoot, packIds, config);
+    const preview = previewWorkspacePackChange(cwd, libraryRoot, packIds, config);
     if (preview.mcpRelevant) {
       const adapter = getMcpAdapterStatus(cwd);
       if (adapter.state !== "ready") {
         return NextResponse.json({ error: "MCP_ADAPTER_REQUIRED", adapter }, { status: 412 });
       }
     }
-    const result = await applyWorkspacePackChange(cwd, config.libraryRoot, packIds, body.workspaceRevision, config, {
+    const result = await applyWorkspacePackChange(cwd, libraryRoot, packIds, body.workspaceRevision, config, {
       ensureMcpAdapter: () => requireMcpAdapter(cwd),
     });
     return NextResponse.json({ success: true, installed: result.installed, skipped: result.plan.skipped, workspaceRevision: result.plan.workspaceRevision + 1 });

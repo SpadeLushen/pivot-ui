@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { getLibrarySkill } from "@/lib/skill-library";
-import { ensureLibraryRoot, readConfig } from "@/lib/skill-packs-store";
+import { ensureLibraryRoot, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +19,12 @@ export async function POST(req: Request) {
     if (!skillKey) return NextResponse.json({ error: "skillKey required" }, { status: 400 });
 
     const config = ensureLibraryRoot(readConfig());
-    if (!config.libraryRoot) {
+    const libraryRoot = resolveLibraryRoot(config);
+    if (!libraryRoot) {
       return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
     }
 
-    const libSkill = getLibrarySkill(config.libraryRoot, skillKey);
+    const libSkill = getLibrarySkill(libraryRoot, skillKey);
     if (!libSkill) {
       return NextResponse.json({ error: `Skill "${skillKey}" not found in library` }, { status: 404 });
     }

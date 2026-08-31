@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { scanLibrary } from "@/lib/skill-library";
-import { readConfig } from "@/lib/skill-packs-store";
+import { readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 // Lists every skill copy in the configured library.
 export async function GET() {
   const config = readConfig();
-  const skills = config.libraryRoot ? scanLibrary(config.libraryRoot) : [];
+  const libraryRoot = resolveLibraryRoot(config);
+  const skills = libraryRoot ? scanLibrary(libraryRoot) : [];
   return NextResponse.json({ skills });
 }
