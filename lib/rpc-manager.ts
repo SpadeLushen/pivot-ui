@@ -181,6 +181,8 @@ export class AgentSessionWrapper {
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
+  private hasExtensionTitle = false;
+  private extensionTitle = "";
   private promptRunning = false;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -214,7 +216,7 @@ export class AgentSessionWrapper {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       this.resetIdleTimer();
       if (this.isModelProgress(event)) this.clearModelStartTimer();
-      if (event.type === "agent_end") {
+      if (event.type === "agent_end" || event.type === "session_info_changed") {
         invalidateSessionListCache();
       }
       this.emit(event);
@@ -404,6 +406,17 @@ export class AgentSessionWrapper {
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
+    // Extension startup can finish before the SSE route has attached its
+    // listener. Replay the latest browser title so a newly selected session
+    // can restore its title even in that startup race.
+    if (this.hasExtensionTitle) {
+      listener({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "setTitle",
+        title: this.extensionTitle,
+      } as ExtensionUiRequest as AgentEvent);
+    }
     return () => {
       const i = this.listeners.indexOf(listener);
       if (i !== -1) this.listeners.splice(i, 1);
@@ -983,6 +996,8 @@ export class AgentSessionWrapper {
       setFooter: () => {},
       setHeader: () => {},
       setTitle: (title) => {
+        this.hasExtensionTitle = true;
+        this.extensionTitle = title;
         this.emit({
           type: "extension_ui_request",
           id: randomUUID(),

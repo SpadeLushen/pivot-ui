@@ -297,6 +297,17 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
+  // Session-title extensions update the persisted session name from inside
+  // the agent runtime. Keep both the selected session and the sidebar's list
+  // current as soon as the runtime emits that change.
+  const handleSessionNameChange = useCallback((sessionId: string, name: string | undefined) => {
+    setSelectedSession((prev) => {
+      if (!prev || prev.id !== sessionId || prev.name === name) return prev;
+      return { ...prev, name };
+    });
+    setRefreshKey((k) => k + 1);
+  }, []);
+
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
@@ -931,6 +942,7 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
+              onSessionNameChange={handleSessionNameChange}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               showTps={showTps}

@@ -147,6 +147,7 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
+  onSessionNameChange?: (sessionId: string, name: string | undefined) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   packsRefreshKey?: number;
@@ -337,7 +338,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
+    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -780,7 +781,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
       case "setTitle":
-        if (request.title) document.title = request.title;
+        document.title = request.title || "Pivot UI";
         break;
       case "set_editor_text":
         opts.chatInputRef?.current?.insertText(request.text);
@@ -1038,11 +1039,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
         }
         break;
+      case "session_info_changed": {
+        const sid = sessionIdRef.current;
+        if (sid) onSessionNameChange?.(sid, typeof event.name === "string" ? event.name : undefined);
+        break;
+      }
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Sanitize a file name for embedding inside a <file name="..."> tag.
@@ -1502,11 +1508,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  // Load session on mount
+  // Load session on mount. Restore a deterministic browser title when
+  // switching away from a session whose extension set a custom title. The
+  // selected session's runtime may replace this shortly through the extension
+  // UI event bridge.
   useEffect(() => {
+    let cancelled = false;
+    document.title = session?.name || "Pivot UI";
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
+        if (cancelled) return;
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
@@ -1514,7 +1526,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
-            void connectEvents(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(session.id);
             }
@@ -1529,9 +1540,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
         }
+        // Keep the selected session connected even while idle. Besides
+        // streaming agent events, this lets extensions synchronize browser UI
+        // during session_start (for example, a session-title extension can
+        // restore the document title when the user switches sessions).
+        void connectEvents(session.id);
       });
     }
     return () => {
+      cancelled = true;
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };

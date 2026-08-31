@@ -142,6 +142,21 @@ test("clears the transient draft after a successful new-session send", async () 
   assert.doesNotMatch(existingSessionHandler, /clearDraft/);
 });
 
+test("keeps extension-generated session names and browser titles synchronized", async () => {
+  const [appShell, chatWindow, hook, rpc] = await Promise.all([
+    readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/rpc-manager.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(rpc, /event\.type === "agent_end" \|\| event\.type === "session_info_changed"/);
+  assert.match(hook, /case "session_info_changed"/);
+  assert.match(hook, /void connectEvents\(session\.id\)/);
+  assert.match(hook, /document\.title = request\.title \|\| "Pivot UI"/);
+  assert.match(chatWindow, /onSessionNameChange, onSessionForked/);
+  assert.match(appShell, /onSessionNameChange=\{handleSessionNameChange\}/);
+});
 test("uses Pi's default thinking level for new sessions", async () => {
   const [route, hook] = await Promise.all([
     readFile(new URL("../app/api/models/route.ts", import.meta.url), "utf8"),
