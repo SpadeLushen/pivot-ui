@@ -5,9 +5,6 @@ const eslintConfig = [
   ...coreWebVitals,
   ...typescript,
   {
-    ignores: ["dist/**"],
-  },
-  {
     rules: {
       "react-hooks/immutability": "off",
       "react-hooks/refs": "off",
