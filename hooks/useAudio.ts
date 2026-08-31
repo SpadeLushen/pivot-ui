@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { readSoundEnabledPreference, writeSoundEnabledPreference } from "@/lib/ui-preferences";
 
 function playTone(ctx: AudioContext) {
   const now = ctx.currentTime;
@@ -22,11 +23,7 @@ function playTone(ctx: AudioContext) {
 }
 
 export function useAudio() {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("pi-sound-enabled");
-    return stored === null ? true : stored === "true";
-  });
+  const [enabled, setEnabled] = useState<boolean>(() => readSoundEnabledPreference());
 
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
@@ -56,7 +53,7 @@ export function useAudio() {
     const next = !enabledRef.current;
     if (next) unlockAudio(true);
     enabledRef.current = next;
-    localStorage.setItem("pi-sound-enabled", String(next));
+    writeSoundEnabledPreference(next);
     setEnabled(next);
   }, [unlockAudio]);
 

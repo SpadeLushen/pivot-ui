@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Cpu, X } from "lucide-react";
+import { Globe, Cpu, Gauge, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { ModelsConfigTab } from "./ModelsConfig";
@@ -11,9 +11,11 @@ type SettingsTab = "general" | "models";
 interface SettingsModalProps {
   onClose: () => void;
   onModelsChanged?: () => void;
+  showTps: boolean;
+  onTpsToggle: () => void;
 }
 
-export function SettingsModal({ onClose, onModelsChanged }: SettingsModalProps) {
+export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle }: SettingsModalProps) {
   const { t, locale, setLocale } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -288,6 +290,54 @@ export function SettingsModal({ onClose, onModelsChanged }: SettingsModalProps) 
                     );
                   })}
                 </div>
+              </section>
+
+              {/* TPS */}
+              <section style={{ marginTop: 32 }}>
+                <h3
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Gauge size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.tps")}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {t("settings.tpsDescription")}
+                </p>
+                <label
+                  htmlFor="settings-show-tps"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    color: "var(--text)",
+                    cursor: "pointer",
+                    fontSize: 13,
+                  }}
+                >
+                  <input
+                    id="settings-show-tps"
+                    type="checkbox"
+                    checked={showTps}
+                    onChange={onTpsToggle}
+                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("settings.showTps")}
+                </label>
               </section>
             </div>
           )}

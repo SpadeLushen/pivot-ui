@@ -14,6 +14,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import { readToolPresetPreference, writeToolPresetPreference } from "@/lib/ui-preferences";
 import { inheritLastSessionPacks, rememberLastSessionPacks } from "@/lib/pack-preferences";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -387,6 +388,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const prevPacksRefreshKeyRef = useRef(packsRefreshKey);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
+
+  // The tool preset is a Pivot UI preference for brand-new sessions. The
+  // reasoning level comes from Pi's defaultThinkingLevel, loaded with models.
+  // Read the UI preference after hydration so localStorage never changes SSR markup.
+  useEffect(() => {
+    if (!isNew) return;
+    setToolPresetState(readToolPresetPreference());
+  }, [isNew, setToolPresetState]);
 
   // Keep the last opened session's active Pack set available for future
   // unconfigured workspaces. New/unsaved sessions must not overwrite it.
@@ -1446,6 +1455,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
     const toolNames = getToolNamesForPreset(preset);
+    writeToolPresetPreference(preset);
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;

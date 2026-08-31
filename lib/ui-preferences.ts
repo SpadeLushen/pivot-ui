@@ -1,0 +1,57 @@
+import type { ToolPreset } from "./tool-presets";
+
+export const TOOL_PRESET_STORAGE_KEY = "pi-tool-preset";
+export const SOUND_ENABLED_STORAGE_KEY = "pi-sound-enabled";
+export const TPS_ENABLED_STORAGE_KEY = "pi-tps-enabled";
+
+function getStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readValue(key: string): string | null {
+  try {
+    return getStorage()?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeValue(key: string, value: string): void {
+  try {
+    getStorage()?.setItem(key, value);
+  } catch {
+    // Storage may be unavailable in private browsing or when its quota is full.
+  }
+}
+
+export function readToolPresetPreference(): ToolPreset {
+  const value = readValue(TOOL_PRESET_STORAGE_KEY);
+  return value === "none" || value === "full" || value === "default" ? value : "default";
+}
+
+export function writeToolPresetPreference(value: ToolPreset): void {
+  writeValue(TOOL_PRESET_STORAGE_KEY, value);
+}
+
+export function readSoundEnabledPreference(): boolean {
+  const value = readValue(SOUND_ENABLED_STORAGE_KEY);
+  return value !== "false";
+}
+
+export function writeSoundEnabledPreference(value: boolean): void {
+  writeValue(SOUND_ENABLED_STORAGE_KEY, String(value));
+}
+
+export function readTpsEnabledPreference(): boolean {
+  const value = readValue(TPS_ENABLED_STORAGE_KEY);
+  return value !== "false";
+}
+
+export function writeTpsEnabledPreference(value: boolean): void {
+  writeValue(TPS_ENABLED_STORAGE_KEY, String(value));
+}

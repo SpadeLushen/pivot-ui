@@ -68,6 +68,7 @@ interface Props {
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
+  showTps?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
 }
@@ -99,12 +100,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, prevTimestamp, sessionId }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -131,6 +132,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevAssistantEntryId === next.prevAssistantEntryId
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
+    && prev.showTps === next.showTps
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
 });
@@ -528,6 +530,7 @@ function AssistantMessageView({
   cwd,
   onOpenFile,
   showTimestamp,
+  showTps = true,
   prevTimestamp,
   sessionId,
   entryId,
@@ -539,6 +542,7 @@ function AssistantMessageView({
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
+  showTps?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
@@ -637,6 +641,12 @@ function AssistantMessageView({
         return changed ? next : prev;
       });
 
+      if (!showTps) {
+        streamStartRef.current = null;
+        setTps(null);
+        return;
+      }
+
       let chars = 0;
       for (const b of bs) {
         if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
@@ -650,7 +660,7 @@ function AssistantMessageView({
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
-  }, [isStreaming]);
+  }, [isStreaming, showTps]);
 
   if (blocks.length === 0 && !isStreaming) return null;
 
@@ -691,7 +701,7 @@ function AssistantMessageView({
                     <ArrowDown size={10} strokeWidth={1.2} aria-hidden="true" />
                     {est}
                   </span>
-                  {tps !== null && (() => {
+                  {showTps && tps !== null && (() => {
                     const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
                     return (
                       <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>

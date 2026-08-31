@@ -62,3 +62,17 @@ test("uses Pi's default thinking level for new sessions", async () => {
   assert.match(hook, /!thinkingLevelUserSelectedRef\.current/);
   assert.doesNotMatch(hook, /readThinkingLevelPreference|writeThinkingLevelPreference|pi-thinking-level/);
 });
+
+test("propagates the TPS visibility preference to session messages", async () => {
+  const [appShell, chatWindow, messageView, settings] = await Promise.all([
+    readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./SettingsModal.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(appShell, /showTps=\{showTps\}/);
+  assert.match(chatWindow, /showTps=\{showTps\}/);
+  assert.match(messageView, /showTps && tps !== null/);
+  assert.match(settings, /id="settings-show-tps"/);
+});

@@ -104,6 +104,9 @@ const en: Record<string, string> = {
   "settings.switchToDark": "Switch to dark mode",
   "settings.switchToEye": "Switch to eye comfort mode",
   "settings.languageDescription": "Select the display language. Professional terms may remain in English.",
+  "settings.tps": "Session TPS",
+  "settings.showTps": "Show TPS",
+  "settings.tpsDescription": "Show the model's token generation speed while it responds.",
 
   // Models config
   "models.title": "Models",

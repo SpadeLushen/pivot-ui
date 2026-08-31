@@ -106,6 +106,9 @@ const zh: Record<string, string> = {
   "settings.switchToDark": "切换至深色模式",
   "settings.switchToEye": "切换至护眼模式",
   "settings.languageDescription": "选择界面显示语言。部分专业术语将保持英文。",
+  "settings.tps": "会话 TPS",
+  "settings.showTps": "显示 TPS",
+  "settings.tpsDescription": "模型响应时显示 token 生成速度。",
 
   // Models config
   "models.title": "Models",
