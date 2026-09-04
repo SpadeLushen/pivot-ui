@@ -153,6 +153,7 @@ export function AppShell() {
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [recentUserMessageWorkspaces, setRecentUserMessageWorkspaces] = useState<string[]>([]);
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -315,6 +316,14 @@ export function AppShell() {
   const suppressCwdBumpRef = useRef(false);
   const rightPanelCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
   const rightPanelProjectRoot = activeProjectRoot ?? selectedSession?.projectRoot ?? rightPanelCwd;
+
+  const handleUserMessageSent = useCallback((cwd: string, projectRoot?: string | null) => {
+    const root = projectRoot ?? activeProjectRoot ?? cwd;
+    if (!root) return;
+    setRecentUserMessageWorkspaces((current) => current[0] === root
+      ? current
+      : [root, ...current.filter((item) => item !== root)]);
+  }, [activeProjectRoot]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     setActiveCwd(cwd);
@@ -538,6 +547,7 @@ export function AppShell() {
         initialSessionId={initialSessionId}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
+        recentUserMessageWorkspaces={recentUserMessageWorkspaces}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
@@ -1143,6 +1153,7 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
+              onUserMessageSent={handleUserMessageSent}
               onSessionNameChange={handleSessionNameChange}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}

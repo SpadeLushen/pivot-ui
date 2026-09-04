@@ -37,7 +37,13 @@ export function getWorkspaceProjects(
   sessions: readonly WorkspaceSession[],
   customWorkspaces: readonly string[],
   hiddenWorkspaces: ReadonlySet<string> = new Set(),
+  recentUserMessageWorkspaces: readonly string[] = [],
 ): string[] {
-  return [...getRecentProjects(sessions), ...customWorkspaces, ...getSessionProjects(sessions)]
+  const baseProjects = [...getRecentProjects(sessions), ...customWorkspaces, ...getSessionProjects(sessions)]
     .filter((project, index, projects) => projects.indexOf(project) === index && !hiddenWorkspaces.has(project));
+  const baseSet = new Set(baseProjects);
+  return [
+    ...recentUserMessageWorkspaces.filter((project) => baseSet.has(project)),
+    ...baseProjects,
+  ].filter((project, index, projects) => projects.indexOf(project) === index);
 }

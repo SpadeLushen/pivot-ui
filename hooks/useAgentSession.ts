@@ -147,6 +147,7 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
+  onUserMessageSent?: (cwd: string, projectRoot?: string | null) => void;
   onSessionNameChange?: (sessionId: string, name: string | undefined) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
@@ -338,11 +339,16 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked,
+    session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
+
+  const notifyUserMessageSent = useCallback(() => {
+    const cwd = session?.cwd ?? newSessionCwd;
+    if (cwd) onUserMessageSent?.(cwd, session?.projectRoot);
+  }, [newSessionCwd, onUserMessageSent, session?.cwd, session?.projectRoot]);
 
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -1149,6 +1155,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             message: fullMessage,
             ...(piImages.length ? { images: piImages } : {}),
           });
+          notifyUserMessageSent();
           promoteNewSession(1, message);
         }
       } else if (session) {
@@ -1159,6 +1166,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message: fullMessage,
           ...(piImages.length ? { images: piImages } : {}),
         });
+        notifyUserMessageSent();
       }
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
@@ -1185,7 +1193,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return false;
     }
     return true;
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, ensurePackSkillsReloaded, prepareAttachments]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, notifyUserMessageSent, promoteNewSession, waitForPromptSettlement, addNotice, ensurePackSkillsReloaded, prepareAttachments]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1394,10 +1402,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "steer",
         message,
       });
+      notifyUserMessageSent();
     } catch (e) {
       console.error("Failed to steer:", e);
     }
-  }, []);
+  }, [notifyUserMessageSent]);
 
   const handleToggleQueuedMessage = useCallback(async (
     mode: "steer" | "followUp",
@@ -1438,10 +1447,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message,
         streamingBehavior: behavior,
       });
+      notifyUserMessageSent();
     } catch (e) {
       console.error("Failed to queue prompt:", e);
     }
-  }, []);
+  }, [notifyUserMessageSent]);
 
   const handleFollowUp = useCallback(async (message: string) => {
     const sid = sessionIdRef.current;
@@ -1451,10 +1461,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "follow_up",
         message,
       });
+      notifyUserMessageSent();
     } catch (e) {
       console.error("Failed to follow up:", e);
     }
-  }, []);
+  }, [notifyUserMessageSent]);
 
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;

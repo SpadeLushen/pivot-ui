@@ -26,6 +26,22 @@ test("waits for a pending pack reload before sending", async () => {
   assert.match(handleSend, /await ensurePackSkillsReloaded\(\);/);
 });
 
+test("promotes the workspace after an accepted user message", async () => {
+  const [appShell, chatWindow, hook] = await Promise.all([
+    readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+  ]);
+  const handleSend = hook.slice(
+    hook.indexOf("const handleSend = useCallback"),
+    hook.indexOf("const handleAbort = useCallback"),
+  );
+
+  assert.match(handleSend, /notifyUserMessageSent\(\)/);
+  assert.match(chatWindow, /onSessionCreated, onUserMessageSent, onSessionNameChange/);
+  assert.match(appShell, /onUserMessageSent=\{handleUserMessageSent\}/);
+});
+
 test("preserves multiline extension dialog titles", () => {
   const title = [
     "Permission Required",

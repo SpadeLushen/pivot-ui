@@ -18,6 +18,8 @@ interface Props {
   initialSessionId?: string | null;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
+  /** Workspace roots with a just-accepted user message, newest first. */
+  recentUserMessageWorkspaces?: readonly string[];
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
@@ -505,7 +507,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -722,10 +724,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces);
+      const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
       if (projects.length > 0) setSelectedCwd(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces]);
 
   const selectWorkspaceDirectory = useCallback(async (path: string): Promise<string | null> => {
     try {
@@ -814,7 +816,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Custom workspaces without a session remain in their saved order. Selecting
   // a workspace must not change either order; only a user message updates
   // the activity used here, so an assistant reply cannot promote it.
-  const workspaceProjects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces);
+  const workspaceProjects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
   const selectedProject = projectRootFor(selectedCwd);
   const flatWorkspaceProjects = workspaceProjects.slice(0, isMobile ? 1 : 5);
   const workspaceActivityByProject = new Map(

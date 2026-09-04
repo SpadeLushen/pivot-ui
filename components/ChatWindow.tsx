@@ -32,6 +32,7 @@ interface Props {
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
+  onUserMessageSent?: (cwd: string, projectRoot?: string | null) => void;
   onSessionNameChange?: (sessionId: string, name: string | undefined) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
@@ -154,7 +155,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -197,7 +198,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
-    session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked,
+    session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
 
