@@ -11,6 +11,10 @@ Lint: `npm run lint`
 完成代码开发任务后，使用 `npm run build` 进行编译。  
 **Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
 
+## Git 操作
+
+- `lushen-custom` 分支推送时必须显式指定远端和目标分支：`git push selfhost HEAD:master`。不要使用不带远端和分支参数的 `git push`。
+
 ---
 
 ## Architecture
