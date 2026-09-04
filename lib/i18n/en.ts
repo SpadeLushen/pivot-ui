@@ -76,6 +76,7 @@ const en: Record<string, string> = {
   "app.creating": "Creating...",
   "app.removeWorkspace": "Remove workspace",
   "app.removeWorkspaceConfirm": 'Remove "${path}" from Workspace?',
+  "app.confirmWorkspaceDelete": "Click again to confirm",
   "app.selecting": "Selecting...",
   "app.closeNavigation": "Close navigation",
   "app.recentSessions": "Recent sessions",
@@ -86,8 +87,8 @@ const en: Record<string, string> = {
   "nav.packs": "Packs",
   "nav.plugins": "Plugins",
   "nav.newSession": "New session",
-  "nav.sessionTree": "Session Tree",
-  "nav.sessionTreeDescription": "Session Tree (not Git branches)",
+  "nav.sessionTree": "Session tree",
+  "nav.sessionTreeDescription": "Session tree (not Git branches)",
   "nav.noActiveSession": "No active session",
   "nav.sessionNoBranches": "This session has no branches",
 

@@ -222,7 +222,8 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
 export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
   const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
-  const open = openProp !== undefined ? openProp : openInternal;
+  const sessionAvailable = Boolean(hasSession);
+  const open = (openProp !== undefined ? openProp : openInternal) && sessionAvailable;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
@@ -246,10 +247,11 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   );
 
   const handleSelect = useCallback((id: string) => {
+    if (!sessionAvailable) return;
     onLeafChange(id);
-  }, [onLeafChange]);
+  }, [onLeafChange, sessionAvailable]);
 
-  const noBranchReason = !hasSession
+  const noBranchReason = !sessionAvailable
     ? t("nav.noActiveSession")
     : !hasBranch(tree)
       ? t("nav.sessionNoBranches")
@@ -270,28 +272,40 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
       <div style={{ height: "100%", display: "flex", alignItems: "stretch" }}>
         <button
           ref={btnRef}
-          onClick={() => onToggle ? onToggle() : setOpenInternal((v) => !v)}
+          onClick={() => {
+            if (!sessionAvailable) return;
+            if (onToggle) onToggle();
+            else setOpenInternal((v) => !v);
+          }}
+          disabled={!sessionAvailable}
           style={{
             display: "flex",
             alignItems: "center",
             gap: 6,
             height: "100%",
             padding: "0 12px",
-            background: open ? "var(--bg-selected)" : "none",
+            background: sessionAvailable && open ? "var(--bg-selected)" : "none",
             border: "none",
-            borderTop: open ? "2px solid var(--accent)" : "2px solid transparent",
+            borderTop: sessionAvailable && open ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
-            cursor: "pointer",
-            color: open ? "var(--text)" : "var(--text-muted)",
+            cursor: sessionAvailable ? "pointer" : "not-allowed",
+            color: sessionAvailable && open ? "var(--text)" : sessionAvailable ? "var(--text-muted)" : "var(--text-dim)",
+            opacity: sessionAvailable ? 1 : 0.45,
             fontSize: 11,
             whiteSpace: "nowrap",
             transition: "color 0.1s, background 0.1s",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
-          title={t("nav.sessionTreeDescription")}
+          onMouseEnter={(e) => {
+            if (!sessionAvailable) return;
+            e.currentTarget.style.color = "var(--text)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = sessionAvailable && open ? "var(--text)" : sessionAvailable ? "var(--text-muted)" : "var(--text-dim)";
+          }}
+          title={sessionAvailable ? t("nav.sessionTreeDescription") : t("nav.noActiveSession")}
           aria-label={t("nav.sessionTree")}
-          aria-pressed={open}
+          aria-disabled={!sessionAvailable}
+          aria-pressed={sessionAvailable ? open : undefined}
         >
           {branchIcon}
           {!compact && <span>{t("nav.sessionTree")}</span>}
@@ -336,7 +350,11 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, position: "relative" }}>
       {/* Header toggle */}
       <button
-        onClick={() => setOpenInternal((v) => !v)}
+        onClick={() => {
+          if (!sessionAvailable) return;
+          setOpenInternal((v) => !v);
+        }}
+        disabled={!sessionAvailable}
         style={{
           display: "flex",
           alignItems: "center",
@@ -345,8 +363,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           padding: "5px 12px",
           background: "none",
           border: "none",
-          cursor: "pointer",
-          color: "var(--text-muted)",
+          cursor: sessionAvailable ? "pointer" : "not-allowed",
+          color: sessionAvailable ? "var(--text-muted)" : "var(--text-dim)",
+          opacity: sessionAvailable ? 1 : 0.45,
           fontSize: 11,
           textAlign: "left",
         }}

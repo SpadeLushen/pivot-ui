@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Folder, FolderPlus, GitFork, LoaderCircle, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
+import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
+import { getWorkspaceProjects } from "@/lib/workspace-order";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
@@ -112,33 +114,19 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-/**
- * Return all projects (deduped by projectRoot so worktrees collapse into their
- * main repo) sorted by most recent session activity.
- */
-function getRecentProjects(sessions: SessionInfo[]): string[] {
-  const latestByRoot = new Map<string, string>(); // projectRoot -> most recent modified
-  for (const s of sessions) {
-    const root = s.projectRoot ?? s.cwd;
-    if (!root) continue;
-    const prev = latestByRoot.get(root);
-    if (!prev || s.modified > prev) {
-      latestByRoot.set(root, s.modified);
-    }
-  }
-  return [...latestByRoot.entries()]
-    .sort((a, b) => b[1].localeCompare(a[1]))
-    .map(([root]) => root);
-}
-
 /** Substitute the home dir prefix with ~ (no path truncation) */
 function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
 }
 
 function projectLabel(cwd: string): string {
-  const normalized = cwd.replace(/\/+$/, "") || "/";
-  return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
+  // Session paths can come from a Windows or POSIX workspace, regardless of
+  // the platform serving the UI. Strip trailing separators before taking the
+  // final directory name, while keeping filesystem roots readable.
+  const normalized = cwd.replace(/[\\/]+$/, "");
+  if (!normalized) return cwd || "/";
+  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return normalized.slice(separator + 1) || normalized;
 }
 
 /** Ellipsize the least significant part of a path/name on the left. */
@@ -526,6 +514,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [workspaceMenu, setWorkspaceMenu] = useState<"active" | "new" | null>(null);
+  const [workspaceDeleteConfirmation, setWorkspaceDeleteConfirmation] = useState<string | null>(null);
+  const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
+  const workspaceCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -609,9 +600,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     saveCustomWorkspaces(customWorkspaces);
   }, [customWorkspaces, storageLoaded]);
 
+  // The confirmation is intentionally scoped to the open workspace menu. A
+  // menu close, workspace switch, or opening the new-workspace menu starts the
+  // delete flow over from its first click.
   useEffect(() => {
-    // Live running status via SSE — no polling. The server pushes the current
-    // set of running session ids whenever any session starts/stops working.
+    if (workspaceMenu !== "active") {
+      setWorkspaceDeleteConfirmation(null);
+      setCopiedWorkspacePath(null);
+      if (workspaceCopyTimerRef.current !== null) {
+        clearTimeout(workspaceCopyTimerRef.current);
+        workspaceCopyTimerRef.current = null;
+      }
+    }
+  }, [workspaceMenu]);
+
+  useEffect(() => () => {
+    if (workspaceCopyTimerRef.current !== null) clearTimeout(workspaceCopyTimerRef.current);
+  }, []);
+
+  // Live running status via SSE — no polling. The server pushes the current
+  // set of running session ids whenever any session starts/stops working.
+  useEffect(() => {
     const source = new EventSource("/api/agent/running/events");
 
     source.onmessage = (e) => {
@@ -713,10 +722,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const projects = getRecentProjects(allSessions).filter((project) => !hiddenWorkspaces.has(project));
+      const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces);
       if (projects.length > 0) setSelectedCwd(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, hiddenWorkspaces]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces]);
 
   const selectWorkspaceDirectory = useCallback(async (path: string): Promise<string | null> => {
     try {
@@ -737,7 +746,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         next.delete(project);
         return next;
       });
-      setCustomWorkspaces((current) => [project, ...current.filter((item) => item !== project)]);
+      setCustomWorkspaces((current) => current.includes(project) ? current : [...current, project]);
       setSelectedCwd(cwd);
       setWorkspaceMenu(null);
       return null;
@@ -764,6 +773,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const target = e.target as Node;
       if (dropdownRef.current?.contains(target) || newWorkspaceMenuRef.current?.contains(target)) return;
       setWorkspaceMenu(null);
+      setWorkspaceDeleteConfirmation(null);
+      setCopiedWorkspacePath(null);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -794,17 +805,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const handleNewWorkspace = useCallback(() => {
+    setWorkspaceDeleteConfirmation(null);
+    setCopiedWorkspacePath(null);
     setWorkspaceMenu((current) => current === "new" ? null : "new");
   }, []);
 
-  const recentProjects = [...customWorkspaces, ...getRecentProjects(allSessions)]
-    .filter((project, index, projects) => projects.indexOf(project) === index && !hiddenWorkspaces.has(project));
-  // Sessions of every worktree in the selected project are shown together.
-  // Keep the current workspace first even when it has no recent session yet.
+  // Session activity determines the order for workspaces that have sessions.
+  // Custom workspaces without a session remain in their saved order. Selecting
+  // a workspace must not change either order; only a user message updates
+  // the activity used here, so an assistant reply cannot promote it.
+  const workspaceProjects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces);
   const selectedProject = projectRootFor(selectedCwd);
-  const workspaceProjects = selectedProject && !hiddenWorkspaces.has(selectedProject)
-    ? [selectedProject, ...recentProjects.filter((project) => project !== selectedProject)]
-    : recentProjects;
   const flatWorkspaceProjects = workspaceProjects.slice(0, isMobile ? 1 : 5);
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
@@ -814,13 +825,34 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   );
 
   const handleWorkspaceRemove = useCallback((project: string) => {
+    if (workspaceDeleteConfirmation !== project) {
+      setCopiedWorkspacePath(null);
+      setWorkspaceDeleteConfirmation(project);
+      return;
+    }
     setWorkspaceMenu(null);
+    setWorkspaceDeleteConfirmation(null);
     setHiddenWorkspaces((current) => new Set(current).add(project));
     setCustomWorkspaces((current) => current.filter((item) => item !== project));
     if (project === selectedProject) {
       setSelectedCwd(workspaceProjects.find((candidate) => candidate !== project) ?? null);
     }
-  }, [selectedProject, workspaceProjects]);
+  }, [selectedProject, workspaceProjects, workspaceDeleteConfirmation]);
+
+  const handleCopyWorkspacePath = useCallback((project: string) => {
+    setWorkspaceDeleteConfirmation(null);
+    setCopiedWorkspacePath(null);
+    void copyText(project).then(() => {
+      setCopiedWorkspacePath(project);
+      if (workspaceCopyTimerRef.current !== null) clearTimeout(workspaceCopyTimerRef.current);
+      workspaceCopyTimerRef.current = setTimeout(() => {
+        setCopiedWorkspacePath(null);
+        workspaceCopyTimerRef.current = null;
+      }, 1200);
+    }).catch(() => {
+      // Clipboard access can be unavailable in an insecure browsing context.
+    });
+  }, []);
 
   const filteredSessions = selectedProject
     ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
@@ -962,13 +994,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       <button
                         type="button"
                         className="sidebar-project-menu-button"
-                        onClick={(e) => { e.stopPropagation(); setWorkspaceMenu((current) => current === "active" ? null : "active"); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setWorkspaceDeleteConfirmation(null);
+                          setCopiedWorkspacePath(null);
+                          setWorkspaceMenu((current) => current === "active" ? null : "active");
+                        }}
                         title={t("app.workspaceActions")}
                         aria-label={t("app.workspaceActions")}
                         aria-haspopup="menu"
                         aria-expanded={workspaceMenu === "active"}
                       >
-                        <Trash2 size={16} strokeWidth={1.8} aria-hidden="true" />
+                        <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -978,9 +1015,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       style={{
                         position: "absolute",
                         top: "calc(100% + 4px)",
-                        right: 0,
+                        left: 0,
                         zIndex: 105,
-                        minWidth: 150,
+                        minWidth: "min(260px, calc(100vw - 24px))",
+                        width: "min(320px, calc(100vw - 24px))",
                         border: "1px solid var(--border)",
                         borderRadius: 7,
                         boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
@@ -988,23 +1026,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       }}
                     >
                       <div role="menu">
-                        <button
-                          type="button"
-                          className="sidebar-workspace-menu-item is-danger"
-                          role="menuitem"
-                          onClick={() => handleWorkspaceRemove(project)}
-                        >
-                          <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{t("general.delete")}</span>
-                        </button>
+                        <div className="sidebar-workspace-menu-path" title={project}>
+                          <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{project}</span>
+                        </div>
                         <button
                           type="button"
                           className="sidebar-workspace-menu-item"
                           role="menuitem"
-                          onClick={() => setWorkspaceMenu(null)}
+                          onClick={(e) => { e.stopPropagation(); handleCopyWorkspacePath(project); }}
                         >
-                          <X size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{t("general.cancel")}</span>
+                          <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{copiedWorkspacePath === project ? t("fileTree.pathCopied") : t("fileTree.copyFullPath")}</span>
+                        </button>
+                        <div className="sidebar-workspace-menu-divider" role="separator" />
+                        <button
+                          type="button"
+                          className="sidebar-workspace-menu-item is-danger"
+                          role="menuitem"
+                          onClick={(e) => { e.stopPropagation(); handleWorkspaceRemove(project); }}
+                          aria-label={workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.delete")}
+                        >
+                          <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.delete")}</span>
                         </button>
                       </div>
                     </AnimatedDropdown>

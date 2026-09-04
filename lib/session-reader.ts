@@ -14,6 +14,28 @@ import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
 
+/** Find the latest user-authored message in a session, ignoring assistant replies. */
+export function getLastUserMessageAt(entries: readonly SessionEntry[]): string | undefined {
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const entry of entries) {
+    if (entry.type !== "message" || entry.message.role !== "user") continue;
+    const timestamp = typeof entry.message.timestamp === "number"
+      ? entry.message.timestamp
+      : Date.parse(entry.timestamp);
+    if (Number.isFinite(timestamp) && timestamp > latest) latest = timestamp;
+  }
+  return Number.isFinite(latest) ? new Date(latest).toISOString() : undefined;
+}
+
+function readLastUserMessageAt(filePath: string): string | undefined {
+  try {
+    return getLastUserMessageAt(getSessionEntries(filePath));
+  } catch {
+    // The session may disappear or be rewritten between list and read.
+    return undefined;
+  }
+}
+
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
@@ -27,9 +49,14 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
+  const lastUserMessageAtByPath = new Map(
+    piSessions.map((session) => [normalizePath(session.path), readLastUserMessageAt(session.path)] as const),
+  );
+
   return piSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
     const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
+    const lastUserMessageAt = lastUserMessageAtByPath.get(normalizePath(s.path));
     return {
       path: s.path,
       id: s.id,
@@ -37,6 +64,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       name: s.name,
       created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
+      ...(lastUserMessageAt ? { lastUserMessageAt } : {}),
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
       parentSessionId: s.parentSessionPath ? pathToId.get(normalizePath(s.parentSessionPath)) : undefined,

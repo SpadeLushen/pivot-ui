@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, ImagePlus } from "lucide-react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
+import { ChevronRight, ImagePlus } from "lucide-react";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ExtensionStatusItem, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
@@ -18,6 +18,14 @@ import type { EnterBehavior, TimeFormat } from "@/lib/ui-preferences";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 
+export interface CompactionControls {
+  isCompacting: boolean;
+  isStreaming: boolean;
+  error: string | null;
+  compact: () => void;
+  abort: () => void;
+}
+
 interface Props {
   session: SessionInfo | null;
   newSessionCwd: string | null;
@@ -30,6 +38,8 @@ interface Props {
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
+  onCompactionStateChange?: (controls: CompactionControls | null) => void;
+  onExtensionStatusesChange?: (statuses: ExtensionStatusItem[] | null) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   showTps?: boolean;
@@ -143,7 +153,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -224,6 +234,33 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [statsKey, onSessionStatsChange]);
   useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
 
+  // Expose current compaction actions to the top bar without tying them to the
+  // composer UI. Refs keep the action wrappers current between state updates.
+  const compactActionRef = useRef(handleCompact);
+  compactActionRef.current = handleCompact;
+  const abortCompactionActionRef = useRef(handleAbortCompaction);
+  abortCompactionActionRef.current = handleAbortCompaction;
+  useEffect(() => {
+    onCompactionStateChange?.({
+      isCompacting,
+      isStreaming: agentRunning,
+      error: compactError,
+      compact: () => compactActionRef.current(),
+      abort: () => abortCompactionActionRef.current(),
+    });
+  }, [agentRunning, isCompacting, compactError, onCompactionStateChange]);
+  useEffect(() => () => { onCompactionStateChange?.(null); }, [onCompactionStateChange]);
+
+  // Push extension statuses up to AppShell for the top bar. Keep the cleanup
+  // separate from the value effect so updates do not briefly clear the header.
+  const extensionStatusesKey = JSON.stringify(extensionStatuses);
+  const extensionStatusesRef = useRef(extensionStatuses);
+  extensionStatusesRef.current = extensionStatuses;
+  useEffect(() => {
+    onExtensionStatusesChange?.(extensionStatusesRef.current);
+  }, [extensionStatusesKey, onExtensionStatusesChange]);
+  useEffect(() => () => { onExtensionStatusesChange?.(null); }, [onExtensionStatusesChange]);
+
   // Push context usage up to AppShell as well.
   const ctxKey = contextUsage
     ? `${contextUsage.percent ?? "null"}|${contextUsage.contextWindow}|${contextUsage.tokens ?? "null"}`
@@ -272,10 +309,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
-      onCompact={session || isNew ? handleCompact : undefined}
-      onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
-      compactError={compactError}
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
@@ -394,13 +428,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
-        {extensionStatuses.length > 0 && (
-          <div className="shrink-0" style={{ padding: `16px ${CHAT_COLUMN_PADDING}px 0` }}>
-            <div style={{ maxWidth: 820, margin: "0 auto" }}>
-              <ExtensionStatusBar statuses={extensionStatuses} isMobile={isMobile} />
-            </div>
-          </div>
-        )}
         <div className="relative flex flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="chat-message-scroll flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
@@ -619,51 +646,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </>
       )}
     </div>
-  );
-}
-
-function ExtensionStatusBar({ statuses, isMobile }: { statuses: Array<{ key: string; text: string }>; isMobile: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  if (statuses.length === 0) return null;
-  const tags = statuses.map((status) => (
-    <span
-      key={status.key}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        maxWidth: "100%",
-        padding: "4px 8px",
-        border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
-        borderRadius: 6,
-        background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
-        color: "var(--text-muted)",
-        fontSize: 12,
-        flexShrink: 0,
-      }}
-    >
-      <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status.text}</span>
-    </span>
-  ));
-
-  if (!isMobile) {
-    return <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>{tags}</div>;
-  }
-
-  return (
-    <button
-      type="button"
-      aria-expanded={expanded}
-      aria-label={expanded ? "Collapse extension statuses" : "Expand extension statuses"}
-      onClick={() => setExpanded((value) => !value)}
-      style={{ display: "flex", alignItems: "flex-start", gap: 6, width: "100%", marginBottom: 10, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-    >
-      <span style={{ display: "flex", flex: 1, minWidth: 0, flexWrap: expanded ? "wrap" : "nowrap", gap: 6, overflow: "hidden" }}>
-        {tags}
-      </span>
-      <ChevronDown size={14} strokeWidth={1.6} aria-hidden="true" style={{ flexShrink: 0, marginTop: 5, color: "var(--text-dim)", transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-    </button>
   );
 }
 

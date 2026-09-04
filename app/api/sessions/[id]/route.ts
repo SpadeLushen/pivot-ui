@@ -8,6 +8,7 @@ import {
   invalidateSessionPathCache,
   invalidateSessionListCache,
   buildSessionContext,
+  getLastUserMessageAt,
   readSessionHeader,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -135,6 +136,7 @@ export async function GET(
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
+    const lastUserMessageAt = getLastUserMessageAt(entries);
     const parentSessionId = header?.parentSession
       ? await resolveSessionIdByPath(header.parentSession)
       : undefined;
@@ -145,6 +147,7 @@ export async function GET(
       name: sm.getSessionName(),
       created: header.timestamp,
       modified,
+      ...(lastUserMessageAt ? { lastUserMessageAt } : {}),
       messageCount: context.messages.length,
       firstMessage: context.messages.find((m) => m.role === "user")
         ? (() => {

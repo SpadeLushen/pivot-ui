@@ -549,13 +549,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // new-session -> existing-session prop transition.
     clearDraft(`new:${newSessionCwd}`);
     opts.chatInputRef?.current?.clearInput();
+    const now = new Date().toISOString();
     onSessionCreated?.({
       id: sid,
       path: "",
       cwd: newSessionCwd,
       name: undefined,
-      created: new Date().toISOString(),
-      modified: new Date().toISOString(),
+      created: now,
+      modified: now,
+      lastUserMessageAt: now,
       messageCount,
       firstMessage,
     });

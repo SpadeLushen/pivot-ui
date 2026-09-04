@@ -3,10 +3,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, Check, Copy, Eye, FileText, Gauge, History, Info, Menu, Moon, PanelLeftClose, RotateCcw, Settings, Sun } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Menu, Minimize2, Moon, PanelLeftClose, RotateCcw, Settings, Square, Sun } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { SessionSidebar } from "./SessionSidebar";
-import { ChatWindow } from "./ChatWindow";
+import { ChatWindow, type CompactionControls } from "./ChatWindow";
 import { SettingsModal } from "./SettingsModal";
 import { SkillsConfig } from "./SkillsConfig";
 import { McpConfig } from "./McpConfig";
@@ -30,7 +30,7 @@ import {
 import { copyText } from "@/lib/clipboard";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
-import type { SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -49,7 +49,98 @@ function isDirectoryPath(filePath: string, sessionId: string | null): Promise<bo
     .catch(() => false);
 }
 
+function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusItem[]; isMobile: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  if (statuses.length === 0) return null;
+
+  const summary = statuses.map((status) => `${status.key}: ${status.text}`).join(" · ");
+  const tags = statuses.map((status) => (
+    <span
+      key={status.key}
+      title={`${status.key}: ${status.text}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        maxWidth: "100%",
+        padding: "4px 8px",
+        border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
+        borderRadius: 6,
+        background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
+        color: "var(--text-muted)",
+        fontSize: 12,
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status.text}</span>
+    </span>
+  ));
+
+  if (!isMobile) {
+    return (
+      <div
+        title={summary}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          minWidth: 0,
+          maxWidth: "min(380px, 34vw)",
+          flex: "0 1 min(380px, 34vw)",
+          overflow: "hidden",
+          margin: "0 8px",
+        }}
+      >
+        {tags}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "relative", display: "flex", alignItems: "center", minWidth: 0, maxWidth: "min(180px, 38vw)", flex: "0 1 180px", height: "100%", margin: "0 4px" }}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={expanded ? "Collapse extension statuses" : "Expand extension statuses"}
+        title={summary}
+        onClick={() => setExpanded((value) => !value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          width: "100%",
+          minWidth: 0,
+          height: "100%",
+          padding: "0 4px",
+          border: "none",
+          background: expanded ? "var(--bg-selected)" : "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, gap: 6, overflow: "hidden" }}>
+          {tags}
+        </span>
+        <ChevronDown size={14} strokeWidth={1.6} aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)", transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+      </button>
+      {expanded && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 600, display: "flex", flexDirection: "column", gap: 6, width: "min(280px, calc(100vw - 16px))", maxWidth: "calc(100vw - 16px)", padding: 8, border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg-panel)", boxShadow: "0 10px 28px rgba(0,0,0,0.16)" }}>
+          {tags}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type SessionCopyField = "file" | "id";
+
+type CompactionDisplayState = Pick<CompactionControls, "isCompacting" | "isStreaming" | "error">;
+const EMPTY_COMPACTION_STATE: CompactionDisplayState = {
+  isCompacting: false,
+  isStreaming: false,
+  error: null,
+};
 
 export function AppShell() {
   const router = useRouter();
@@ -132,6 +223,23 @@ export function AppShell() {
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
+  }, []);
+
+  // Extension statuses — populated by ChatWindow, displayed beside the left top-bar buttons
+  const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
+  const handleExtensionStatusesChange = useCallback((statuses: ExtensionStatusItem[] | null) => {
+    setExtensionStatuses(statuses ?? []);
+  }, []);
+
+  const compactControlsRef = useRef<CompactionControls | null>(null);
+  const [compactionState, setCompactionState] = useState<CompactionDisplayState>(EMPTY_COMPACTION_STATE);
+  const handleCompactionStateChange = useCallback((controls: CompactionControls | null) => {
+    compactControlsRef.current = controls;
+    setCompactionState(controls ? {
+      isCompacting: controls.isCompacting,
+      isStreaming: controls.isStreaming,
+      error: controls.error,
+    } : EMPTY_COMPACTION_STATE);
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
@@ -239,6 +347,9 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
+    setExtensionStatuses([]);
+    compactControlsRef.current = null;
+    setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     router.replace("/", { scroll: false });
   }, [newSessionCwd, router, selectedSession]);
@@ -254,6 +365,9 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
+    setExtensionStatuses([]);
+    compactControlsRef.current = null;
+    setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     router.replace("/", { scroll: false });
   }, [router]);
@@ -264,6 +378,9 @@ export function AppShell() {
     setActiveProjectRoot(session.projectRoot ?? session.cwd);
     setSessionKey((k) => k + 1);
     setSystemPrompt(null);
+    setExtensionStatuses([]);
+    compactControlsRef.current = null;
+    setCompactionState(EMPTY_COMPACTION_STATE);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
@@ -287,6 +404,9 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
+    setExtensionStatuses([]);
+    compactControlsRef.current = null;
+    setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
@@ -341,6 +461,8 @@ export function AppShell() {
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
     }));
+    compactControlsRef.current = null;
+    setCompactionState(EMPTY_COMPACTION_STATE);
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [router, hydrateSelectedSession]);
@@ -359,6 +481,9 @@ export function AppShell() {
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
+      setExtensionStatuses([]);
+      compactControlsRef.current = null;
+      setCompactionState(EMPTY_COMPACTION_STATE);
       setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
@@ -388,6 +513,19 @@ export function AppShell() {
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const compactButtonDisabled = !selectedSession || (compactionState.isStreaming && !compactionState.isCompacting);
+  const compactButtonTitle = !selectedSession
+    ? "Compact is available after the session is saved"
+    : compactionState.error
+      ?? (compactionState.isCompacting
+        ? t("chat.stopGeneration")
+        : compactionState.isStreaming ? "Compact is available after the agent finishes" : t("chat.compactContext"));
+  const handleCompactButtonClick = useCallback(() => {
+    const controls = compactControlsRef.current;
+    if (!controls || !selectedSession) return;
+    if (controls.isCompacting) controls.abort();
+    else if (!controls.isStreaming) controls.compact();
+  }, [selectedSession]);
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
@@ -626,31 +764,84 @@ export function AppShell() {
                 containerRef={topBarRef}
                 open={activeTopPanel === "branches"}
                 onToggle={() => toggleTopPanel("branches")}
-                hasSession
+                hasSession={Boolean(selectedSession)}
               />
               <button
                 ref={systemBtnRef}
-                onClick={() => toggleTopPanel("system")}
-                title={t("app.systemPrompt")}
+                onClick={() => {
+                  if (!selectedSession) return;
+                  toggleTopPanel("system");
+                }}
+                disabled={!selectedSession}
+                title={selectedSession ? t("app.systemPrompt") : "System prompt is available after the session is saved"}
                 aria-label={t("app.systemPrompt")}
-                aria-pressed={activeTopPanel === "system"}
+                aria-disabled={!selectedSession}
+                aria-pressed={selectedSession ? activeTopPanel === "system" : undefined}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   height: "100%", padding: "0 12px",
-                  background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
+                  background: selectedSession && activeTopPanel === "system" ? "var(--bg-selected)" : "none",
                   border: "none",
-                  borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
+                  borderTop: selectedSession && activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
                   borderRight: "1px solid var(--border)",
-                  cursor: "pointer",
-                  color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                  cursor: selectedSession ? "pointer" : "not-allowed",
+                  color: selectedSession && activeTopPanel === "system" ? "var(--text)" : selectedSession ? "var(--text-muted)" : "var(--text-dim)",
+                  opacity: selectedSession ? 1 : 0.45,
+                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s, opacity 0.1s",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)"; }}
+                onMouseEnter={(e) => {
+                  if (!selectedSession) return;
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = selectedSession && activeTopPanel === "system" ? "var(--text)" : selectedSession ? "var(--text-muted)" : "var(--text-dim)";
+                }}
               >
-                <FileText size={13} strokeWidth={1.8} aria-hidden="true" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} />
+                <FileText size={13} strokeWidth={1.8} aria-hidden="true" style={{ color: selectedSession && systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} />
                 {!isMobile && <span>{t("app.systemPrompt")}</span>}
               </button>
+              <button
+                type="button"
+                onClick={handleCompactButtonClick}
+                disabled={compactButtonDisabled}
+                title={compactButtonTitle}
+                aria-label={compactionState.isCompacting ? t("chat.stopGeneration") : t("chat.compact")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: "100%", padding: "0 12px",
+                  background: compactionState.isCompacting ? "rgba(239,68,68,0.08)" : "none",
+                  border: "none",
+                  borderTop: "2px solid transparent",
+                  borderRight: "1px solid var(--border)",
+                  cursor: compactButtonDisabled ? "not-allowed" : "pointer",
+                  color: compactButtonDisabled
+                    ? "var(--text-dim)"
+                    : compactionState.error || compactionState.isCompacting ? "#ef4444" : "var(--text-muted)",
+                  opacity: compactButtonDisabled ? 0.45 : 1,
+                  fontSize: 11, whiteSpace: "nowrap",
+                  transition: "color 0.1s, background 0.1s, opacity 0.1s",
+                }}
+                onMouseEnter={(e) => {
+                  if (compactButtonDisabled) return;
+                  e.currentTarget.style.background = compactionState.isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
+                  e.currentTarget.style.color = compactionState.isCompacting || compactionState.error ? "#ef4444" : "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = compactionState.isCompacting ? "rgba(239,68,68,0.08)" : "none";
+                  e.currentTarget.style.color = compactButtonDisabled
+                    ? "var(--text-dim)"
+                    : compactionState.error || compactionState.isCompacting ? "#ef4444" : "var(--text-muted)";
+                }}
+              >
+                {compactionState.isCompacting ? (
+                  <><Square size={10} fill="currentColor" aria-hidden="true" />{!isMobile && <span>{t("chat.compacting")}</span>}</>
+                ) : (
+                  <><Minimize2 size={11} strokeWidth={2} aria-hidden="true" />{!isMobile && <span>{t("chat.compact")}</span>}</>
+                )}
+              </button>
+              {showChat && extensionStatuses.length > 0 && (
+                <ExtensionStatusBar statuses={extensionStatuses} isMobile={isMobile} />
+              )}
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
@@ -962,6 +1153,8 @@ export function AppShell() {
               onBranchDataChange={handleBranchDataChange}
               onSystemPromptChange={handleSystemPromptChange}
               onSessionStatsChange={handleSessionStatsChange}
+              onCompactionStateChange={handleCompactionStateChange}
+              onExtensionStatusesChange={handleExtensionStatusesChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}

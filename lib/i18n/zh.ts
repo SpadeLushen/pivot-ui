@@ -78,6 +78,7 @@ const zh: Record<string, string> = {
   "app.creating": "创建中...",
   "app.removeWorkspace": "移除工作区",
   "app.removeWorkspaceConfirm": '从工作区中移除"${path}"？',
+  "app.confirmWorkspaceDelete": "再点击一次确认",
   "app.selecting": "选择中...",
   "app.closeNavigation": "关闭导航",
   "app.recentSessions": "最近会话",

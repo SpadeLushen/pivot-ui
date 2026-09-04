@@ -333,6 +333,8 @@ export interface SessionInfo {
   name?: string;
   created: string;
   modified: string;
+  /** Latest user-authored message timestamp; assistant replies do not update it. */
+  lastUserMessageAt?: string;
   messageCount: number;
   firstMessage: string;
   parentSessionId?: string; // set if this session was forked from another

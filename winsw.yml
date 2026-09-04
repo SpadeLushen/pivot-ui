@@ -19,5 +19,4 @@ onFailure:
     delay: 5 sec
   - action: restart
     delay: 5 sec
-  - action: restart
-    delay: 5 sec
+  - action: none
