@@ -255,9 +255,14 @@ export const RightPanel = forwardRef<RightPanelHandle, Props>(function RightPane
       const tab = toolTabs.find((candidate) => candidate.id === tabId);
       const removeToolTab = () => setToolTabs((previous) => {
         const next = previous.filter((tab) => tab.id !== tabId);
+        const remaining = [...next, ...fileTabs];
         if (activeTabId === tabId) {
-          const remaining = [...next, ...fileTabs];
           setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+        }
+        if (remaining.length === 0) {
+          setPanelOpen(false);
+          setPanelFullscreen(false);
+          setMenuOpen(false);
         }
         return next;
       });
@@ -274,9 +279,14 @@ export const RightPanel = forwardRef<RightPanelHandle, Props>(function RightPane
 
     setFileTabs((previous) => {
       const next = previous.filter((tab) => tab.id !== tabId);
+      const remaining = [...toolTabs, ...next];
       if (activeTabId === tabId) {
-        const remaining = [...toolTabs, ...next];
         setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+      }
+      if (remaining.length === 0) {
+        setPanelOpen(false);
+        setPanelFullscreen(false);
+        setMenuOpen(false);
       }
       return next;
     });

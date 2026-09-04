@@ -9,6 +9,16 @@ test("does not auto-open the panel for a new workspace without saved state", asy
   assert.doesNotMatch(panel, /setPanelOpen\(saved\?\.panelOpen \?\? window\.matchMedia/);
 });
 
+test("hides the panel when closing the final file or tool tab", async () => {
+  const panel = await readFile(new URL("./RightPanel.tsx", import.meta.url), "utf8");
+  const closeTab = panel.slice(panel.indexOf("const closeTab"), panel.indexOf("const tabs:"));
+
+  assert.equal((closeTab.match(/if \(remaining\.length === 0\)/g) ?? []).length, 2);
+  assert.equal((closeTab.match(/setPanelOpen\(false\);/g) ?? []).length, 2);
+  assert.match(closeTab, /const remaining = \[\.\.\.next, \.\.\.fileTabs\];[\s\S]*?if \(remaining\.length === 0\)/);
+  assert.match(closeTab, /const remaining = \[\.\.\.toolTabs, \.\.\.next\];[\s\S]*?if \(remaining\.length === 0\)/);
+});
+
 test("exposes revealInFileTree on the imperative handle with isDir support", async () => {
   const panel = await readFile(new URL("./RightPanel.tsx", import.meta.url), "utf8");
 
