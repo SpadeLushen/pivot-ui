@@ -950,19 +950,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   type="button"
                   className="sidebar-workspace-menu-item"
                   role="menuitem"
-                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); void handleDefaultCwd(); }}
+                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); setDirectoryPickerOpen(true); }}
                 >
                   <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{t("app.useDefaultDir")}</span>
+                  <span>{t("app.chooseFolder")}</span>
                 </button>
                 <button
                   type="button"
                   className="sidebar-workspace-menu-item"
                   role="menuitem"
-                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); setDirectoryPickerOpen(true); }}
+                  onClick={(e) => { e.stopPropagation(); setWorkspaceMenu(null); void handleDefaultCwd(); }}
                 >
                   <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{t("app.chooseFolder")}</span>
+                  <span>{t("app.useDefaultDir")}</span>
                 </button>
               </div>
             </AnimatedDropdown>
