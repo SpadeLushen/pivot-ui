@@ -55,6 +55,8 @@ const zh: Record<string, string> = {
   "app.systemPrompt": "系统提示词",
   "app.systemPromptEmpty": "系统提示词为空（工具已禁用）",
   "app.systemPromptLoading": "发送消息以加载系统提示词",
+  "app.expandExtensionStatuses": "展开扩展状态",
+  "app.collapseExtensionStatuses": "收起扩展状态",
   "app.sessionInfo": "会话信息",
   "app.sessionInfoSendFirst": "发送消息或运行 /session 加载会话信息",
   "app.workspace": "工作区",

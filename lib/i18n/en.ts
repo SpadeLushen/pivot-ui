@@ -53,6 +53,8 @@ const en: Record<string, string> = {
   "app.systemPrompt": "System prompt",
   "app.systemPromptEmpty": "System prompt is empty (tools are disabled)",
   "app.systemPromptLoading": "Send a message to load the system prompt",
+  "app.expandExtensionStatuses": "Expand extension statuses",
+  "app.collapseExtensionStatuses": "Collapse extension statuses",
   "app.sessionInfo": "Session info",
   "app.sessionInfoSendFirst": "Send a message or run /session to load session info",
   "app.workspace": "Workspace",

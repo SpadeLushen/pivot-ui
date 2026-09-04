@@ -49,11 +49,43 @@ function isDirectoryPath(filePath: string, sessionId: string | null): Promise<bo
     .catch(() => false);
 }
 
-function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusItem[]; isMobile: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+function ExtensionStatusBar({
+  statuses,
+  isMobile,
+  open,
+  onToggle,
+}: {
+  statuses: ExtensionStatusItem[];
+  isMobile: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useI18n();
+  const statusContentRef = useRef<HTMLDivElement>(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useEffect(() => {
+    const element = statusContentRef.current;
+    if (!element) return;
+
+    const checkOverflow = () => {
+      setHasOverflow(element.scrollWidth > element.clientWidth + 1);
+    };
+    checkOverflow();
+
+    const resizeObserver = new ResizeObserver(checkOverflow);
+    resizeObserver.observe(element);
+    window.addEventListener("resize", checkOverflow);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", checkOverflow);
+    };
+  }, [statuses, isMobile]);
+
   if (statuses.length === 0) return null;
 
   const summary = statuses.map((status) => `${status.key}: ${status.text}`).join(" · ");
+  const showExpandButton = hasOverflow || open;
   const tags = statuses.map((status) => (
     <span
       key={status.key}
@@ -62,7 +94,7 @@ function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusI
         display: "flex",
         alignItems: "center",
         gap: 6,
-        maxWidth: "100%",
+        width: "max-content",
         padding: "4px 8px",
         border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
         borderRadius: 6,
@@ -77,57 +109,57 @@ function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusI
     </span>
   ));
 
-  if (!isMobile) {
-    return (
+  return (
+    <div style={{ position: "relative", display: "flex", alignItems: "center", minWidth: 0, maxWidth: "none", flex: "1 1 auto", height: "100%", margin: isMobile ? "0 4px" : "0 8px" }}>
       <div
+        ref={statusContentRef}
         title={summary}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 6,
           minWidth: 0,
-          maxWidth: "none",
           flex: "1 1 auto",
           overflow: "hidden",
-          margin: "0 8px",
         }}
       >
         {tags}
       </div>
-    );
-  }
-
-  return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", minWidth: 0, maxWidth: "none", flex: "1 1 auto", height: "100%", margin: "0 4px" }}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-label={expanded ? "Collapse extension statuses" : "Expand extension statuses"}
-        title={summary}
-        onClick={() => setExpanded((value) => !value)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          width: "100%",
-          minWidth: 0,
-          height: "100%",
-          padding: "0 4px",
-          border: "none",
-          background: expanded ? "var(--bg-selected)" : "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-        }}
-      >
-        <span style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0, gap: 6, overflow: "hidden" }}>
-          {tags}
-        </span>
-        <ChevronDown size={14} strokeWidth={1.6} aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)", transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-      </button>
-      {expanded && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 600, display: "flex", flexDirection: "column", gap: 6, width: "min(280px, calc(100vw - 16px))", maxWidth: "calc(100vw - 16px)", padding: 8, border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg-panel)", boxShadow: "0 10px 28px rgba(0,0,0,0.16)" }}>
-          {tags}
-        </div>
+      {showExpandButton && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={open ? t("app.collapseExtensionStatuses") : t("app.expandExtensionStatuses")}
+          title={open ? t("app.collapseExtensionStatuses") : summary}
+          onClick={onToggle}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: isMobile ? 28 : 30,
+            height: "100%",
+            flexShrink: 0,
+            padding: 0,
+            border: "none",
+            borderLeft: "1px solid var(--border)",
+            borderTop: open ? "2px solid var(--accent)" : "2px solid transparent",
+            background: open ? "var(--bg-selected)" : "none",
+            color: open ? "var(--text)" : "var(--text-muted)",
+            cursor: "pointer",
+            transition: "color 0.1s, background 0.1s",
+          }}
+        >
+          <ChevronDown
+            size={14}
+            strokeWidth={1.6}
+            aria-hidden="true"
+            style={{
+              color: "var(--text-dim)",
+              transform: open ? "rotate(180deg)" : "none",
+              transition: "transform 0.15s",
+            }}
+          />
+        </button>
       )}
     </div>
   );
@@ -271,10 +303,10 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "extensions" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "extensions") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
@@ -850,7 +882,12 @@ export function AppShell() {
                 )}
               </button>
               {showChat && extensionStatuses.length > 0 && (
-                <ExtensionStatusBar statuses={extensionStatuses} isMobile={isMobile} />
+                <ExtensionStatusBar
+                  statuses={extensionStatuses}
+                  isMobile={isMobile}
+                  open={activeTopPanel === "extensions"}
+                  onToggle={() => toggleTopPanel("extensions")}
+                />
               )}
             </div>
           )}
@@ -957,6 +994,55 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
+              {activeTopPanel === "extensions" && extensionStatuses.length > 0 && (
+                <div style={{
+                  background: "var(--bg-panel)",
+                  borderBottom: "1px solid var(--border)",
+                }}>
+                  <div style={{
+                    maxHeight: "min(600px, 75vh)",
+                    overflowY: "auto",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    padding: "12px 16px",
+                    color: "var(--text-muted)",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    fontFamily: "var(--font-mono)",
+                    whiteSpace: "normal",
+                  }}>
+                    {extensionStatuses.map((status) => (
+                      <div
+                        key={status.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                          width: "max-content",
+                          maxWidth: "100%",
+                          minWidth: 0,
+                          flexShrink: 0,
+                          padding: "4px 8px",
+                          border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
+                          borderRadius: 6,
+                          background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        <span style={{ color: "var(--accent)", fontSize: 11, flexShrink: 0 }}>{status.key}</span>
+                        <span style={{
+                          minWidth: 0,
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                          wordBreak: "break-word",
+                        }}>{status.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {activeTopPanel === "system" && (
                 <div style={{
                   background: "var(--bg-panel)",
