@@ -86,8 +86,8 @@ function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusI
           alignItems: "center",
           gap: 6,
           minWidth: 0,
-          maxWidth: "min(380px, 34vw)",
-          flex: "0 1 min(380px, 34vw)",
+          maxWidth: "none",
+          flex: "1 1 auto",
           overflow: "hidden",
           margin: "0 8px",
         }}
@@ -98,7 +98,7 @@ function ExtensionStatusBar({ statuses, isMobile }: { statuses: ExtensionStatusI
   }
 
   return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center", minWidth: 0, maxWidth: "min(180px, 38vw)", flex: "0 1 180px", height: "100%", margin: "0 4px" }}>
+    <div style={{ position: "relative", display: "flex", alignItems: "center", minWidth: 0, maxWidth: "none", flex: "1 1 auto", height: "100%", margin: "0 4px" }}>
       <button
         type="button"
         aria-expanded={expanded}
@@ -718,7 +718,7 @@ export function AppShell() {
             {theme === "light" ? <Moon size={16} strokeWidth={1.8} aria-hidden="true" /> : theme === "dark" ? <Eye size={16} strokeWidth={1.8} aria-hidden="true" /> : <Sun size={16} strokeWidth={1.8} aria-hidden="true" />}
           </button>
           {showChat && (
-            <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "stretch", height: "100%", flex: "1 1 auto", minWidth: 0 }}>
               <button
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
