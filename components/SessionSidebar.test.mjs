@@ -9,6 +9,7 @@ test("workspace menus keep actions separate", async () => {
   assert.match(sidebar, /t\("app\.useDefaultDir"\)/);
   assert.match(sidebar, /t\("app\.chooseFolder"\)/);
   assert.match(sidebar, /open=\{workspaceMenu === "active"\}/);
+  assert.match(sidebar, /t\("general\.remove"\)/);
   assert.match(sidebar, /t\("app\.confirmWorkspaceDelete"\)/);
   assert.match(sidebar, /t\("fileTree\.copyFullPath"\)/);
   assert.match(sidebar, /className="sidebar-workspace-menu-path"/);

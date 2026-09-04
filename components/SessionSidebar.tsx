@@ -1045,10 +1045,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           className="sidebar-workspace-menu-item is-danger"
                           role="menuitem"
                           onClick={(e) => { e.stopPropagation(); handleWorkspaceRemove(project); }}
-                          aria-label={workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.delete")}
+                          aria-label={workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.remove")}
                         >
                           <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.delete")}</span>
+                          <span>{workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.remove")}</span>
                         </button>
                       </div>
                     </AnimatedDropdown>
