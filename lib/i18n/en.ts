@@ -229,6 +229,8 @@ const en: Record<string, string> = {
   "chat.uploadFile": "Upload file",
   "chat.collapseDetails": "Collapse details",
   "chat.expandDetails": "Expand details",
+  "chat.noticeDetails": "Details",
+  "chat.noticeDetailsTitle": "Message details",
   "chat.stopGeneration": "Stop generation",
   "chat.regenerate": "Regenerate",
   "chat.model": "Model",

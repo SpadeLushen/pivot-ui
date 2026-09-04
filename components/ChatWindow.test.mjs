@@ -224,3 +224,24 @@ test("starts live thinking at the model header and removes empty provider thinki
   assert.match(messageView, /thinkingStructureKey/);
   assert.match(messageView, /updateStreamingThinkingDurations/);
 });
+
+test("always shows notice details in a modal instead of expanding the toast", async () => {
+  const chatWindow = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  const noticeBlock = chatWindow.slice(
+    chatWindow.indexOf("function noticeColor"),
+    chatWindow.indexOf("type ExtensionDialogRequest"),
+  );
+  const dialogBlock = noticeBlock.slice(
+    noticeBlock.indexOf("function NoticeDetailsDialog"),
+    noticeBlock.indexOf("function NoticeShelf({"),
+  );
+
+  assert.match(noticeBlock, /className="notice-details-button"/);
+  assert.match(noticeBlock, /onClick=\{\(\) => onShowDetails\(notice\)\}/);
+  assert.doesNotMatch(noticeBlock, /ResizeObserver|scrollWidth|isOverflowing/);
+  assert.match(dialogBlock, /createPortal\(/);
+  assert.match(dialogBlock, /role="dialog"/);
+  assert.match(dialogBlock, /whiteSpace: "pre-wrap"/);
+  assert.match(dialogBlock, /overflowWrap: "anywhere"/);
+  assert.match(dialogBlock, /\{notice\.message\}/);
+});

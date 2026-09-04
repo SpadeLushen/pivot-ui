@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronRight, ImagePlus } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ChevronRight, FileText, ImagePlus, X } from "lucide-react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ExtensionStatusItem, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -675,72 +676,223 @@ function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: st
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
-  if (notices.length === 0) return null;
+function noticeColor(type: NoticeItem["type"]): string {
+  return type === "error"
+    ? "#ef4444"
+    : type === "warning"
+      ? "#d97706"
+      : type === "success"
+        ? "#10b981"
+        : "var(--accent)";
+}
+
+function NoticeShelfItem({ notice, isLast, floating, onShowDetails }: { notice: NoticeItem; isLast: boolean; floating: boolean; onShowDetails: (notice: NoticeItem) => void }) {
+  const { t } = useI18n();
+
   return (
     <div
+      className="notice-shelf-item"
       style={{
         display: "flex",
-        flexDirection: "column",
-        alignItems: align === "right" ? "flex-end" : "stretch",
-        marginBottom: floating ? 0 : 10,
+        alignItems: "center",
+        gap: 10,
+        minHeight: 60,
+        height: 60,
+        maxHeight: 60,
+        marginBottom: isLast ? 0 : 6,
+        overflow: "hidden",
+        borderRadius: 14,
+        border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
+        background: "var(--bg)",
+        color: "var(--text-muted)",
+        width: "fit-content",
+        maxWidth: "min(100%, 620px)",
+        boxShadow: floating
+          ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
+          : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+        fontSize: 18,
+        lineHeight: 1.45,
+        transformOrigin: "top center",
+        animation: notice.exiting
+          ? "notice-shelf-out 0.18s ease-in forwards"
+          : "notice-shelf-in 0.18s ease-out both",
+        padding: "0 12px",
+        // The floating shelf disables pointer events so it does not block the
+        // chat; the notice itself opts back in to make the details button usable.
+        pointerEvents: "auto",
       }}
     >
-      {notices.map((notice, index) => {
-        const color = notice.type === "error"
-          ? "#ef4444"
-          : notice.type === "warning"
-            ? "#d97706"
-            : notice.type === "success"
-              ? "#10b981"
-              : "var(--accent)";
-        return (
-          <div
-            key={notice.id}
-            className="notice-shelf-item"
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: noticeColor(notice.type),
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {notice.message}
+      </span>
+      <button
+        type="button"
+        className="notice-details-button"
+        aria-label={t("chat.noticeDetails")}
+        title={t("chat.noticeDetails")}
+        onClick={() => onShowDetails(notice)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 3,
+          flexShrink: 0,
+          padding: "4px 2px",
+          border: "none",
+          borderRadius: 4,
+          background: "transparent",
+          color: "var(--text-dim)",
+          cursor: "pointer",
+          fontSize: 11,
+          lineHeight: 1.2,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <FileText size={12} strokeWidth={1.8} aria-hidden="true" />
+        <span>{t("chat.noticeDetails")}</span>
+      </button>
+    </div>
+  );
+}
+
+function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose: () => void }) {
+  const { t } = useI18n();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1200,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        background: "rgba(0,0,0,0.38)",
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="modal-surface"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="notice-details-title"
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(720px, calc(100vw - 32px))",
+          maxHeight: "calc(100dvh - 32px)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          background: "var(--bg)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: noticeColor(notice.type), flexShrink: 0 }} />
+          <div id="notice-details-title" style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14, fontWeight: 650 }}>
+            {t("chat.noticeDetailsTitle")}
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label={t("general.close")}
+            title={t("general.close")}
+            onClick={onClose}
             style={{
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
-              gap: 10,
-              minHeight: 60,
-              height: 60,
-              maxHeight: 60,
-              marginBottom: index === notices.length - 1 ? 0 : 6,
-              overflow: "hidden",
-              borderRadius: 14,
-              border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-              background: "var(--bg)",
+              justifyContent: "center",
+              flexShrink: 0,
+              width: 28,
+              height: 28,
+              padding: 0,
+              border: "none",
+              borderRadius: 5,
+              background: "transparent",
               color: "var(--text-muted)",
-              width: "fit-content",
-              maxWidth: "min(100%, 620px)",
-              boxShadow: floating
-                ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
-                : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 18,
-              lineHeight: 1.45,
-              transformOrigin: "top center",
-              animation: notice.exiting
-                ? "notice-shelf-out 0.18s ease-in forwards"
-                : "notice-shelf-in 0.18s ease-out both",
-              padding: "0 12px",
+              cursor: "pointer",
             }}
           >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: color,
-                flexShrink: 0,
-              }}
+            <X size={16} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </div>
+        <div
+          style={{
+            flex: "1 1 auto",
+            minHeight: 0,
+            padding: "16px 18px",
+            overflowY: "auto",
+            color: "var(--text)",
+            fontSize: 14,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+          }}
+        >
+          {notice.message}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
+  const [detailNotice, setDetailNotice] = useState<NoticeItem | null>(null);
+  const showDetails = useCallback((notice: NoticeItem) => setDetailNotice(notice), []);
+  const closeDetails = useCallback(() => setDetailNotice(null), []);
+
+  if (notices.length === 0 && !detailNotice) return null;
+  return (
+    <>
+      {notices.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: align === "right" ? "flex-end" : "stretch",
+            marginBottom: floating ? 0 : 10,
+          }}
+        >
+          {notices.map((notice, index) => (
+            <NoticeShelfItem
+              key={notice.id}
+              notice={notice}
+              isLast={index === notices.length - 1}
+              floating={floating}
+              onShowDetails={showDetails}
             />
-            <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {notice.message}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+          ))}
+        </div>
+      )}
+      {detailNotice && <NoticeDetailsDialog notice={detailNotice} onClose={closeDetails} />}
+    </>
   );
 }
 

@@ -231,6 +231,8 @@ const zh: Record<string, string> = {
   "chat.uploadFile": "上传文件",
   "chat.collapseDetails": "收起详情",
   "chat.expandDetails": "展开详情",
+  "chat.noticeDetails": "详情",
+  "chat.noticeDetailsTitle": "消息详情",
   "chat.stopGeneration": "停止生成",
   "chat.regenerate": "重新生成",
   "chat.model": "模型",
