@@ -348,6 +348,52 @@ pre, code {
   margin: 6px 0;
 }
 
+.markdown-thinking-message {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.markdown-thinking-message p { margin: 0 0 6px; }
+.markdown-thinking-message p:last-child { margin-bottom: 0; }
+.markdown-thinking-message h1,
+.markdown-thinking-message h2,
+.markdown-thinking-message h3,
+.markdown-thinking-message h4,
+.markdown-thinking-message h5,
+.markdown-thinking-message h6 {
+  margin: 7px 0 3px;
+  line-height: 1.3;
+}
+.markdown-thinking-message ul,
+.markdown-thinking-message ol {
+  margin: 4px 0 6px;
+}
+.markdown-thinking-message li { margin: 2px 0; }
+.markdown-thinking-message blockquote {
+  margin: 4px 0;
+  padding: 4px 8px;
+}
+.markdown-thinking-message .markdown-table-wrap,
+.markdown-thinking-message .markdown-code-block {
+  margin: 5px 0;
+}
+
+.markdown-thinking-preview {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.markdown-thinking-preview .markdown-inline-heading { font-weight: 600; }
+.markdown-thinking-preview .markdown-inline-list-item + .markdown-inline-list-item { margin-left: 8px; }
+.markdown-thinking-preview .markdown-inline-list-unordered .markdown-inline-list-item::before { content: "• "; }
+.markdown-thinking-preview .markdown-inline-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
 .compaction-file-details {
   margin-top: 10px;
   padding-top: 8px;

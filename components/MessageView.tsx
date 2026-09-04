@@ -781,7 +781,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -796,13 +796,15 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex, cwd, onOpenFile }: {
   block: ThinkingContent;
   duration?: number;
   isLive?: boolean;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
@@ -875,7 +877,11 @@ function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex
               textAlign: "left",
             }}
           >
-            <span style={{ unicodeBidi: "plaintext" }}>{preview}</span>
+            <span style={{ unicodeBidi: "plaintext" }}>
+              <MarkdownBody className="markdown-thinking-preview" inline isStreaming={isLive}>
+                {preview}
+              </MarkdownBody>
+            </span>
           </span>
         ) : (
           <span style={{ flex: 1, minWidth: 0 }} />
@@ -902,12 +908,20 @@ function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex
             color: error ? "#f87171" : "var(--text-muted)",
             fontSize: 12,
             lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
             background: "var(--bg-panel)",
             borderTop: "1px solid var(--border)",
           }}
         >
-          {loading ? "Loading thinking..." : error ?? (block.deferred ? content : block.thinking)}
+          {loading ? "Loading thinking..." : error ? error : (
+            <MarkdownBody
+              className="markdown-thinking-message"
+              isStreaming={isLive}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+            >
+              {block.deferred ? content ?? "" : block.thinking}
+            </MarkdownBody>
+          )}
         </div>
       )}
     </div>

@@ -17,22 +17,88 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  inline?: boolean;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, inline = false }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  const Root = inline ? "span" : "div";
 
   return (
-    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+    <Root className={["markdown-body", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
         remarkPlugins={markdownRemarkPlugins}
         rehypePlugins={markdownRehypePlugins}
         components={{
+          p({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span>{children}</span>;
+            return <p {...props}>{children}</p>;
+          },
+          h1({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h1 {...props}>{children}</h1>;
+          },
+          h2({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h2 {...props}>{children}</h2>;
+          },
+          h3({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h3 {...props}>{children}</h3>;
+          },
+          h4({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h4 {...props}>{children}</h4>;
+          },
+          h5({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h5 {...props}>{children}</h5>;
+          },
+          h6({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-heading">{children}</span>;
+            return <h6 {...props}>{children}</h6>;
+          },
+          ul({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-list markdown-inline-list-unordered">{children}</span>;
+            return <ul {...props}>{children}</ul>;
+          },
+          ol({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-list markdown-inline-list-ordered">{children}</span>;
+            return <ol {...props}>{children}</ol>;
+          },
+          li({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-list-item">{children}</span>;
+            return <li {...props}>{children}</li>;
+          },
+          blockquote({ children, ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-quote">{children}</span>;
+            return <blockquote {...props}>{children}</blockquote>;
+          },
+          hr({ ...props }) {
+            delete props.node;
+            if (inline) return <span className="markdown-inline-rule">—</span>;
+            return <hr {...props} />;
+          },
           code({ className, children, ...props }) {
             const lang = className?.replace("language-", "").toLowerCase() ?? "";
             const raw = String(children);
             const isBlock = className?.includes("language-") || raw.includes("\n");
             if (isBlock) {
+              if (inline) {
+                delete props.node;
+                return <code className="markdown-inline-code">{raw.replace(/\n$/, "")}</code>;
+              }
               if (lang === "mermaid") {
                 return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />;
               }
@@ -63,6 +129,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
           a({ href, children, ...props }) {
             // `node` is react-markdown metadata, not a DOM attribute.
             delete props.node;
+            if (inline) return <span className="markdown-inline-link">{children}</span>;
             const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
             const openFile = onOpenFile;
             if (!filePath || !openFile) {
@@ -89,6 +156,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
             );
           },
           table({ children }) {
+            if (inline) return <span className="markdown-inline-table">{children}</span>;
             return (
               <div className="markdown-table-wrap">
                 <table>{children}</table>
@@ -99,7 +167,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       >
         {normalizedMarkdown}
       </ReactMarkdown>
-    </div>
+    </Root>
   );
 }
 

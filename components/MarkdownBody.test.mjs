@@ -11,14 +11,25 @@ const jiti = createJiti(import.meta.url, {
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 
-function renderMarkdown(markdown) {
+function renderMarkdown(markdown, options = {}) {
   return renderToStaticMarkup(
     React.createElement(MarkdownBody, {
       cwd: "/home/me/project",
       onOpenFile() {},
+      ...options,
     }, markdown),
   );
 }
+
+test("renders inline markdown for collapsed previews", () => {
+  const html = renderMarkdown("**bold** and `code`", {
+    inline: true,
+    className: "markdown-thinking-preview",
+  });
+
+  assert.match(html, /<span class="markdown-body markdown-thinking-preview"><span><strong>bold<\/strong> and <code class="markdown-inline-code">code<\/code><\/span><\/span>/);
+  assert.doesNotMatch(html, /<p|<div/);
+});
 
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");

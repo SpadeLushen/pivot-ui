@@ -199,6 +199,9 @@ test("keeps thinking previews collapsed while retaining positive duration and to
   assert.match(thinkingBlock, /duration !== undefined && \(duration > 0 \|\| isLive\)/);
   assert.match(thinkingBlock, /<ChevronDown/);
   assert.match(thinkingBlock, /transform: expanded \? "rotate\(180deg\)" : "none"/);
+  assert.match(thinkingBlock, /className="markdown-thinking-message"/);
+  assert.match(thinkingBlock, /<MarkdownBody[\s\S]*\{block\.deferred \? content \?\? "" : block\.thinking\}[\s\S]*<\/MarkdownBody>/);
+  assert.match(thinkingBlock, /<MarkdownBody className="markdown-thinking-preview" inline[\s\S]*\{preview\}[\s\S]*<\/MarkdownBody>/);
 });
 
 
