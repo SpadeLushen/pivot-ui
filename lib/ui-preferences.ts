@@ -4,7 +4,9 @@ export const TOOL_PRESET_STORAGE_KEY = "pi-tool-preset";
 export const SOUND_ENABLED_STORAGE_KEY = "pi-sound-enabled";
 export const TPS_ENABLED_STORAGE_KEY = "pi-tps-enabled";
 export const ENTER_BEHAVIOR_STORAGE_KEY = "pi-enter-behavior";
+export const TIME_FORMAT_STORAGE_KEY = "pi-time-format";
 export type EnterBehavior = "steer" | "followUp";
+export type TimeFormat = "system" | "12" | "24";
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -65,4 +67,13 @@ export function readEnterBehaviorPreference(): EnterBehavior {
 
 export function writeEnterBehaviorPreference(value: EnterBehavior): void {
   writeValue(ENTER_BEHAVIOR_STORAGE_KEY, value);
+}
+
+export function readTimeFormatPreference(): TimeFormat {
+  const value = readValue(TIME_FORMAT_STORAGE_KEY);
+  return value === "12" || value === "24" ? value : "system";
+}
+
+export function writeTimeFormatPreference(value: TimeFormat): void {
+  writeValue(TIME_FORMAT_STORAGE_KEY, value);
 }

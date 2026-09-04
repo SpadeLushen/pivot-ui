@@ -69,18 +69,19 @@ interface Props {
   onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  hour12?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
 }
 
-function formatTime(ts?: number): string | null {
+function formatTime(ts?: number, hour12 = false): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   const now = new Date();
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12 });
   if (isToday) return time;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
@@ -100,12 +101,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, prevTimestamp, sessionId }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -113,9 +114,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      return <CompactionMessageView message={message as CustomMessage} hour12={hour12} />;
     }
-    return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} hour12={hour12} />;
   }
   return null;
 }, (prev, next) => {
@@ -133,6 +134,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.showTps === next.showTps
+    && prev.hour12 === next.hour12
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
 });
@@ -323,7 +325,7 @@ function renderUserContent(
   return nodes;
 }
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, hour12 }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -333,6 +335,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
+  hour12: boolean;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -351,7 +354,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, hour12);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
@@ -531,6 +534,7 @@ function AssistantMessageView({
   onOpenFile,
   showTimestamp,
   showTps = true,
+  hour12,
   prevTimestamp,
   sessionId,
   entryId,
@@ -543,12 +547,13 @@ function AssistantMessageView({
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  hour12: boolean;
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
 }) {
   const { t } = useI18n();
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const time = showTimestamp ? formatTime(message.timestamp, hour12) : null;
   const streamingBlockItems = isStreaming ? getStreamingAssistantBlockItems(message).blockItems : null;
   const blockItems = streamingBlockItems ?? (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
@@ -1280,10 +1285,10 @@ function PairedResult({ text, isEmpty, isError }: {
   );
 }
 
-function CompactionMessageView({ message }: { message: CustomMessage }) {
+function CompactionMessageView({ message, hour12 }: { message: CustomMessage; hour12: boolean }) {
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, hour12);
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1361,7 +1366,7 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
   );
 }
 
-function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+function CustomMessageView({ message, cwd, onOpenFile, hour12 }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void; hour12: boolean }) {
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1371,7 +1376,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
   const title = formatCustomType(message.customType);
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, hour12);
 
   const copyContent = () => {
     copyText(text || detailsText).then(() => {

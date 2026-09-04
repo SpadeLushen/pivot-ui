@@ -19,10 +19,13 @@ import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   readEnterBehaviorPreference,
+  readTimeFormatPreference,
   readTpsEnabledPreference,
   writeEnterBehaviorPreference,
+  writeTimeFormatPreference,
   writeTpsEnabledPreference,
   type EnterBehavior,
+  type TimeFormat,
 } from "@/lib/ui-preferences";
 import { copyText } from "@/lib/clipboard";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
@@ -63,6 +66,7 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showTps, setShowTps] = useState(true);
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("system");
   const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("steer");
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
@@ -74,6 +78,7 @@ export function AppShell() {
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   useEffect(() => {
     setShowTps(readTpsEnabledPreference());
+    setTimeFormat(readTimeFormatPreference());
     setEnterBehavior(readEnterBehaviorPreference());
   }, []);
 
@@ -88,6 +93,11 @@ export function AppShell() {
   const handleEnterBehaviorChange = useCallback((behavior: EnterBehavior) => {
     setEnterBehavior(behavior);
     writeEnterBehaviorPreference(behavior);
+  }, []);
+
+  const handleTimeFormatChange = useCallback((format: TimeFormat) => {
+    setTimeFormat(format);
+    writeTimeFormatPreference(format);
   }, []);
 
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -946,6 +956,7 @@ export function AppShell() {
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               showTps={showTps}
+              timeFormat={timeFormat}
               enterBehavior={enterBehavior}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
@@ -984,7 +995,7 @@ export function AppShell() {
         }}
       />
     </div>
-    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
+    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} timeFormat={timeFormat} onTimeFormatChange={handleTimeFormatChange} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}

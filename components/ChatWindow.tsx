@@ -14,7 +14,8 @@ import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
-import type { EnterBehavior } from "@/lib/ui-preferences";
+import type { EnterBehavior, TimeFormat } from "@/lib/ui-preferences";
+import { getSystemHour12 } from "@/lib/time-format";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 
@@ -33,6 +34,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   showTps?: boolean;
+  timeFormat?: TimeFormat;
   enterBehavior?: EnterBehavior;
   onOpenFile?: (filePath: string) => void;
   onCwdChange?: (cwd: string, projectRoot: string) => void;
@@ -142,9 +144,17 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = true, enterBehavior = "steer", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = true, timeFormat = "system", enterBehavior = "steer", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
+  const [systemHour12, setSystemHour12] = useState(false);
+
+  useEffect(() => {
+    if (timeFormat !== "system") return;
+    setSystemHour12(getSystemHour12());
+  }, [timeFormat]);
+
+  const hour12 = timeFormat === "12" || (timeFormat === "system" && systemHour12);
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -469,6 +479,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}
                     showTps={showTps}
+                    hour12={hour12}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                   />
@@ -575,7 +586,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               );
             })()}
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} />
+              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} hour12={hour12} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (

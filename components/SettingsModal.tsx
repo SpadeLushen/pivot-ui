@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Cpu, Gauge, Keyboard, X } from "lucide-react";
+import { Globe, Cpu, Gauge, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
+import type { TimeFormat } from "@/lib/ui-preferences";
 import { ModelsConfigTab } from "./ModelsConfig";
 
 type SettingsTab = "general" | "models";
@@ -13,11 +14,13 @@ interface SettingsModalProps {
   onModelsChanged?: () => void;
   showTps: boolean;
   onTpsToggle: () => void;
+  timeFormat: TimeFormat;
+  onTimeFormatChange: (format: TimeFormat) => void;
   enterBehavior: "steer" | "followUp";
   onEnterBehaviorChange: (behavior: "steer" | "followUp") => void;
 }
 
-export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
+export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const { t, locale, setLocale } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -226,8 +229,66 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </div>
               </section>
 
+              {/* Time format */}
+              <section style={{ marginTop: 32 }}>
+                <h3
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Clock size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.timeFormat")}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {t("settings.timeFormatDescription")}
+                </p>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {([
+                    ["system", t("settings.timeFormatSystem")],
+                    ["12", t("settings.timeFormat12")],
+                    ["24", t("settings.timeFormat24")],
+                  ] as const).map(([format, label]) => {
+                    const isActive = timeFormat === format;
+                    return (
+                      <button
+                        key={format}
+                        type="button"
+                        onClick={() => onTimeFormatChange(format)}
+                        aria-pressed={isActive}
+                        style={{
+                          padding: "10px 20px",
+                          background: isActive ? "var(--accent)" : "var(--bg)",
+                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          borderRadius: 8,
+                          color: isActive ? "#fff" : "var(--text)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 400,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
               {/* Theme */}
-              <section>
+              <section style={{ marginTop: 32 }}>
                 <h3
                   style={{
                     fontSize: 13,
