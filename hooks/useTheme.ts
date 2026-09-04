@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-type Theme = "light" | "dark" | "eye";
+export type Theme = "light" | "dark" | "eye";
 
 const listeners = new Set<() => void>();
 
@@ -28,10 +28,7 @@ type ToggleOrigin = { x: number; y: number };
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
-    const current = getSnapshot();
-    const next: Theme = current === "light" ? "dark" : current === "dark" ? "eye" : "light";
-
+  const setTheme = useCallback((next: Theme, origin?: ToggleOrigin) => {
     const apply = () => {
       document.documentElement.classList.remove("dark", "eye");
       if (next !== "light") document.documentElement.classList.add(next);
@@ -80,5 +77,11 @@ export function useTheme() {
       });
   }, []);
 
-  return { theme, toggleTheme, isDark: theme === "dark" };
+  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
+    const current = getSnapshot();
+    const next: Theme = current === "light" ? "dark" : current === "dark" ? "eye" : "light";
+    setTheme(next, origin);
+  }, [setTheme]);
+
+  return { theme, toggleTheme, setTheme, isDark: theme === "dark" };
 }

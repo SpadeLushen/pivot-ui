@@ -533,7 +533,7 @@ function AssistantMessageView({
   cwd,
   onOpenFile,
   showTimestamp,
-  showTps = true,
+  showTps = false,
   hour12,
   prevTimestamp,
   sessionId,

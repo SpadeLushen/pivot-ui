@@ -15,7 +15,6 @@ import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import type { EnterBehavior, TimeFormat } from "@/lib/ui-preferences";
-import { getSystemHour12 } from "@/lib/time-format";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 
@@ -144,17 +143,11 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = true, timeFormat = "system", enterBehavior = "steer", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
-  const [systemHour12, setSystemHour12] = useState(false);
 
-  useEffect(() => {
-    if (timeFormat !== "system") return;
-    setSystemHour12(getSystemHour12());
-  }, [timeFormat]);
-
-  const hour12 = timeFormat === "12" || (timeFormat === "system" && systemHour12);
+  const hour12 = timeFormat === "12";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref

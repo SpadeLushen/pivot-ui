@@ -22,7 +22,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const { t, locale, setLocale } = useI18n();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -257,7 +257,6 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </p>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {([
-                    ["system", t("settings.timeFormatSystem")],
                     ["12", t("settings.timeFormat12")],
                     ["24", t("settings.timeFormat24")],
                   ] as const).map(([format, label]) => {
@@ -308,23 +307,12 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     return (
                       <button
                         key={th.key}
-                        onClick={() => {
-                          // Cycle through themes until we hit the target
-                          const order: ("light" | "dark" | "eye")[] = [
-                            "light",
-                            "dark",
-                            "eye",
-                          ];
-                          const currentIndex = order.indexOf(theme);
-                          const targetIndex = order.indexOf(th.key);
-                          const diff =
-                            (targetIndex - currentIndex + 3) % 3;
-                          for (let i = 0; i < diff; i++) {
-                            toggleTheme({
-                              x: window.innerWidth / 2,
-                              y: window.innerHeight / 2,
-                            });
-                          }
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setTheme(th.key, {
+                            x: rect.left + rect.width / 2,
+                            y: rect.top + rect.height / 2,
+                          });
                         }}
                         style={{
                           display: "flex",

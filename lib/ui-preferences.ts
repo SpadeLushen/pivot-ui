@@ -6,7 +6,7 @@ export const TPS_ENABLED_STORAGE_KEY = "pi-tps-enabled";
 export const ENTER_BEHAVIOR_STORAGE_KEY = "pi-enter-behavior";
 export const TIME_FORMAT_STORAGE_KEY = "pi-time-format";
 export type EnterBehavior = "steer" | "followUp";
-export type TimeFormat = "system" | "12" | "24";
+export type TimeFormat = "12" | "24";
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -35,7 +35,7 @@ function writeValue(key: string, value: string): void {
 
 export function readToolPresetPreference(): ToolPreset {
   const value = readValue(TOOL_PRESET_STORAGE_KEY);
-  return value === "none" || value === "full" || value === "default" ? value : "default";
+  return value === "none" || value === "full" || value === "default" ? value : "full";
 }
 
 export function writeToolPresetPreference(value: ToolPreset): void {
@@ -44,7 +44,7 @@ export function writeToolPresetPreference(value: ToolPreset): void {
 
 export function readSoundEnabledPreference(): boolean {
   const value = readValue(SOUND_ENABLED_STORAGE_KEY);
-  return value !== "false";
+  return value === "true";
 }
 
 export function writeSoundEnabledPreference(value: boolean): void {
@@ -53,7 +53,7 @@ export function writeSoundEnabledPreference(value: boolean): void {
 
 export function readTpsEnabledPreference(): boolean {
   const value = readValue(TPS_ENABLED_STORAGE_KEY);
-  return value !== "false";
+  return value === "true";
 }
 
 export function writeTpsEnabledPreference(value: boolean): void {
@@ -62,7 +62,7 @@ export function writeTpsEnabledPreference(value: boolean): void {
 
 export function readEnterBehaviorPreference(): EnterBehavior {
   const value = readValue(ENTER_BEHAVIOR_STORAGE_KEY);
-  return value === "followUp" ? "followUp" : "steer";
+  return value === "steer" ? "steer" : "followUp";
 }
 
 export function writeEnterBehaviorPreference(value: EnterBehavior): void {
@@ -71,7 +71,7 @@ export function writeEnterBehaviorPreference(value: EnterBehavior): void {
 
 export function readTimeFormatPreference(): TimeFormat {
   const value = readValue(TIME_FORMAT_STORAGE_KEY);
-  return value === "12" || value === "24" ? value : "system";
+  return value === "12" ? "12" : "24";
 }
 
 export function writeTimeFormatPreference(value: TimeFormat): void {

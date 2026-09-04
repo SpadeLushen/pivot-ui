@@ -65,9 +65,9 @@ export function AppShell() {
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showTps, setShowTps] = useState(true);
-  const [timeFormat, setTimeFormat] = useState<TimeFormat>("system");
-  const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("steer");
+  const [showTps, setShowTps] = useState(false);
+  const [timeFormat, setTimeFormat] = useState<TimeFormat>("24");
+  const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("followUp");
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
