@@ -18,6 +18,7 @@ import { useI18n } from "@/lib/i18n";
 import type { EnterBehavior, TimeFormat } from "@/lib/ui-preferences";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
+import { EXTENSION_STATUSLINE_WIDGET_KEY } from "@/lib/extension-statusline";
 
 export interface CompactionControls {
   isCompacting: boolean;
@@ -343,8 +344,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     />
   );
 
-  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor");
-  const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
+  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.key !== EXTENSION_STATUSLINE_WIDGET_KEY && widget.placement !== "belowEditor");
+  const belowEditorWidgets = extensionWidgets.filter((widget) => widget.key !== EXTENSION_STATUSLINE_WIDGET_KEY && widget.placement === "belowEditor");
 
   if (loading) {
     return (

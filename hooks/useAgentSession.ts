@@ -17,6 +17,7 @@ import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import { clearDraft } from "@/lib/draft-store";
 import { readToolPresetPreference, writeToolPresetPreference } from "@/lib/ui-preferences";
 import { inheritLastSessionPacks, rememberLastSessionPacks } from "@/lib/pack-preferences";
+import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -401,6 +402,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const baseDocumentTitleRef = useRef("Pivot UI");
+  const extensionTitleRef = useRef<string | null>(null);
+  const fastModeTitleSuffixRef = useRef<string | null>(null);
+  const applyDocumentTitle = useCallback(() => {
+    const base = extensionTitleRef.current ?? baseDocumentTitleRef.current;
+    const suffix = fastModeTitleSuffixRef.current;
+    document.title = suffix ? `${base} ${suffix}` : base;
+  }, []);
   const queueToggleInFlightRef = useRef(false);
   const agentRunRef = useRef(new AgentRunState());
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
@@ -800,7 +809,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "setWidget":
         setExtensionWidgets((prev) => {
           const rest = prev.filter((item) => item.key !== request.widgetKey);
-          return request.widgetLines
+          return request.widgetLines && request.widgetLines.length > 0
             ? [...rest, {
                 key: request.widgetKey,
                 lines: request.widgetLines,
@@ -810,7 +819,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
       case "setTitle":
-        document.title = request.title || "Pivot UI";
+        extensionTitleRef.current = request.title || "Pivot UI";
+        applyDocumentTitle();
         break;
       case "set_editor_text":
         opts.chatInputRef?.current?.insertText(request.text);
@@ -822,7 +832,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
     }
-  }, [addNotice, opts.chatInputRef]);
+  }, [addNotice, applyDocumentTitle, opts.chatInputRef]);
+
+  // The shared pi-plugins statusline is delivered as a rendered widget. Keep
+  // the fast-mode marker in the browser title while preserving any title set
+  // by the session or another extension.
+  useEffect(() => {
+    const nextSuffix = getFastModeTitleSuffix(extensionWidgets);
+    if (fastModeTitleSuffixRef.current === nextSuffix) return;
+    fastModeTitleSuffixRef.current = nextSuffix;
+    applyDocumentTitle();
+  }, [applyDocumentTitle, extensionWidgets]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId?: number) => {
     const targetRunId = runId ?? agentRunRef.current.runId;
@@ -1573,7 +1593,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // UI event bridge.
   useEffect(() => {
     let cancelled = false;
-    document.title = session?.name || "Pivot UI";
+    baseDocumentTitleRef.current = session?.name || "Pivot UI";
+    extensionTitleRef.current = null;
+    fastModeTitleSuffixRef.current = null;
+    applyDocumentTitle();
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
@@ -1613,6 +1636,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (extensionTitleRef.current !== null) return;
+    baseDocumentTitleRef.current = session?.name || "Pivot UI";
+    applyDocumentTitle();
+  }, [applyDocumentTitle, session?.name]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

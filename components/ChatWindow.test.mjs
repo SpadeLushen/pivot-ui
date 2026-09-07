@@ -168,8 +168,13 @@ test("keeps extension-generated session names and browser titles synchronized", 
 
   assert.match(rpc, /event\.type === "agent_end" \|\| event\.type === "session_info_changed"/);
   assert.match(hook, /case "session_info_changed"/);
-  assert.match(hook, /void connectEvents\(session\.id\)/);
-  assert.match(hook, /document\.title = request\.title \|\| "Pivot UI"/);
+  assert.match(hook, /void connectEvents\(session\.id, true\)/);
+  assert.match(hook, /extensionTitleRef\.current = request\.title \|\| "Pivot UI"/);
+  assert.match(hook, /getFastModeTitleSuffix\(extensionWidgets\)/);
+  assert.match(hook, /document\.title = suffix \? `\$\{base\} \$\{suffix\}` : base/);
+  assert.match(rpc, /EXTENSION_STATUSLINE_WIDGET_KEY/);
+  assert.match(chatWindow, /widget\.key !== EXTENSION_STATUSLINE_WIDGET_KEY/);
+  assert.doesNotMatch(chatWindow, /aria-label="Extension status line"/);
   assert.match(chatWindow, /onSessionNameChange, onSessionForked/);
   assert.match(appShell, /onSessionNameChange=\{handleSessionNameChange\}/);
 });

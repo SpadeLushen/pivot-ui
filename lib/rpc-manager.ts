@@ -6,6 +6,7 @@ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import { EXTENSION_STATUSLINE_WIDGET_KEY } from "./extension-statusline";
 
 // ============================================================================
 // Types
@@ -156,6 +157,28 @@ class PlainTextTheme extends Theme {
 
 const PLAIN_TEXT_THEME = new PlainTextTheme();
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
+const EXTENSION_STATUSLINE_RENDER_WIDTH = 120;
+
+type ExtensionWidgetComponent = {
+  render: (width: number) => unknown;
+};
+
+function renderStatuslineWidget(content: unknown): string[] | null {
+  if (typeof content !== "function") return null;
+
+  try {
+    const component = (content as (tui: unknown, theme: Theme) => unknown)({}, PLAIN_TEXT_THEME);
+    if (!component || typeof component !== "object" || typeof (component as ExtensionWidgetComponent).render !== "function") {
+      return null;
+    }
+    const lines = (component as ExtensionWidgetComponent).render(EXTENSION_STATUSLINE_RENDER_WIDTH);
+    if (!Array.isArray(lines) || !lines.every((line) => typeof line === "string")) return null;
+    return lines as string[];
+  } catch (error) {
+    console.error("[pivot-ui] failed to render extension statusline:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
 
 function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
   if (toolNames.length === 0) return [];
@@ -415,8 +438,27 @@ export class AgentSessionWrapper {
     this.listeners.push(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
     // Extension startup can finish before the SSE route has attached its
-    // listener. Replay the latest browser title so a newly selected session
-    // can restore its title even in that startup race.
+    // listener. Replay the latest fire-and-forget UI state so a newly selected
+    // session can restore statuses, widgets, and browser titles in that race.
+    for (const [statusKey, statusText] of this.extensionStatuses) {
+      listener({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "setStatus",
+        statusKey,
+        statusText,
+      } as ExtensionUiRequest as AgentEvent);
+    }
+    for (const widget of this.extensionWidgets.values()) {
+      listener({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "setWidget",
+        widgetKey: widget.key,
+        widgetLines: widget.lines,
+        widgetPlacement: widget.placement,
+      } as ExtensionUiRequest as AgentEvent);
+    }
     if (this.hasExtensionTitle) {
       listener({
         type: "extension_ui_request",
@@ -983,23 +1025,49 @@ export class AgentSessionWrapper {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content, options) => {
-        if (content !== undefined && !Array.isArray(content)) return;
+        let lines: string[] | undefined;
         if (content === undefined) {
           this.extensionWidgets.delete(key);
-        } else {
+        } else if (Array.isArray(content)) {
+          lines = content;
           this.extensionWidgets.set(key, {
             key,
-            lines: content,
+            lines,
             placement: options?.placement ?? "aboveEditor",
           });
+        } else if (key === EXTENSION_STATUSLINE_WIDGET_KEY) {
+          // The shared pi-plugins statusline is a TUI component factory. It
+          // cannot cross SSE as a function, so render its text once using the
+          // same plain theme used by the rest of the RPC UI bridge.
+          const rendered = renderStatuslineWidget(content);
+          if (!rendered) {
+            this.extensionWidgets.delete(key);
+            this.emit({
+              type: "extension_ui_request",
+              id: randomUUID(),
+              method: "setWidget",
+              widgetKey: key,
+            } as ExtensionUiRequest as AgentEvent);
+            return;
+          }
+          lines = rendered;
+          this.extensionWidgets.set(key, {
+            key,
+            lines,
+            placement: options?.placement ?? "aboveEditor",
+          });
+        } else {
+          // Arbitrary TUI factories are not serializable in the browser
+          // protocol. String-array widgets remain supported as before.
+          return;
         }
         this.emit({
           type: "extension_ui_request",
           id: randomUUID(),
           method: "setWidget",
           widgetKey: key,
-          widgetLines: content,
-          widgetPlacement: options?.placement,
+          ...(lines ? { widgetLines: lines } : {}),
+          ...(options?.placement ? { widgetPlacement: options.placement } : {}),
         } as ExtensionUiRequest as AgentEvent);
       },
       setFooter: () => {},
