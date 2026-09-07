@@ -528,13 +528,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [errorSessionIds, setErrorSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => new Set());
   const [hiddenWorkspaces, setHiddenWorkspaces] = useState<Set<string>>(() => new Set());
   const [customWorkspaces, setCustomWorkspaces] = useState<string[]>([]);
   const [storageLoaded, setStorageLoaded] = useState(false);
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   // Once the SSE stream has delivered a frame it is the source of truth for
-  // running state; late /api/sessions responses must not overwrite it.
+  // running/error state; late /api/sessions responses must not overwrite it.
   const sseAuthoritativeRef = useRef(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -544,16 +545,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; errorSessionIds?: string[] };
       setAllSessions(data.sessions);
-      // Treat the fetched running set as an initial fallback only. Once SSE is
+      // Treat the fetched status sets as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
       if (!sseAuthoritativeRef.current) {
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setErrorSessionIds(new Set(data.errorSessionIds ?? []));
       }
-      // Drop unread markers for sessions that no longer exist (e.g. deleted).
+      // Drop markers for sessions that no longer exist (e.g. deleted).
       const existingIds = new Set(data.sessions.map((s) => s.id));
       setUnreadSessionIds((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set([...prev].filter((id) => existingIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
+      setErrorSessionIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set([...prev].filter((id) => existingIds.has(id)));
         return next.size === prev.size ? prev : next;
@@ -627,10 +634,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
     source.onmessage = (e) => {
       try {
-        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
+        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[]; errorSessionIds?: string[] };
         if (data.type === "running") {
           sseAuthoritativeRef.current = true;
           setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+          setErrorSessionIds(new Set(data.errorSessionIds ?? []));
         }
       } catch {
         // ignore malformed frames
@@ -661,6 +669,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     if (!selectedSessionId) return;
     setUnreadSessionIds((prev) => {
+      if (!prev.has(selectedSessionId)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedSessionId);
+      return next;
+    });
+    setErrorSessionIds((prev) => {
       if (!prev.has(selectedSessionId)) return prev;
       const next = new Set(prev);
       next.delete(selectedSessionId);
@@ -822,7 +836,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
       project,
-      getWorkspaceActivity(project, allSessions, runningSessionIds, unreadSessionIds),
+      getWorkspaceActivity(project, allSessions, runningSessionIds, unreadSessionIds, errorSessionIds),
     ] as const),
   );
 
@@ -1101,6 +1115,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               node={node}
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
+              errorSessionIds={errorSessionIds}
               unreadSessionIds={unreadSessionIds}
               onSelectSession={handleSelectSessionFromList}
               onRenamed={loadSessions}
@@ -1203,6 +1218,7 @@ function SessionTreeItem({
   node,
   selectedSessionId,
   runningSessionIds,
+  errorSessionIds,
   unreadSessionIds,
   onSelectSession,
   onRenamed,
@@ -1212,6 +1228,7 @@ function SessionTreeItem({
   node: SessionTreeNode;
   selectedSessionId: string | null;
   runningSessionIds: Set<string>;
+  errorSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
@@ -1239,6 +1256,7 @@ function SessionTreeItem({
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
           isRunning={runningSessionIds.has(node.session.id)}
+          isError={errorSessionIds.has(node.session.id)}
           isUnread={unreadSessionIds.has(node.session.id)}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
@@ -1257,6 +1275,7 @@ function SessionTreeItem({
               node={child}
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
+              errorSessionIds={errorSessionIds}
               unreadSessionIds={unreadSessionIds}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
@@ -1271,7 +1290,7 @@ function SessionTreeItem({
 }
 
 function WorkspaceActivityIndicator({ activity }: { activity?: WorkspaceActivity }) {
-  if (!activity || (!activity.isRunning && !activity.hasUnread)) return null;
+  if (!activity || (!activity.isError && !activity.isRunning && !activity.hasUnread)) return null;
 
   return (
     <span
@@ -1284,7 +1303,38 @@ function WorkspaceActivityIndicator({ activity }: { activity?: WorkspaceActivity
         flex: "0 0 14px",
       }}
     >
-      {activity.isRunning ? <RunningSessionIndicator /> : <UnreadSessionIndicator />}
+      {activity.isError
+        ? <ErrorSessionIndicator />
+        : activity.isRunning ? <RunningSessionIndicator /> : <UnreadSessionIndicator />}
+    </span>
+  );
+}
+
+function ErrorSessionIndicator() {
+  return (
+    <span
+      title="Execution failed"
+      aria-label="Execution failed"
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "#ef4444",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: "currentColor",
+          boxShadow: "0 0 0 2px rgba(239, 68, 68, 0.18)",
+        }}
+      />
     </span>
   );
 }
@@ -1336,6 +1386,7 @@ function SessionItem({
   session,
   isSelected,
   isRunning,
+  isError,
   isUnread,
   onClick,
   onRenamed,
@@ -1348,6 +1399,7 @@ function SessionItem({
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
+  isError?: boolean;
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
@@ -1519,9 +1571,9 @@ function SessionItem({
                 lineHeight: 1.4,
                 color: "var(--text)",
               }}
-              title={isRunning ? `${title} · Agent running…` : isUnread ? `${title} · New activity` : title}
+              title={isError ? `${title} · Execution failed` : isRunning ? `${title} · Agent running…` : isUnread ? `${title} · New activity` : title}
             >
-              {isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
+              {isError ? <ErrorSessionIndicator /> : isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
               </span>

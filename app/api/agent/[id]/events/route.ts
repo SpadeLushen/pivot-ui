@@ -1,5 +1,5 @@
 import { resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { clearRpcSessionError, getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const clearError = new URL(req.url).searchParams.get("clearError") === "1";
 
   // Fast path: already-running session
   let session = getRpcSession(id);
@@ -25,6 +26,10 @@ export async function GET(
       return new Response(`Failed to start agent: ${error}`, { status: 500 });
     }
   }
+
+  // Opening a session acknowledges its previous execution error. The query is
+  // used only for the explicit initial connection; automatic reconnects omit it.
+  if (clearError) clearRpcSessionError(id);
 
   const stream = new ReadableStream({
     start(controller) {

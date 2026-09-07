@@ -369,6 +369,14 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
+    if (event.type === "prompt_error") {
+      markRpcSessionError(this.sessionId);
+    } else if (event.type === "agent_end" && event.willRetry !== true) {
+      const messages = event.messages as Array<{ role?: string; stopReason?: string }> | undefined;
+      if (messages?.some((message) => message.role === "assistant" && message.stopReason === "error")) {
+        markRpcSessionError(this.sessionId);
+      }
+    }
     for (const l of this.listeners) l(event);
   }
 
@@ -439,6 +447,7 @@ export class AgentSessionWrapper {
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         if (this.isRunning()) throw new AgentBusyError();
         this.promptRunning = true;
+        clearRpcSessionError(this.sessionId);
         this.startModelStartTimer();
         notifyRunningChange();
         this.inner.prompt(command.message as string, {
@@ -1066,10 +1075,13 @@ export class AgentSessionWrapper {
 // Session registry
 // ============================================================================
 
+type RpcSessionStatusListener = (runningSessionIds: string[], errorSessionIds: string[]) => void;
+
 declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
-  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  var __piErrorSessionIds: Set<string> | undefined;
+  var __piRunningListeners: Set<RpcSessionStatusListener> | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1100,6 +1112,26 @@ export function getRunningRpcSessionIds(): string[] {
   return [...ids];
 }
 
+function getErrorSessionIdStore(): Set<string> {
+  if (!globalThis.__piErrorSessionIds) globalThis.__piErrorSessionIds = new Set();
+  return globalThis.__piErrorSessionIds;
+}
+
+export function getErrorRpcSessionIds(): string[] {
+  return [...getErrorSessionIdStore()];
+}
+
+export function markRpcSessionError(sessionId: string): void {
+  if (!sessionId || getErrorSessionIdStore().has(sessionId)) return;
+  getErrorSessionIdStore().add(sessionId);
+  notifyRunningChange();
+}
+
+export function clearRpcSessionError(sessionId: string): void {
+  if (!getErrorSessionIdStore().delete(sessionId)) return;
+  notifyRunningChange();
+}
+
 // ----------------------------------------------------------------------------
 // Running-status broadcaster
 //
@@ -1109,31 +1141,35 @@ export function getRunningRpcSessionIds(): string[] {
 // survive Next.js hot-reload.
 // ----------------------------------------------------------------------------
 
-function getRunningListeners(): Set<(ids: string[]) => void> {
+function getRunningListeners(): Set<RpcSessionStatusListener> {
   if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
   return globalThis.__piRunningListeners;
 }
 
-/** Subscribe to running-session-id changes. Returns an unsubscribe function. */
-export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
+/** Subscribe to running/error session changes. Returns an unsubscribe function. */
+export function subscribeRunningSessions(listener: RpcSessionStatusListener): () => void {
   const listeners = getRunningListeners();
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
 
-let lastRunningSnapshot = "";
+let lastSessionStatusSnapshot = "";
 
 /**
- * Recompute the running-session-id set and, if it changed since the last
- * notification, broadcast it to subscribers. Cheap to call often.
+ * Recompute running/error session ids and, if either set changed since the
+ * last notification, broadcast them to subscribers. Cheap to call often.
  */
 export function notifyRunningChange(): void {
-  const ids = getRunningRpcSessionIds();
-  const snapshot = JSON.stringify([...ids].sort());
-  if (snapshot === lastRunningSnapshot) return;
-  lastRunningSnapshot = snapshot;
+  const runningSessionIds = getRunningRpcSessionIds();
+  const errorSessionIds = getErrorRpcSessionIds();
+  const snapshot = JSON.stringify({
+    runningSessionIds: [...runningSessionIds].sort(),
+    errorSessionIds: [...errorSessionIds].sort(),
+  });
+  if (snapshot === lastSessionStatusSnapshot) return;
+  lastSessionStatusSnapshot = snapshot;
   for (const listener of getRunningListeners()) {
-    try { listener(ids); } catch { /* ignore listener errors */ }
+    try { listener(runningSessionIds, errorSessionIds); } catch { /* ignore listener errors */ }
   }
 }
 

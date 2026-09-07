@@ -111,7 +111,9 @@ type NoticeState = {
 type NoticeAction =
   | { type: "add"; notice: NoticeItem }
   | { type: "mark_oldest_exiting" }
-  | { type: "remove"; id: string };
+  | { type: "mark_oldest_dismissible_exiting" }
+  | { type: "remove"; id: string }
+  | { type: "remove_errors" };
 
 export type AgentPhase =
   | { kind: "waiting_model" }
@@ -212,8 +214,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function markOldestNoticeExiting(notices: NoticeItem[]): NoticeItem[] {
-  const index = notices.findIndex((notice) => !notice.exiting);
+function markOldestNoticeExiting(
+  notices: NoticeItem[],
+  predicate: (notice: NoticeItem) => boolean = () => true,
+): NoticeItem[] {
+  const index = notices.findIndex((notice) => !notice.exiting && predicate(notice));
   if (index === -1) return notices;
   return notices.map((notice, i) => (
     i === index ? { ...notice, exiting: true } : notice
@@ -249,9 +254,16 @@ function noticeReducer(state: NoticeState, action: NoticeAction): NoticeState {
     }
     case "mark_oldest_exiting":
       return { ...state, visible: markOldestNoticeExiting(state.visible) };
+    case "mark_oldest_dismissible_exiting":
+      return { ...state, visible: markOldestNoticeExiting(state.visible, (notice) => notice.type !== "error") };
     case "remove": {
       const visible = state.visible.filter((notice) => notice.id !== action.id);
       return fillPendingNotices(visible, state.pending);
+    }
+    case "remove_errors": {
+      const visible = state.visible.filter((notice) => notice.type !== "error");
+      const pending = state.pending.filter((notice) => notice.type !== "error");
+      return fillPendingNotices(visible, pending);
     }
     default:
       return state;
@@ -626,12 +638,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [ensureNewSession]);
 
-  const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
+  const connectEvents = useCallback((sid: string, clearError = false): Promise<EventStreamConnectionResult> => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
+    const errorParam = clearError ? "?clearError=1" : "";
+    const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events${errorParam}`);
     eventSourceRef.current = es;
 
     return new Promise((resolve) => {
@@ -724,6 +737,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: notice.type ?? "info",
       },
     });
+  }, []);
+
+  const dismissNotice = useCallback((id: string) => {
+    dispatchNotice({ type: "remove", id });
+  }, []);
+
+  const dismissErrorNotices = useCallback(() => {
+    dispatchNotice({ type: "remove_errors" });
   }, []);
 
   const ensurePackSkillsReloaded = useCallback(() => {
@@ -917,6 +938,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // A late agent_end can arrive over SSE after reconcileAgentState
         // already finished this run — don't re-trigger completion.
         if (!agentRunRef.current.finish()) break;
+        if (event.willRetry !== true) {
+          const messages = event.messages as Array<{ role?: string; stopReason?: string; errorMessage?: string }> | undefined;
+          const failedMessage = messages?.find((message) => message.role === "assistant" && message.stopReason === "error");
+          if (failedMessage) {
+            addNotice({ type: "error", message: failedMessage.errorMessage ?? "Agent execution failed" });
+          }
+        }
         setAgentRunning(false);
         setAgentPhase(null);
         setRetryInfo(null);
@@ -962,7 +990,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           break;
         }
         if (msg) {
-          dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
+          const normalized = normalizeToolCalls(msg as AgentMessage);
+          // auto_retry_end can be missed when the SSE connection is briefly
+          // interrupted. A non-error assistant response is an equally reliable
+          // signal that the retry banner is no longer relevant.
+          if (normalized.role === "assistant" && normalized.stopReason !== "error") {
+            setRetryInfo(null);
+          }
+          dispatch({ type: "update", message: normalized });
         }
         setAgentPhase(null);
         break;
@@ -973,6 +1008,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // appending it again would duplicate it.
         if (!agentRunRef.current.running) break;
         const completed = event.message as AgentMessage | undefined;
+        if (completed?.role === "assistant" && completed.stopReason !== "error") {
+          setRetryInfo(null);
+        }
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
           // messages. The run's initial prompt also emits one, but handleSend
@@ -1095,6 +1133,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !attachments?.length) return false;
     if (agentRunRef.current.running) return false;
+    dismissErrorNotices();
+    setRetryInfo(null);
     try {
       await ensurePackSkillsReloaded();
     } catch (e) {
@@ -1173,18 +1213,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to send message:", e);
-      if (e instanceof EventStreamConnectionError) {
-        const optimisticKey = optimisticUserMessageKeyRef.current;
-        if (optimisticKey) {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            return last?.role === "user" && userMessageKey(last) === optimisticKey
-              ? prev.slice(0, -1)
-              : prev;
-          });
-        }
-        addNotice({ type: "error", message: e.message });
+      const optimisticKey = optimisticUserMessageKeyRef.current;
+      if (optimisticKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === "user" && userMessageKey(last) === optimisticKey
+            ? prev.slice(0, -1)
+            : prev;
+        });
       }
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       optimisticUserMessageKeyRef.current = null;
       agentRunRef.current.finish(promptRunId);
       setAgentRunning(false);
@@ -1193,7 +1231,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return false;
     }
     return true;
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, notifyUserMessageSent, promoteNewSession, waitForPromptSettlement, addNotice, ensurePackSkillsReloaded, prepareAttachments]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, notifyUserMessageSent, promoteNewSession, waitForPromptSettlement, addNotice, dismissErrorNotices, ensurePackSkillsReloaded, prepareAttachments]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1314,6 +1352,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
+    dismissErrorNotices();
+    setRetryInfo(null);
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
@@ -1388,7 +1428,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, dismissErrorNotices, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1398,6 +1438,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
+      dismissErrorNotices();
+      setRetryInfo(null);
       await sendAgentCommand(sid, {
         type: "steer",
         message,
@@ -1406,7 +1448,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to steer:", e);
     }
-  }, [notifyUserMessageSent]);
+  }, [dismissErrorNotices, notifyUserMessageSent]);
 
   const handleToggleQueuedMessage = useCallback(async (
     mode: "steer" | "followUp",
@@ -1442,6 +1484,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
+      dismissErrorNotices();
+      setRetryInfo(null);
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
@@ -1451,12 +1495,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to queue prompt:", e);
     }
-  }, [notifyUserMessageSent]);
+  }, [dismissErrorNotices, notifyUserMessageSent]);
 
   const handleFollowUp = useCallback(async (message: string) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
+      dismissErrorNotices();
+      setRetryInfo(null);
       await sendAgentCommand(sid, {
         type: "follow_up",
         message,
@@ -1465,7 +1511,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to follow up:", e);
     }
-  }, [notifyUserMessageSent]);
+  }, [dismissErrorNotices, notifyUserMessageSent]);
 
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1557,7 +1603,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // streaming agent events, this lets extensions synchronize browser UI
         // during session_start (for example, a session-title extension can
         // restore the document title when the user switches sessions).
-        void connectEvents(session.id);
+        void connectEvents(session.id, true);
       });
     }
     return () => {
@@ -1608,10 +1654,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }, NOTICE_EXIT_ANIMATION_MS);
       return () => clearTimeout(t);
     }
-    const oldest = noticeState.visible[0];
-    if (!oldest) return;
+    const oldestDismissible = noticeState.visible.find((notice) => !notice.exiting && notice.type !== "error");
+    if (!oldestDismissible) return;
     const t = setTimeout(() => {
-      dispatchNotice({ type: "mark_oldest_exiting" });
+      dispatchNotice({ type: "mark_oldest_dismissible_exiting" });
     }, NOTICE_VISIBLE_MS);
     return () => clearTimeout(t);
   }, [noticeState.visible]);
@@ -1627,7 +1673,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

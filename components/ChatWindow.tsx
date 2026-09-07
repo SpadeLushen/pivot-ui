@@ -187,7 +187,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
+    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -294,6 +294,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const currentThinkingLevelMap = displayModelValue
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
+  const errorNotices = notices.filter((notice) => notice.type === "error");
+  const nonErrorNotices = notices.filter((notice) => notice.type !== "error");
+  const latestErrorNotice = errorNotices[errorNotices.length - 1] ?? null;
 
   const chatInputElement = (
     <ChatInput
@@ -320,6 +323,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       retryInfo={retryInfo}
+      errorNotice={latestErrorNotice}
+      onDismissError={latestErrorNotice ? () => dismissNotice(latestErrorNotice.id) : undefined}
       queuedMessages={queuedMessages}
       onRecallQueue={handleRecallQueue}
       slashCommands={slashCommands}
@@ -408,7 +413,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 <span>pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
               </div>
             </div>
-            <NoticeShelf notices={notices} align="right" />
+            <NoticeShelf notices={nonErrorNotices} align="right" />
             {chatInputElement}
           </div>
         </div>
@@ -427,7 +432,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" />
+            <NoticeShelf notices={nonErrorNotices} floating align="right" />
           </div>
         </div>
         <div className="relative flex flex-1 overflow-hidden">

@@ -37,6 +37,8 @@ export interface Props {
   availableThinkingLevels?: string[] | null;
   thinkingLevelMap?: Record<string, string | null> | null;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
+  errorNotice?: { message: string } | null;
+  onDismissError?: () => void;
   queuedMessages?: QueuedMessages | null;
   onRecallQueue?: () => void;
   onToggleQueuedMessage?: (mode: "steer" | "followUp", index: number, text: string) => void | Promise<void>;
@@ -223,7 +225,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
-  retryInfo, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
+  retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -1154,6 +1156,52 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 onToggle={() => onToggleQueuedMessage?.("followUp", i, text)}
               />
             ))}
+          </div>
+        )}
+        {/* Execution error banner */}
+        {errorNotice && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 8,
+              padding: "7px 10px",
+              background: "rgba(239,68,68,0.11)",
+              border: "1px solid rgba(239,68,68,0.36)",
+              borderRadius: 6,
+              fontSize: 12,
+              color: "#dc2626",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+            }}
+          >
+            <AlertCircle size={13} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0 }} />
+            <span style={{ minWidth: 0, flex: "1 1 auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{errorNotice.message}</span>
+            {onDismissError && (
+              <button
+                type="button"
+                onClick={onDismissError}
+                title="Dismiss error"
+                aria-label="Dismiss error"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 20,
+                  height: 20,
+                  margin: 0,
+                  padding: 0,
+                  flexShrink: 0,
+                  border: "none",
+                  borderRadius: 4,
+                  background: "transparent",
+                  color: "currentColor",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={13} strokeWidth={2} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
         {/* Retry banner */}
