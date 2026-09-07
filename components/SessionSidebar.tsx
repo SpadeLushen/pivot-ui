@@ -881,15 +881,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <PiAgentTitle />
           </div>
           <div className="sidebar-brand-actions">
-            <button
-              type="button"
-              className="sidebar-header-icon"
-              onClick={() => loadSessions(false)}
-              title={t("app.refreshSessions")}
-              aria-label={t("app.refreshSessions")}
-            >
-              {sessionRefreshDone ? <Check size={15} strokeWidth={2.5} color="#4ade80" aria-hidden="true" /> : <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />}
-            </button>
             {onClose && (
               <button type="button" className="sidebar-close-button" onClick={onClose} title={t("app.closeNavigation")} aria-label={t("app.closeNavigation")}>
                 <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
@@ -1085,7 +1076,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             title={t("app.refreshSessions")}
             aria-label={t("app.refreshSessions")}
           >
-            <RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />
+            {sessionRefreshDone ? <Check size={16} strokeWidth={2.5} color="#4ade80" aria-hidden="true" /> : <RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />}
           </button>
         </div>
         <div className="sidebar-session-list">
