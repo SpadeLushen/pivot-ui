@@ -28,6 +28,13 @@ test("directory picker can create and select a named workspace", async () => {
   assert.match(sidebar, /const selectError = await onSelect\(data\.path\);/);
 });
 
+test("Use default directory tags the new workspace without overwriting an existing tag", async () => {
+  const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+
+  assert.match(sidebar, /return selectWorkspaceDirectory\(data\.cwd, DEFAULT_WORKSPACE_TAG\);/);
+  assert.match(sidebar, /\.\.\.\(tag \? \{ tag, tagIfEmpty: true \} : \{\}\)/);
+});
+
 test("More keeps See all in a non-scrolling footer beneath the workspace list", async () => {
   const [sidebar, css] = await Promise.all([
     readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8"),

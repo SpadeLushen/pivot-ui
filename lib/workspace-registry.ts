@@ -11,8 +11,11 @@ export interface WorkspaceRegistry {
   workspaces: WorkspaceRecord[];
 }
 
-export type WorkspacePatch = { path: string; tag?: string; removed?: boolean };
+export type WorkspacePatch = { path: string; tag?: string; removed?: boolean; tagIfEmpty?: boolean };
 export type WorkspaceEntry = WorkspaceRecord & { name: string };
+
+/** Tag automatically applied to workspaces created via "Use default directory". */
+export const DEFAULT_WORKSPACE_TAG = "default";
 
 export interface WorkspaceGroup {
   key: string;

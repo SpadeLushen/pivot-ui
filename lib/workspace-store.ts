@@ -43,7 +43,15 @@ export function updateWorkspaces(patches: WorkspacePatch[], path = getWorkspaces
     const records = new Map(data.workspaces.map((record) => [record.path, record]));
     for (const input of patches) {
       const patch = parseWorkspacePatch(input);
-      records.set(patch.path, { tag: "", removed: false, ...records.get(patch.path), ...patch });
+      const current = records.get(patch.path) ?? { path: patch.path, tag: "", removed: false };
+      // `tagIfEmpty` lets an automatic tag (e.g. the default workspace) defer to
+      // a tag another client already stored, instead of clobbering it.
+      const keepTag = patch.tagIfEmpty && current.tag.trim() !== "";
+      records.set(patch.path, {
+        path: patch.path,
+        tag: patch.tag === undefined || keepTag ? current.tag : patch.tag,
+        removed: patch.removed ?? current.removed,
+      });
     }
     const next: WorkspaceRegistry = { version: 1, workspaces: [...records.values()] };
     await saveWorkspaces(path, next);
@@ -56,7 +64,7 @@ export function updateWorkspaces(patches: WorkspacePatch[], path = getWorkspaces
 export function parseWorkspacePatch(value: unknown): WorkspacePatch {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a workspace object");
   const data = value as Record<string, unknown>;
-  if (Object.keys(data).some((key) => !["path", "tag", "removed"].includes(key))) throw new Error("Unknown workspace field");
+  if (Object.keys(data).some((key) => !["path", "tag", "removed", "tagIfEmpty"].includes(key))) throw new Error("Unknown workspace field");
   if (typeof data.path !== "string" || data.path.length > 32768 || /[\x00-\x1f]/.test(data.path)
     || !(posix.isAbsolute(data.path) || win32.isAbsolute(data.path))) throw new Error("An absolute workspace path is required");
   const patch: WorkspacePatch = { path: data.path };
@@ -67,6 +75,10 @@ export function parseWorkspacePatch(value: unknown): WorkspacePatch {
   if ("removed" in data) {
     if (typeof data.removed !== "boolean") throw new Error("removed must be a boolean");
     patch.removed = data.removed;
+  }
+  if ("tagIfEmpty" in data) {
+    if (typeof data.tagIfEmpty !== "boolean") throw new Error("tagIfEmpty must be a boolean");
+    patch.tagIfEmpty = data.tagIfEmpty;
   }
   return patch;
 }

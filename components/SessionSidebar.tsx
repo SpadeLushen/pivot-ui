@@ -12,7 +12,7 @@ import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
 import { useWorkspaceRegistry } from "@/hooks/useWorkspaceRegistry";
-import { getWorkspaceEntries, workspaceName as projectLabel } from "@/lib/workspace-registry";
+import { DEFAULT_WORKSPACE_TAG, getWorkspaceEntries, workspaceName as projectLabel } from "@/lib/workspace-registry";
 import { AllWorkspacesModal } from "./AllWorkspacesModal";
 import { WorkspaceTagDialog } from "./WorkspaceTagDialog";
 import { WorkspaceTag } from "./WorkspaceDialog";
@@ -711,7 +711,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspacesReady, loading]);
 
-  const selectWorkspaceDirectory = useCallback(async (path: string): Promise<string | null> => {
+  // An automatic `tag` is sent as `tagIfEmpty`, so a tag another client already
+  // stored is never overwritten.
+  const selectWorkspaceDirectory = useCallback(async (path: string, tag?: string): Promise<string | null> => {
     try {
       const res = await fetch("/api/cwd/validate", {
         method: "POST",
@@ -724,7 +726,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       }
       const cwd = data.cwd ?? path;
       const project = projectRootFor(cwd) ?? cwd;
-      await updateWorkspace({ path: project, removed: false });
+      await updateWorkspace({ path: project, removed: false, ...(tag ? { tag, tagIfEmpty: true } : {}) });
       setSelectedCwd(cwd);
       setWorkspaceMenu(null);
       return null;
@@ -739,7 +741,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
       if (!res.ok || data.error) return data.error ?? `HTTP ${res.status}`;
       if (!data.cwd) return "Workspace creation did not return a path";
-      return selectWorkspaceDirectory(data.cwd);
+      return selectWorkspaceDirectory(data.cwd, DEFAULT_WORKSPACE_TAG);
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
