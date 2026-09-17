@@ -309,7 +309,7 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
 
 const DROPDOWN_ANIMATION_MS = 140;
 
-function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
+function AnimatedDropdown({ open, children, style, slide = "down" }: { open: boolean; children: ReactNode; style: CSSProperties; slide?: "down" | "right" }) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(open);
 
@@ -342,8 +342,12 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
       style={{
         ...style,
         opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0) scale(1)" : "translateY(-8px) scale(0.96)",
-        transformOrigin: "top center",
+        transform: visible
+          ? "translate(0, 0) scale(1)"
+          : slide === "right"
+            ? "translateX(-8px) scale(0.96)"
+            : "translateY(-8px) scale(0.96)",
+        transformOrigin: slide === "right" ? "center left" : "top center",
         transition: `opacity ${DROPDOWN_ANIMATION_MS}ms ease, transform ${DROPDOWN_ANIMATION_MS}ms ease`,
         pointerEvents: open ? "auto" : "none",
       }}
@@ -519,6 +523,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [workspaceDeleteConfirmation, setWorkspaceDeleteConfirmation] = useState<string | null>(null);
   const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
   const workspaceCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moreWorkspacesCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [moreWorkspacesOpen, setMoreWorkspacesOpen] = useState(false);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
@@ -626,7 +631,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   useEffect(() => () => {
     if (workspaceCopyTimerRef.current !== null) clearTimeout(workspaceCopyTimerRef.current);
+    if (moreWorkspacesCloseTimerRef.current !== null) clearTimeout(moreWorkspacesCloseTimerRef.current);
   }, []);
+
+  const cancelMoreWorkspacesClose = useCallback(() => {
+    if (moreWorkspacesCloseTimerRef.current !== null) {
+      clearTimeout(moreWorkspacesCloseTimerRef.current);
+      moreWorkspacesCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const closeMoreWorkspacesSoon = useCallback(() => {
+    cancelMoreWorkspacesClose();
+    moreWorkspacesCloseTimerRef.current = setTimeout(() => {
+      moreWorkspacesCloseTimerRef.current = null;
+      setMoreWorkspacesOpen(false);
+    }, 200);
+  }, [cancelMoreWorkspacesClose]);
 
   // Live running status via SSE — no polling. The server pushes the current
   // set of running session ids whenever any session starts/stops working.
@@ -1076,8 +1097,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {overflowWorkspaceProjects.length > 0 && (
               <div
                 style={{ position: "relative" }}
-                onMouseEnter={() => setMoreWorkspacesOpen(true)}
-                onMouseLeave={() => setMoreWorkspacesOpen(false)}
+                onMouseEnter={() => {
+                  cancelMoreWorkspacesClose();
+                  setMoreWorkspacesOpen(true);
+                }}
+                onMouseLeave={closeMoreWorkspacesSoon}
               >
                 <div className="sidebar-project-row sidebar-more-workspaces">
                   <button
@@ -1095,20 +1119,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
                 <AnimatedDropdown
                   open={moreWorkspacesOpen}
+                  slide={isMobile ? "down" : "right"}
                   style={{
                     position: "absolute",
-                    top: "100%",
-                    left: 0,
-                    right: 0,
                     zIndex: 110,
-                    maxHeight: 280,
                     border: "1px solid var(--border)",
                     borderRadius: 7,
                     boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
                     overflow: "hidden",
+                    ...(isMobile
+                      ? { top: "100%", left: 0, right: 0, maxHeight: 280 }
+                      : {
+                          top: 0,
+                          left: "100%",
+                          marginLeft: 6,
+                          width: "min(260px, calc(100vw - 292px))",
+                          maxHeight: 320,
+                        }),
                   }}
                 >
-                  <div role="menu" style={{ maxHeight: 278, overflowY: "auto" }}>
+                  <div role="menu" style={{ maxHeight: isMobile ? 278 : 318, overflowY: "auto" }}>
                     {overflowWorkspaceProjects.map((project) => {
                       const isSelected = project === selectedProject;
                       return (

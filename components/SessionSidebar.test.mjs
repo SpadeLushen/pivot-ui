@@ -33,7 +33,9 @@ test("overflow workspaces use a reachable hover menu", async () => {
 
   assert.match(sidebar, /getWorkspaceDisplayGroups\(workspaceProjects, selectedProject\)/);
   assert.match(sidebar, /overflowWorkspaceProjects\.length > 0/);
-  assert.match(sidebar, /onMouseEnter=\{\(\) => setMoreWorkspacesOpen\(true\)\}/);
-  assert.match(sidebar, /top: "100%"/);
+  assert.match(sidebar, /onMouseEnter=\{\(\) => \{[\s\S]*?cancelMoreWorkspacesClose\(\);[\s\S]*?setMoreWorkspacesOpen\(true\);/);
+  assert.match(sidebar, /onMouseLeave=\{closeMoreWorkspacesSoon\}/);
+  assert.match(sidebar, /slide=\{isMobile \? "down" : "right"\}/);
+  assert.match(sidebar, /left: "100%"/);
   assert.match(sidebar, /overflowWorkspaceProjects\.map/);
 });
