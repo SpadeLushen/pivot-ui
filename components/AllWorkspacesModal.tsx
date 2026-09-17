@@ -7,7 +7,7 @@ import { copyText } from "@/lib/clipboard";
 import { groupWorkspaces, type WorkspaceEntry, type WorkspacePatch } from "@/lib/workspace-registry";
 import { WorkspaceDialog, WorkspaceTag } from "./WorkspaceDialog";
 
-function WorkspaceRow({ entry, onSelect, onTag, onUpdate }: Pick<Props, "onSelect" | "onTag" | "onUpdate"> & { entry: WorkspaceEntry }) {
+function WorkspaceRow({ entry, showTag, onSelect, onTag, onUpdate }: Pick<Props, "onSelect" | "onTag" | "onUpdate"> & { entry: WorkspaceEntry; showTag: boolean }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,7 @@ function WorkspaceRow({ entry, onSelect, onTag, onUpdate }: Pick<Props, "onSelec
       <button type="button" className="workspace-row-main" disabled={entry.removed} onClick={() => onSelect(entry.path)} title={entry.path}>
         <Folder size={20} strokeWidth={1.8} aria-hidden="true" />
         <span className="workspace-row-text">
-          <span className="workspace-row-title"><WorkspaceTag tag={entry.tag} /><span>{entry.name}</span></span>
+          <span className="workspace-row-title">{showTag && <WorkspaceTag tag={entry.tag} />}<span>{entry.name}</span></span>
           <span className="workspace-full-path">{entry.path}</span>
         </span>
       </button>
@@ -94,7 +94,9 @@ export function AllWorkspacesModal({ entries, onClose, onSelect, onTag, onUpdate
           {t("workspaces.removed")} <span>{group.entries.length}</span>
         </button>}
         {(mode === "tag" || !group.removed || searching || removedOpen) && group.entries.map((entry) =>
-          <WorkspaceRow key={entry.path} entry={entry} onTag={onTag} onUpdate={onUpdate}
+          // The tag section heading already shows the tag, so tag mode
+          // omits the per-row tag prefix to avoid repeating it.
+          <WorkspaceRow key={entry.path} entry={entry} showTag={mode === "status"} onTag={onTag} onUpdate={onUpdate}
             onSelect={(path) => { onSelect(path); onClose(); }} />)}
       </section>)}
     </div>

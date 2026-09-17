@@ -29,6 +29,12 @@ test("row navigation is separate from copy, tag and reversible remove controls",
   assert.ok(modal.indexOf("onTag(entry.path)") < modal.indexOf("void toggleRemoved()"));
 });
 
+test("tag mode relies on the section heading instead of a per-row tag prefix", () => {
+  assert.match(modal, /showTag && <WorkspaceTag tag=\{entry\.tag\} \/>/);
+  assert.match(modal, /showTag=\{mode === "status"\}/);
+  assert.equal(modal.match(/<WorkspaceTag /g)?.length, 1);
+});
+
 test("See all is last and separated in More; tags appear in both workspace lists", () => {
   assert.match(sidebar, /role="separator" \/>\s*\{seeAllWorkspaces\}/);
   assert.match(sidebar, /overflowWorkspaceProjects.length === 0 && seeAllWorkspaces/);
