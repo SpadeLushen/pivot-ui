@@ -1587,18 +1587,14 @@ function previewText(text: string): string {
 function getToolPreview(block: ToolCallContent): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
-  const keys = Object.keys(input);
+  const keys = Object.keys(input).filter((key) => key !== "args");
   if (keys.length === 0) return "";
 
-  // Common tool input patterns
-  if ("command" in input) return String(input.command).slice(0, 120);
-  if ("path" in input) return String(input.path).slice(0, 120);
-  if ("file_path" in input) return String(input.file_path).slice(0, 120);
-  if ("pattern" in input) return String(input.pattern).slice(0, 120);
-  if ("query" in input) return String(input.query).slice(0, 120);
-
-  const first = input[keys[0]];
-  return String(first).slice(0, 120);
+  // Prefer the MCP target; otherwise use the first non-args field.
+  const previewKey = keys.includes("tool") ? "tool" : keys[0];
+  const value = input[previewKey];
+  const preview = typeof value === "string" ? value : JSON.stringify(value);
+  return (preview ?? "").slice(0, 120);
 }
 
 function formatUsage(usage: {
