@@ -39,14 +39,26 @@ test("collapsed previews ignore args, including partial MCP calls", () => {
   assert.equal(collapsedPreview("mcp", undefined, true), "");
 });
 
-test("collapsed previews use the first non-args field when tool is absent", () => {
-  for (const key of ["command", "path", "file_path", "pattern", "query", "server"]) {
+test("collapsed previews use the first non-args field when tool and path are absent", () => {
+  for (const key of ["command", "file_path", "pattern", "query", "server"]) {
     for (const input of [{ args: {}, [key]: "first", other: "second" }, { [key]: "first", args: {} }]) {
       assert.equal(collapsedPreview("custom", input), "first");
     }
   }
-  assert.equal(collapsedPreview("bash", { path: "first", command: "pwd" }), "first");
   assert.equal(collapsedPreview("custom", { text: "fallback" }), "fallback");
+});
+
+test("collapsed previews prefer path over other fields when tool is absent", () => {
+  const path = "components/MessageView.tsx";
+  for (const input of [
+    { args: {}, command: "ignored", path },
+    { offset: 10, path, args: {} },
+    { path, command: "ignored", args: {} },
+  ]) {
+    for (const streaming of [false, true]) {
+      assert.equal(collapsedPreview("custom", input, streaming), path);
+    }
+  }
 });
 
 test("collapsed previews serialize selected values and retain the 120-character limit", () => {
@@ -62,7 +74,13 @@ test("collapsed MCP calls show the tool regardless of argument order", () => {
   const tool = "search/example";
   for (const toolName of ["mcp", "mcp__search"]) {
     for (const args of [{ query: "example" }, '{"query":"example"}']) {
-      for (const input of [{ args, tool }, { tool, args }, { args, server: "ignored", query: "ignored", tool }]) {
+      for (const input of [
+        { args, tool },
+        { tool, args },
+        { args, server: "ignored", query: "ignored", tool },
+        { args, path: "ignored", tool },
+        { tool, path: "ignored", args },
+      ]) {
         for (const streaming of [false, true]) {
           assert.equal(collapsedPreview(toolName, input, streaming), tool);
         }
