@@ -33,7 +33,7 @@ button.workspace-group-heading:disabled { cursor: default; opacity: 1; }
 .workspace-full-path { display: block; font-size: 11px; line-height: 1.5; color: var(--text-dim); overflow-wrap: anywhere; }
 .workspace-row-text > .workspace-full-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.workspace-row-container.is-removed { opacity: .5; }
+.workspace-row-container.is-archived { opacity: .5; }
 .workspace-error { padding: 6px 8px; font-size: 12px; color: #ef4444; overflow-wrap: anywhere; }
 @media (max-width: 480px) {
   .workspace-modal-toolbar { flex-wrap: wrap; padding: 10px; }

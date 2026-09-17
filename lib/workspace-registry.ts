@@ -3,6 +3,7 @@ import type { SessionInfo } from "./types";
 export interface WorkspaceRecord {
   path: string;
   tag: string;
+  /** Archived state; keep the legacy field name for registry/API compatibility. */
   removed: boolean;
 }
 
@@ -39,7 +40,7 @@ export function groupWorkspaces(entries: readonly WorkspaceEntry[], query: strin
   const tags = [...new Set(matches.map((entry) => entry.tag))]
     .sort((a, b) => !a ? 1 : !b ? -1 : a.localeCompare(b));
   // Each tag has one non-collapsible section. Keep the name order within
-  // each status, with removed workspaces at the end of that same section.
+  // each status, with archived workspaces at the end of that same section.
   return tags.map((tag) => {
     const tagged = matches.filter((entry) => entry.tag === tag);
     return {

@@ -9,8 +9,10 @@ test("workspace menus keep actions separate", async () => {
   assert.match(sidebar, /t\("app\.useDefaultDir"\)/);
   assert.match(sidebar, /t\("app\.chooseFolder"\)/);
   assert.match(sidebar, /open=\{workspaceMenu === "active"\}/);
-  assert.match(sidebar, /t\("general\.remove"\)/);
-  assert.match(sidebar, /t\("app\.confirmWorkspaceDelete"\)/);
+  assert.match(sidebar, /t\("workspaces\.archive"\)/);
+  assert.match(sidebar, /t\("app\.confirmWorkspaceArchive"\)/);
+  assert.match(sidebar, /handleWorkspaceArchive\(project\);[\s\S]*?<Archive size=\{14\}/);
+  assert.doesNotMatch(sidebar, /general\.remove|confirmWorkspaceDelete|sidebar-workspace-menu-item is-danger/);
   assert.match(sidebar, /t\("fileTree\.copyFullPath"\)/);
   assert.match(sidebar, /className="sidebar-workspace-menu-path"/);
   assert.match(sidebar, /<PathLabel text=\{projectLabel\(project\)\}/);
@@ -18,6 +20,15 @@ test("workspace menus keep actions separate", async () => {
   assert.match(sidebar, /left: 0,[\s\S]*?minWidth: "min\(260px, calc\(100vw - 24px\)\)"/);
   assert.match(sidebar, /hoveredWorkspace === project/);
   assert.doesNotMatch(sidebar, /className="sidebar-workspace-menu-item"[\s\S]*?t\("general\.cancel"\)/);
+});
+
+test("archiving retains confirmation and updates only the compatible registry flag", async () => {
+  const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+  const handler = sidebar.match(/const handleWorkspaceArchive = useCallback\([\s\S]*?\}, \[updateWorkspace, workspaceArchiveConfirmation\]\);/)?.[0];
+  assert.ok(handler);
+  assert.match(handler, /if \(workspaceArchiveConfirmation !== project\)[\s\S]*?setWorkspaceArchiveConfirmation\(project\);\s*return;/);
+  assert.match(handler, /updateWorkspace\(\{ path: project, removed: true \}\)/);
+  assert.doesNotMatch(handler, /fetch\(|handleDelete/);
 });
 
 test("directory picker can create and select a named workspace", async () => {

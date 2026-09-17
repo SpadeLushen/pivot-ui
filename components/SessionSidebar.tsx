@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
+import { Archive, Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
@@ -474,7 +474,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [workspaceMenu, setWorkspaceMenu] = useState<"active" | "new" | null>(null);
-  const [workspaceDeleteConfirmation, setWorkspaceDeleteConfirmation] = useState<string | null>(null);
+  const [workspaceArchiveConfirmation, setWorkspaceArchiveConfirmation] = useState<string | null>(null);
   const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
   const workspaceCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreWorkspacesCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -563,10 +563,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // The confirmation is intentionally scoped to the open workspace menu. A
   // menu close, workspace switch, or opening the new-workspace menu starts the
-  // delete flow over from its first click.
+  // archive flow over from its first click.
   useEffect(() => {
     if (workspaceMenu !== "active") {
-      setWorkspaceDeleteConfirmation(null);
+      setWorkspaceArchiveConfirmation(null);
       setCopiedWorkspacePath(null);
       if (workspaceCopyTimerRef.current !== null) {
         clearTimeout(workspaceCopyTimerRef.current);
@@ -754,7 +754,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (dropdownRef.current?.contains(target) || newWorkspaceMenuRef.current?.contains(target)) return;
       setWorkspaceMenu(null);
       setMoreWorkspacesOpen(false);
-      setWorkspaceDeleteConfirmation(null);
+      setWorkspaceArchiveConfirmation(null);
       setCopiedWorkspacePath(null);
     };
     document.addEventListener("mousedown", handler);
@@ -788,7 +788,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleNewWorkspace = useCallback(() => {
     setMoreWorkspacesOpen(false);
-    setWorkspaceDeleteConfirmation(null);
+    setWorkspaceArchiveConfirmation(null);
     setCopiedWorkspacePath(null);
     setWorkspaceMenu((current) => current === "new" ? null : "new");
   }, []);
@@ -805,7 +805,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (overflowWorkspaceProjects.length === 0) setMoreWorkspacesOpen(false);
   }, [overflowWorkspaceProjects.length]);
 
-  // A removal from any device also moves this browser off a hidden workspace.
+  // Archiving on any device also moves this browser off the archived workspace.
   useEffect(() => {
     if (workspacesReady && selectedProject && hiddenWorkspaces.has(selectedProject)) {
       setSelectedCwd(getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces)[0] ?? null);
@@ -819,19 +819,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     ] as const),
   );
 
-  const handleWorkspaceRemove = useCallback((project: string) => {
-    if (workspaceDeleteConfirmation !== project) {
+  const handleWorkspaceArchive = useCallback((project: string) => {
+    if (workspaceArchiveConfirmation !== project) {
       setCopiedWorkspacePath(null);
-      setWorkspaceDeleteConfirmation(project);
+      setWorkspaceArchiveConfirmation(project);
       return;
     }
     setWorkspaceMenu(null);
-    setWorkspaceDeleteConfirmation(null);
+    setWorkspaceArchiveConfirmation(null);
     void updateWorkspace({ path: project, removed: true }).catch(() => {});
-  }, [updateWorkspace, workspaceDeleteConfirmation]);
+  }, [updateWorkspace, workspaceArchiveConfirmation]);
 
   const handleCopyWorkspacePath = useCallback((project: string) => {
-    setWorkspaceDeleteConfirmation(null);
+    setWorkspaceArchiveConfirmation(null);
     setCopiedWorkspacePath(null);
     void copyText(project).then(() => {
       setCopiedWorkspacePath(project);
@@ -995,7 +995,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         className="sidebar-project-menu-button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setWorkspaceDeleteConfirmation(null);
+                          setWorkspaceArchiveConfirmation(null);
                           setCopiedWorkspacePath(null);
                           setMoreWorkspacesOpen(false);
                           setWorkspaceMenu((current) => current === "active" ? null : "active");
@@ -1047,13 +1047,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         <div className="sidebar-workspace-menu-divider" role="separator" />
                         <button
                           type="button"
-                          className="sidebar-workspace-menu-item is-danger"
+                          className="sidebar-workspace-menu-item"
                           role="menuitem"
-                          onClick={(e) => { e.stopPropagation(); handleWorkspaceRemove(project); }}
-                          aria-label={workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.remove")}
+                          onClick={(e) => { e.stopPropagation(); handleWorkspaceArchive(project); }}
+                          aria-label={workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}
                         >
-                          <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{workspaceDeleteConfirmation === project ? t("app.confirmWorkspaceDelete") : t("general.remove")}</span>
+                          <Archive size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}</span>
                         </button>
                       </div>
                     </AnimatedDropdown>

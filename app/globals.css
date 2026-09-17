@@ -1705,15 +1705,6 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   flex: 0 0 auto;
 }
 
-.sidebar-workspace-menu-item.is-danger {
-  color: #bf4f42;
-}
-
-.sidebar-workspace-menu-item.is-danger:hover {
-  background: color-mix(in srgb, #d06254 14%, transparent);
-  color: #bf4f42;
-}
-
 .sidebar-session-section {
   display: flex;
   min-height: 0;

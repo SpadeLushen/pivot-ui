@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, Copy, Folder, RotateCcw, Search, Tag, Trash2 } from "lucide-react";
+import { Archive, Check, ChevronRight, Copy, Folder, RotateCcw, Search, Tag } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { copyText } from "@/lib/clipboard";
 import { groupWorkspaces, type WorkspaceEntry, type WorkspacePatch } from "@/lib/workspace-registry";
@@ -21,7 +21,7 @@ function WorkspaceRow({ entry, showTag, onSelect, onTag, onUpdate }: Pick<Props,
     try { await copyText(entry.path); setCopied(true); setError(null); }
     catch (error) { setError(String(error)); }
   };
-  const toggleRemoved = async () => {
+  const toggleArchived = async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -29,7 +29,7 @@ function WorkspaceRow({ entry, showTag, onSelect, onTag, onUpdate }: Pick<Props,
     catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   };
-  return <div className={`workspace-row-container${entry.removed ? " is-removed" : ""}`}>
+  return <div className={`workspace-row-container${entry.removed ? " is-archived" : ""}`}>
     <div className="workspace-modal-row" onClick={(event) => {
       // The main button handles keyboard navigation; padding/gaps also open it.
       // Action buttons must never navigate or close the modal.
@@ -47,9 +47,9 @@ function WorkspaceRow({ entry, showTag, onSelect, onTag, onUpdate }: Pick<Props,
           {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
         <button type="button" className="workspace-icon-button" onClick={() => onTag(entry.path)} title={t("workspaces.setTag")} aria-label={t("workspaces.setTag")}><Tag size={16} /></button>
-        <button type="button" className="workspace-icon-button" disabled={busy} onClick={() => void toggleRemoved()}
-          title={t(entry.removed ? "workspaces.restore" : "general.remove")} aria-label={t(entry.removed ? "workspaces.restore" : "general.remove")}>
-          {entry.removed ? <RotateCcw size={16} /> : <Trash2 size={16} />}
+        <button type="button" className="workspace-icon-button" disabled={busy} onClick={() => void toggleArchived()}
+          title={t(entry.removed ? "workspaces.restore" : "workspaces.archive")} aria-label={t(entry.removed ? "workspaces.restore" : "workspaces.archive")}>
+          {entry.removed ? <RotateCcw size={16} /> : <Archive size={16} />}
         </button>
       </div>
     </div>
@@ -69,7 +69,7 @@ export function AllWorkspacesModal({ entries, onClose, onSelect, onTag, onUpdate
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"status" | "tag">("status");
-  const [removedOpen, setRemovedOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const groups = groupWorkspaces(entries, query, mode);
   const searching = Boolean(query.trim());
   return <WorkspaceDialog title={t("workspaces.all")} onClose={onClose}>
@@ -89,11 +89,11 @@ export function AllWorkspacesModal({ entries, onClose, onSelect, onTag, onUpdate
           {group.tag || t("workspaces.untagged")}
         </h3>}
         {mode === "status" && group.removed && <button type="button" className="workspace-group-heading" disabled={searching}
-          aria-expanded={searching || removedOpen} onClick={() => setRemovedOpen((open) => !open)}>
-          <ChevronRight size={14} aria-hidden="true" style={{ transform: searching || removedOpen ? "rotate(90deg)" : undefined }} />
-          {t("workspaces.removed")} <span>{group.entries.length}</span>
+          aria-expanded={searching || archivedOpen} onClick={() => setArchivedOpen((open) => !open)}>
+          <ChevronRight size={14} aria-hidden="true" style={{ transform: searching || archivedOpen ? "rotate(90deg)" : undefined }} />
+          {t("workspaces.archived")} <span>{group.entries.length}</span>
         </button>}
-        {(mode === "tag" || !group.removed || searching || removedOpen) && group.entries.map((entry) =>
+        {(mode === "tag" || !group.removed || searching || archivedOpen) && group.entries.map((entry) =>
           // The tag section heading already shows the tag, so tag mode
           // omits the per-row tag prefix to avoid repeating it.
           <WorkspaceRow key={entry.path} entry={entry} showTag={mode === "status"} onTag={onTag} onUpdate={onUpdate}
