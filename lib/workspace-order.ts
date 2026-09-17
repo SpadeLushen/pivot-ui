@@ -2,6 +2,41 @@ import type { SessionInfo } from "./types";
 
 type WorkspaceSession = Pick<SessionInfo, "cwd" | "projectRoot" | "lastUserMessageAt">;
 
+export interface WorkspaceDisplayGroups {
+  resident: string[];
+  overflow: string[];
+}
+
+/**
+ * Keep the workspace picker at five rows, including the More row when needed.
+ * An overflow selection temporarily takes the last resident workspace's slot;
+ * selection never changes the ordering of the projects themselves.
+ */
+export function getWorkspaceDisplayGroups(
+  projects: readonly string[],
+  selectedProject: string | null = null,
+): WorkspaceDisplayGroups {
+  if (projects.length <= 5) {
+    return { resident: [...projects], overflow: [] };
+  }
+
+  const firstFour = [...projects.slice(0, 4)];
+  const selectedOverflowProject = selectedProject !== null
+    && projects.includes(selectedProject)
+    && !firstFour.includes(selectedProject)
+    ? selectedProject
+    : null;
+  const resident = selectedOverflowProject !== null
+    ? [...firstFour.slice(0, -1), selectedOverflowProject]
+    : firstFour;
+  const residentSet = new Set(resident);
+
+  return {
+    resident,
+    overflow: projects.filter((project) => !residentSet.has(project)),
+  };
+}
+
 /** Return project roots that have user-authored messages, newest first. */
 export function getRecentProjects(sessions: readonly WorkspaceSession[]): string[] {
   const latestByRoot = new Map<string, string>();

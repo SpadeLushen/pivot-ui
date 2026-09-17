@@ -1552,6 +1552,10 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   color: var(--text);
 }
 
+.sidebar-more-workspaces {
+  color: var(--text-dim);
+}
+
 .sidebar-project-select {
   display: flex;
   align-items: center;

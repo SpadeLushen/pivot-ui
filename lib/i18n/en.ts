@@ -61,6 +61,7 @@ const en: Record<string, string> = {
   "app.workspaceCount": "Workspace",
   "app.newWorkspace": "New workspace",
   "app.workspaceActions": "Workspace actions",
+  "app.moreWorkspaces": "More",
   "app.selectWorkspace": "Select workspace...",
   "app.noSessions": "No sessions found",
   "app.refreshSessions": "Refresh sessions",

@@ -27,3 +27,13 @@ test("directory picker can create and select a named workspace", async () => {
   assert.match(sidebar, /body: JSON\.stringify\(\{ path: listing\.path, name \}\)/);
   assert.match(sidebar, /const selectError = await onSelect\(data\.path\);/);
 });
+
+test("overflow workspaces use a reachable hover menu", async () => {
+  const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+
+  assert.match(sidebar, /getWorkspaceDisplayGroups\(workspaceProjects, selectedProject\)/);
+  assert.match(sidebar, /overflowWorkspaceProjects\.length > 0/);
+  assert.match(sidebar, /onMouseEnter=\{\(\) => setMoreWorkspacesOpen\(true\)\}/);
+  assert.match(sidebar, /top: "100%"/);
+  assert.match(sidebar, /overflowWorkspaceProjects\.map/);
+});

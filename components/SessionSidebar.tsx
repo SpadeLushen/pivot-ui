@@ -6,7 +6,7 @@ import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, Folder
 import type { SessionInfo } from "@/lib/types";
 import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
-import { getWorkspaceProjects } from "@/lib/workspace-order";
+import { getWorkspaceDisplayGroups, getWorkspaceProjects } from "@/lib/workspace-order";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
@@ -520,6 +520,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
   const workspaceCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
+  const [moreWorkspacesOpen, setMoreWorkspacesOpen] = useState(false);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const newWorkspaceMenuRef = useRef<HTMLDivElement>(null);
@@ -789,6 +790,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const target = e.target as Node;
       if (dropdownRef.current?.contains(target) || newWorkspaceMenuRef.current?.contains(target)) return;
       setWorkspaceMenu(null);
+      setMoreWorkspacesOpen(false);
       setWorkspaceDeleteConfirmation(null);
       setCopiedWorkspacePath(null);
     };
@@ -818,9 +820,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const handleProjectSelect = useCallback((project: string) => {
     setSelectedCwd(project);
     setWorkspaceMenu(null);
+    setMoreWorkspacesOpen(false);
   }, []);
 
   const handleNewWorkspace = useCallback(() => {
+    setMoreWorkspacesOpen(false);
     setWorkspaceDeleteConfirmation(null);
     setCopiedWorkspacePath(null);
     setWorkspaceMenu((current) => current === "new" ? null : "new");
@@ -832,7 +836,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the activity used here, so an assistant reply cannot promote it.
   const workspaceProjects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
   const selectedProject = projectRootFor(selectedCwd);
-  const flatWorkspaceProjects = workspaceProjects.slice(0, isMobile ? 1 : 5);
+  const { resident: residentWorkspaceProjects, overflow: overflowWorkspaceProjects } = getWorkspaceDisplayGroups(workspaceProjects, selectedProject);
+
+  useEffect(() => {
+    if (overflowWorkspaceProjects.length === 0) setMoreWorkspacesOpen(false);
+  }, [overflowWorkspaceProjects.length]);
+
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
       project,
@@ -977,7 +986,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </div>
         <div ref={dropdownRef} className="sidebar-project-picker" style={{ position: "relative" }}>
           <div className="sidebar-project-list">
-            {flatWorkspaceProjects.map((project) => {
+            {residentWorkspaceProjects.map((project) => {
               const isSelected = project === selectedProject;
               return (
                 <div
@@ -1005,6 +1014,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           e.stopPropagation();
                           setWorkspaceDeleteConfirmation(null);
                           setCopiedWorkspacePath(null);
+                          setMoreWorkspacesOpen(false);
                           setWorkspaceMenu((current) => current === "active" ? null : "active");
                         }}
                         title={t("app.workspaceActions")}
@@ -1063,7 +1073,64 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               );
             })}
-            {flatWorkspaceProjects.length === 0 && (
+            {overflowWorkspaceProjects.length > 0 && (
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setMoreWorkspacesOpen(true)}
+                onMouseLeave={() => setMoreWorkspacesOpen(false)}
+              >
+                <div className="sidebar-project-row sidebar-more-workspaces">
+                  <button
+                    type="button"
+                    className="sidebar-project-select"
+                    onClick={() => setMoreWorkspacesOpen(true)}
+                    title={t("app.moreWorkspaces")}
+                    aria-label={t("app.moreWorkspaces")}
+                    aria-haspopup="menu"
+                    aria-expanded={moreWorkspacesOpen}
+                  >
+                    <MoreHorizontal size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{t("app.moreWorkspaces")}</span>
+                  </button>
+                </div>
+                <AnimatedDropdown
+                  open={moreWorkspacesOpen}
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    zIndex: 110,
+                    maxHeight: 280,
+                    border: "1px solid var(--border)",
+                    borderRadius: 7,
+                    boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div role="menu" style={{ maxHeight: 278, overflowY: "auto" }}>
+                    {overflowWorkspaceProjects.map((project) => {
+                      const isSelected = project === selectedProject;
+                      return (
+                        <div key={project} className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
+                          <button
+                            type="button"
+                            className="sidebar-project-select"
+                            onClick={() => handleProjectSelect(project)}
+                            title={displayCwd(project, homeDir)}
+                          >
+                            <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
+                            <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                            <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </AnimatedDropdown>
+              </div>
+            )}
+            {residentWorkspaceProjects.length === 0 && (
               <div className="sidebar-project-row">
                 <button
                   type="button"
