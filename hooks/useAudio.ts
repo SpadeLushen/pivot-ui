@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { readSoundEnabledPreference, writeSoundEnabledPreference } from "@/lib/ui-preferences";
+import { useRef, useCallback, useEffect } from "react";
+import { usePreferences } from "@/lib/preferences-context";
 
 function playTone(ctx: AudioContext) {
   const now = ctx.currentTime;
@@ -23,8 +23,8 @@ function playTone(ctx: AudioContext) {
 }
 
 export function useAudio() {
-  const [enabled, setEnabled] = useState<boolean>(() => readSoundEnabledPreference());
-
+  const { preferences, updatePreferences } = usePreferences();
+  const enabled = preferences["sound-enabled"];
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
 
@@ -53,9 +53,8 @@ export function useAudio() {
     const next = !enabledRef.current;
     if (next) unlockAudio(true);
     enabledRef.current = next;
-    writeSoundEnabledPreference(next);
-    setEnabled(next);
-  }, [unlockAudio]);
+    void updatePreferences({ "sound-enabled": next }).catch(() => undefined);
+  }, [unlockAudio, updatePreferences]);
 
   const playDone = useCallback(() => {
     if (!enabledRef.current) return;

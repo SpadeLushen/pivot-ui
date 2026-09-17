@@ -15,7 +15,7 @@ import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
-import type { EnterBehavior, TimeFormat } from "@/lib/ui-preferences";
+import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "@/lib/extension-statusline";

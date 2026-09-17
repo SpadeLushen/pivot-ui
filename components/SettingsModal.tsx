@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Globe, Cpu, Gauge, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
-import type { TimeFormat } from "@/lib/ui-preferences";
+import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
 
 type SettingsTab = "general" | "models";

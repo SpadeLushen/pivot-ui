@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
-import type { EnterBehavior } from "@/lib/ui-preferences";
+import type { EnterBehavior } from "@/lib/preferences-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftAttachment } from "@/lib/draft-store";
 import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,

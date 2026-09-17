@@ -15,7 +15,7 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import { clearDraft } from "@/lib/draft-store";
-import { readToolPresetPreference, writeToolPresetPreference } from "@/lib/ui-preferences";
+import { usePreferences } from "@/lib/preferences-context";
 import { inheritLastSessionPacks, rememberLastSessionPacks } from "@/lib/pack-preferences";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -351,6 +351,7 @@ type SlashCommandsResponse = {
 };
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
+  const { preferences, ready: preferencesReady, updatePreferences } = usePreferences();
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -420,14 +421,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const prevPacksRefreshKeyRef = useRef(packsRefreshKey);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
+  const preferredToolPreset = preferences["tool-preset"];
 
   // The tool preset is a Pivot UI preference for brand-new sessions. The
   // reasoning level comes from Pi's defaultThinkingLevel, loaded with models.
-  // Read the UI preference after hydration so localStorage never changes SSR markup.
   useEffect(() => {
-    if (!isNew) return;
-    setToolPresetState(readToolPresetPreference());
-  }, [isNew, setToolPresetState]);
+    if (!isNew || !preferencesReady) return;
+    setToolPresetState(preferredToolPreset);
+  }, [isNew, preferredToolPreset, preferencesReady, setToolPresetState]);
 
   // Keep the last opened session's active Pack set available for future
   // unconfigured workspaces. New/unsaved sessions must not overwrite it.
@@ -1576,7 +1577,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
     const toolNames = getToolNamesForPreset(preset);
-    writeToolPresetPreference(preset);
+    void updatePreferences({ "tool-preset": preset }).catch(() => undefined);
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
@@ -1585,7 +1586,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [setToolPresetState]);
+  }, [setToolPresetState, updatePreferences]);
 
   // Load session on mount. Restore a deterministic browser title when
   // switching away from a session whose extension set a custom title. The

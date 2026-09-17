@@ -17,16 +17,8 @@ import { RightPanel } from "./right-panel/RightPanel";
 import type { RightPanelHandle } from "./right-panel/types";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import {
-  readEnterBehaviorPreference,
-  readTimeFormatPreference,
-  readTpsEnabledPreference,
-  writeEnterBehaviorPreference,
-  writeTimeFormatPreference,
-  writeTpsEnabledPreference,
-  type EnterBehavior,
-  type TimeFormat,
-} from "@/lib/ui-preferences";
+import { usePreferences } from "@/lib/preferences-context";
+import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import { copyText } from "@/lib/clipboard";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
@@ -179,6 +171,7 @@ export function AppShell() {
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const { t } = useI18n();
+  const { preferences, updatePreferences } = usePreferences();
   const nextThemeLabel = theme === "light" ? t("settings.switchToDark") : theme === "dark" ? t("settings.switchToEye") : t("settings.switchToLight");
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
@@ -189,9 +182,9 @@ export function AppShell() {
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showTps, setShowTps] = useState(false);
-  const [timeFormat, setTimeFormat] = useState<TimeFormat>("24");
-  const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("followUp");
+  const showTps = preferences["tps-enabled"];
+  const timeFormat: TimeFormat = preferences["time-format"];
+  const enterBehavior: EnterBehavior = preferences["enter-behavior"];
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
@@ -200,29 +193,17 @@ export function AppShell() {
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
-  useEffect(() => {
-    setShowTps(readTpsEnabledPreference());
-    setTimeFormat(readTimeFormatPreference());
-    setEnterBehavior(readEnterBehaviorPreference());
-  }, []);
-
   const handleTpsToggle = useCallback(() => {
-    setShowTps((current) => {
-      const next = !current;
-      writeTpsEnabledPreference(next);
-      return next;
-    });
-  }, []);
+    void updatePreferences({ "tps-enabled": !showTps }).catch(() => undefined);
+  }, [showTps, updatePreferences]);
 
   const handleEnterBehaviorChange = useCallback((behavior: EnterBehavior) => {
-    setEnterBehavior(behavior);
-    writeEnterBehaviorPreference(behavior);
-  }, []);
+    void updatePreferences({ "enter-behavior": behavior }).catch(() => undefined);
+  }, [updatePreferences]);
 
   const handleTimeFormatChange = useCallback((format: TimeFormat) => {
-    setTimeFormat(format);
-    writeTimeFormatPreference(format);
-  }, []);
+    void updatePreferences({ "time-format": format }).catch(() => undefined);
+  }, [updatePreferences]);
 
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.

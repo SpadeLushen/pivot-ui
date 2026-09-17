@@ -25,7 +25,8 @@ test("direct theme selection shares the DOM and persistence path with the toggle
 
   assert.match(themeHook, /const setTheme = useCallback\(\(next: Theme/);
   assert.match(themeHook, /document\.documentElement\.classList\.remove\("dark", "eye"\)/);
-  assert.match(themeHook, /localStorage\.setItem\("pi-theme", next\)/);
+  assert.match(themeHook, /updatePreferences\(\{ theme: next \}\)/);
+  assert.doesNotMatch(themeHook, /localStorage/);
   assert.match(themeHook, /setTheme\(next, origin\);/);
   assert.match(appShell, /toggleTheme\(\{[\s\S]*?x: rect\.left/);
 });

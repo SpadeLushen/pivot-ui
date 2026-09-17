@@ -64,6 +64,7 @@ app/api/
   git/route.ts                    GET repository/branch/remote data; POST Git working-tree actions
   git-history/route.ts            GET commit list, commit files, and one-file before/after content
   home/route.ts                   GET user home directory
+  preferences/route.ts            GET/PATCH shared user preferences
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
   models-config/test/route.ts     POST test a configured model/provider
@@ -107,6 +108,9 @@ lib/
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   attachment-config.ts reads ~/.pivot-ui/config.json maxAttachmentBytes + attachment dir helpers
+  preferences.ts       atomic shared preferences.json storage under ~/.pivot-ui
+  preferences-context.tsx client context for shared preferences and refresh
+  preferences-types.ts  shared preference keys, types, defaults, and normalization
   auth-store.ts        file-backed CredentialStore for ~/.pi/agent/auth.json (pi 0.84 no longer exports AuthStorage)
   model-runtime.ts     helpers over pi 0.84 ModelRuntime (getOAuthProviders)
   skill-library.ts     library scan/import/delete primitives
@@ -164,6 +168,10 @@ hooks/
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+
+### Shared user preferences
+- The seven user preferences live in `~/.pivot-ui/preferences.json` with unprefixed keys: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, and `time-format`.
+- The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs and workspace visibility remains in `localStorage`.
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
@@ -247,7 +255,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
 
 ### Completion sound
-- `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
+- `hooks/useAudio.ts` reads the shared completion-sound preference and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
 
 ### Exported session HTML
@@ -283,7 +291,7 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 ## Localization
 
 - UI strings use `useI18n()` with paired keys in `lib/i18n/en.ts` and `lib/i18n/zh.ts`; keep Skills, MCP, Packs, Plugins, Models, and Provider in English unless directed otherwise.
-- Keep the provider's initial locale as English during SSR and the first client render; read browser/localStorage preference only in `useEffect` to avoid hydration mismatches.
+- The provider receives the server preference snapshot during SSR, so the initial locale is shared across devices and hydration remains stable.
 
 ## Agent skills
 

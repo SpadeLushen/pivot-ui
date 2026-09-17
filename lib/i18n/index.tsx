@@ -1,12 +1,12 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect } from "react";
 import en from "./en";
 import zh from "./zh";
+import { usePreferences } from "@/lib/preferences-context";
+import type { Locale } from "@/lib/preferences-types";
 
-export type Locale = "en" | "zh";
-
-const STORAGE_KEY = "pi-locale";
+export type { Locale } from "@/lib/preferences-types";
 
 const translations: Record<Locale, Record<string, string>> = { en, zh };
 
@@ -22,35 +22,13 @@ const I18nContext = createContext<I18nContextValue>({
   t: (key: string) => key,
 });
 
-function getPreferredLocale(): Locale {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "en" || stored === "zh") return stored;
-  } catch {
-    // ignore
-  }
-  // Fall back to browser language
-  const browserLang = navigator.language?.toLowerCase() || "";
-  if (browserLang.startsWith("zh")) return "zh";
-  return "en";
-}
-
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  // Keep SSR and the client's first render identical; restore browser state after hydration.
-  const [locale, setLocaleState] = useState<Locale>("en");
-
-  useEffect(() => {
-    setLocaleState(getPreferredLocale());
-  }, []);
+  const { preferences, updatePreferences } = usePreferences();
+  const locale = preferences.locale;
 
   const setLocale = useCallback((newLocale: Locale) => {
-    setLocaleState(newLocale);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, newLocale);
-    } catch {
-      // ignore
-    }
-  }, []);
+    void updatePreferences({ locale: newLocale }).catch(() => undefined);
+  }, [updatePreferences]);
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>): string => {

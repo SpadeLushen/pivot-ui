@@ -1,43 +1,22 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
+import { usePreferences } from "@/lib/preferences-context";
+import type { Theme } from "@/lib/preferences-types";
 
-export type Theme = "light" | "dark" | "eye";
-
-const listeners = new Set<() => void>();
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
-}
-
-function getSnapshot(): Theme {
-  if (typeof document === "undefined") return "light";
-  if (document.documentElement.classList.contains("eye")) return "eye";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
-}
-
-function getServerSnapshot(): Theme {
-  return "light";
-}
+export type { Theme } from "@/lib/preferences-types";
 
 type ToggleOrigin = { x: number; y: number };
 
 export function useTheme() {
-  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const { preferences, updatePreferences } = usePreferences();
+  const theme = preferences.theme;
 
   const setTheme = useCallback((next: Theme, origin?: ToggleOrigin) => {
     const apply = () => {
       document.documentElement.classList.remove("dark", "eye");
       if (next !== "light") document.documentElement.classList.add(next);
-      try {
-        localStorage.setItem("pi-theme", next);
-      } catch {
-        // ignore storage errors (private mode, quota, etc.)
-      }
-      listeners.forEach((cb) => cb());
+      void updatePreferences({ theme: next }).catch(() => undefined);
     };
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -75,13 +54,12 @@ export function useTheme() {
       .catch(() => {
         // transition cancelled — ignore
       });
-  }, []);
+  }, [updatePreferences]);
 
   const toggleTheme = useCallback((origin?: ToggleOrigin) => {
-    const current = getSnapshot();
-    const next: Theme = current === "light" ? "dark" : current === "dark" ? "eye" : "light";
+    const next: Theme = theme === "light" ? "dark" : theme === "dark" ? "eye" : "light";
     setTheme(next, origin);
-  }, [setTheme]);
+  }, [setTheme, theme]);
 
   return { theme, toggleTheme, setTheme, isDark: theme === "dark" };
 }
