@@ -36,20 +36,27 @@ export function writeLastSessionPackIds(packIds: string[]): void {
 
 let lastPackRecordPromise: Promise<void> = Promise.resolve();
 
+function enqueuePackPreferenceOperation<T>(run: () => Promise<T>): Promise<T> {
+  const result = lastPackRecordPromise.then(run);
+  lastPackRecordPromise = result.then(() => undefined, () => undefined);
+  return result;
+}
+
 /** Record the pack set for an opened session, serializing reads so the last opened session wins. */
 export function rememberLastSessionPacks(cwd: string): Promise<void> {
-  lastPackRecordPromise = lastPackRecordPromise.then(async () => {
-    try {
-      const response = await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`);
-      if (!response.ok) return;
-      const state = await response.json() as WorkspaceSkillPacksResponse;
-      if (!Array.isArray(state.appliedPacks)) return;
-      writeLastSessionPackIds(state.appliedPacks.map((pack: AppliedPackInfo) => pack.packId));
-    } catch {
-      // A failed background read must not affect opening or using a session.
-    }
-  });
-  return lastPackRecordPromise;
+  return enqueuePackPreferenceOperation(() => recordWorkspacePacks(cwd));
+}
+
+async function recordWorkspacePacks(cwd: string): Promise<void> {
+  try {
+    const response = await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`);
+    if (!response.ok) return;
+    const state = await response.json() as WorkspaceSkillPacksResponse;
+    if (!Array.isArray(state.appliedPacks)) return;
+    writeLastSessionPackIds(state.appliedPacks.map((pack: AppliedPackInfo) => pack.packId));
+  } catch {
+    // A failed background read must not affect opening or using a session.
+  }
 }
 
 export async function readLastSessionPacksAfterPendingReads(): Promise<string[] | null> {
@@ -63,9 +70,38 @@ export interface LastSessionPackInheritanceResult {
   missingPackIds: string[];
 }
 
+let pendingPreparation: { key: string; promise: Promise<LastSessionPackInheritanceResult> } | null = null;
+
+/** Prepare and remember both saved and unsaved chats in navigation order.
+ * Inherit before recording, so an empty new workspace cannot erase the source.
+ * Concurrent mount/first-send calls share the same preparation.
+ */
+export function prepareWorkspacePacks(
+  cwd: string,
+  { inherit = false }: { inherit?: boolean } = {},
+): Promise<LastSessionPackInheritanceResult> {
+  const key = JSON.stringify([cwd, inherit]);
+  if (pendingPreparation?.key === key) return pendingPreparation.promise;
+  const promise = enqueuePackPreferenceOperation(async () => {
+    const result = inherit
+      ? await applyRememberedPacks(cwd)
+      : { inherited: false, packIds: [], missingPackIds: [] };
+    await recordWorkspacePacks(cwd);
+    return result;
+  }).finally(() => {
+    if (pendingPreparation?.promise === promise) pendingPreparation = null;
+  });
+  pendingPreparation = { key, promise };
+  return promise;
+}
+
 /** Apply the remembered Pack set only when this workspace has no Pack state yet. */
-export async function inheritLastSessionPacks(cwd: string): Promise<LastSessionPackInheritanceResult> {
-  const remembered = await readLastSessionPacksAfterPendingReads();
+export function inheritLastSessionPacks(cwd: string): Promise<LastSessionPackInheritanceResult> {
+  return enqueuePackPreferenceOperation(() => applyRememberedPacks(cwd));
+}
+
+async function applyRememberedPacks(cwd: string): Promise<LastSessionPackInheritanceResult> {
+  const remembered = readLastSessionPackIds();
   if (!remembered || remembered.length === 0) return { inherited: false, packIds: [], missingPackIds: [] };
 
   const stateResponse = await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`);

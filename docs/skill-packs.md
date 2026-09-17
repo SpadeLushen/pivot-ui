@@ -28,7 +28,11 @@ Skill Pack 将技能快照和 MCP 服务器定义组合成可复用的工作环�
 
 ### 新工作区的 Pack 继承
 
-Pivot UI 会在浏览器本地记录最后打开的 session 所在 workspace 的已应用 Pack ID。创建新 session 时，如果目标 workspace 尚未有 `<cwd>/.pi/skill-packs.json`，就会先按该记录执行一次正常的 preview/apply，再启动 AgentSession。已存在但明确为空的 workspace Pack 状态不会触发继承；因此用户主动移除全部 Pack 后，不会被自动重新加回。已从全局 Pack 配置删除的 ID 会被跳过，剩余 Pack 仍可继续继承。
+Pivot UI 会在浏览器本地记录最后打开的 session 或 New Session 界面所在 workspace 的已应用 Pack ID；在未保存会话中应用或移除 Pack，也会更新该记录，无需先发送消息。
+
+通过 New Workspace 选择目录、使用默认目录，或切换到 workspace 的 New Session 界面时，如果目标 workspace 尚未有 `<cwd>/.pi/skill-packs.json`，就会立即按该记录执行一次正常的 preview/apply，并刷新 Pack 标签，无需等待首次发送消息，也不会因此创建 AgentSession。首次发送会等待同一份准备任务完成；连续切换 workspace 时，继承和记录按打开顺序处理，避免新目录的空状态覆盖来源。
+
+已存在的 workspace Pack 配置不会被覆盖，包括明确为空的配置；因此用户主动移除全部 Pack 后，不会被自动重新加回。已从全局 Pack 配置删除的 ID 会被跳过，剩余 Pack 仍可继续继承。继承失败会显示错误并保留原记录，首次发送时可重试。
 
 ## Apply 与 Unapply 语义
 
@@ -53,6 +57,7 @@ Pivot UI 会在浏览器本地记录最后打开的 session 所在 workspace 的
 
 Pi 在创建或 reload `AgentSession` 时发现技能。因此 pack apply 或 unapply 后，`SkillsConfig` 通过 `onPacksChanged` 递增 `AppShell` 的 `packsRefreshKey`，并传给 `ChatWindow` / `useAgentSession`。
 
+- 尚未创建 AgentSession 的 New Session 只刷新 Pack 标签和继承记录，首次发送时发现技能。
 - 空闲 session 会发送 `{ type: "reload" }`，随后重新请求 `get_commands`，使 `/skill:<name>` 立即可用。
 - 正在运行的 session 只标记待刷新；`agent_end` 后再 reload，不能在本轮执行中重载 session。
 - `handleSend` 会等待同一个刷新 Promise，避免新 prompt 与 reload 并发而遗漏 slash command。
@@ -93,6 +98,7 @@ node --test \
   lib/workspace-packs.test.mjs \
   lib/skill-pack-apply.test.mjs \
   lib/mcp-pack-apply.test.mjs \
+  lib/pack-preferences.test.mjs \
   components/ChatWindow.test.mjs
 ```
 

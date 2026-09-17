@@ -26,6 +26,23 @@ test("waits for a pending pack reload before sending", async () => {
   assert.match(handleSend, /await ensurePackSkillsReloaded\(\);/);
 });
 
+test("prepares workspace Packs on open and refreshes badges without spawning an agent", async () => {
+  const [appShell, chatWindow, hook] = await Promise.all([
+    readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(hook, /const cwd = session\?\.cwd \?\? newSessionCwd/);
+  assert.match(hook, /prepareWorkspacePacks\(cwd, \{ inherit: isNew \}\)/);
+  assert.match(hook, /!cancelled && result\.inherited\) onPacksChanged\?\.\(\)/);
+  assert.match(hook, /\[session\?\.cwd, newSessionCwd, isNew, packsRefreshKey, onPacksChanged, addNotice\]/);
+  assert.match(hook, /await prepareWorkspacePacks\(newSessionCwd, \{ inherit: true \}\)/);
+  assert.match(chatWindow, /packsRefreshKey, onPacksChanged, chatInputRef/);
+  assert.match(appShell, /onPacksChanged=\{handlePacksChanged\}/);
+  const reload = hook.slice(hook.indexOf("const ensurePackSkillsReloaded"), hook.indexOf("if (prevPacksRefreshKeyRef.current"));
+  assert.match(reload, /if \(!sid\) return;\s+await sendAgentCommand/);
+});
+
 test("promotes the workspace after an accepted user message", async () => {
   const [appShell, chatWindow, hook] = await Promise.all([
     readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),

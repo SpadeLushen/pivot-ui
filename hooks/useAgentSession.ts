@@ -16,7 +16,7 @@ import { AgentRunState } from "@/lib/agent-run-state";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import { clearDraft } from "@/lib/draft-store";
 import { usePreferences } from "@/lib/preferences-context";
-import { inheritLastSessionPacks, rememberLastSessionPacks } from "@/lib/pack-preferences";
+import { prepareWorkspacePacks } from "@/lib/pack-preferences";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -155,6 +155,7 @@ export interface UseAgentSessionOptions {
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   packsRefreshKey?: number;
+  onPacksChanged?: () => void;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
@@ -354,7 +355,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const { preferences, ready: preferencesReady, updatePreferences } = usePreferences();
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
-    modelsRefreshKey, packsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, packsRefreshKey, onPacksChanged, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -429,13 +430,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!isNew || !preferencesReady) return;
     setToolPresetState(preferredToolPreset);
   }, [isNew, preferredToolPreset, preferencesReady, setToolPresetState]);
-
-  // Keep the last opened session's active Pack set available for future
-  // unconfigured workspaces. New/unsaved sessions must not overwrite it.
-  useEffect(() => {
-    if (!session?.cwd) return;
-    void rememberLastSessionPacks(session.cwd);
-  }, [session?.cwd]);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -597,7 +591,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
     const promise = (async () => {
-      await inheritLastSessionPacks(newSessionCwd);
+      await prepareWorkspacePacks(newSessionCwd, { inherit: true });
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
       const toolNames = getToolNamesForPreset(toolPreset);
@@ -757,14 +751,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     dispatchNotice({ type: "remove_errors" });
   }, []);
 
+  // Prepare Packs as soon as a workspace's chat opens, including New Session.
+  // Record changes independently of runtime reload (which may be deferred).
+  useEffect(() => {
+    const cwd = session?.cwd ?? newSessionCwd;
+    if (!cwd) return;
+    let cancelled = false;
+    void prepareWorkspacePacks(cwd, { inherit: isNew }).then((result) => {
+      if (!cancelled && result.inherited) onPacksChanged?.();
+    }).catch((e) => {
+      if (!cancelled) addNotice({ type: "error", message: `Failed to prepare workspace Packs: ${String(e)}` });
+    });
+    return () => { cancelled = true; };
+  }, [session?.cwd, newSessionCwd, isNew, packsRefreshKey, onPacksChanged, addNotice]);
+
   const ensurePackSkillsReloaded = useCallback(() => {
     return agentRunRef.current.reloadPacks(async () => {
       const sid = sessionIdRef.current;
-      if (sid) await sendAgentCommand(sid, { type: "reload" });
+      // An unsaved chat without an AgentSession discovers Packs on first send.
+      if (!sid) return;
+      await sendAgentCommand(sid, { type: "reload" });
       await loadSlashCommands();
-      if (session?.cwd) await rememberLastSessionPacks(session.cwd);
     });
-  }, [loadSlashCommands, session?.cwd]);
+  }, [loadSlashCommands]);
 
   useEffect(() => {
     if (prevPacksRefreshKeyRef.current === packsRefreshKey) return;

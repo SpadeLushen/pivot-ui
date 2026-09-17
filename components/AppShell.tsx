@@ -190,6 +190,7 @@ export function AppShell() {
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
   const [packsConfigOpen, setPacksConfigOpen] = useState(false);
   const [packsRefreshKey, setPacksRefreshKey] = useState(0);
+  const handlePacksChanged = useCallback(() => setPacksRefreshKey((key) => key + 1), []);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
@@ -1239,6 +1240,7 @@ export function AppShell() {
               onCwdChange={handleWorktreeChange}
               onOpenSkills={() => setSkillsConfigOpen(true)}
               packsRefreshKey={packsRefreshKey}
+              onPacksChanged={handlePacksChanged}
             />
           ) : showPlaceholder ? (
             activeCwd ? (
@@ -1271,7 +1273,7 @@ export function AppShell() {
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
         onClose={() => setSkillsConfigOpen(false)}
-        onPacksChanged={() => setPacksRefreshKey((k) => k + 1)}
+        onPacksChanged={handlePacksChanged}
         packsRefreshKey={packsRefreshKey}
       />
     )}
