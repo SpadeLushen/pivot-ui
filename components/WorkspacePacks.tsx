@@ -9,6 +9,7 @@ import type {
   SkillPackInfo,
 } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 
 export function WorkspacePacks({
   cwd,
@@ -203,6 +204,7 @@ function PackPicker({
   adapter: McpAdapterStatusInfo | null;
 }) {
   const { t } = useI18n();
+  const backdrop = useBackdropDismiss(onClose);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const mcpChange = Boolean(preview?.mcpRelevant);
   const adapterBlocked = mcpChange && adapter !== null && adapter.state !== "ready";
@@ -210,9 +212,7 @@ function PackPicker({
   return (
     <div
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...backdrop}
     >
       <div style={{ width: 420, maxWidth: "calc(100vw - 24px)", maxHeight: "80vh", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{t("packs.add")}</div>

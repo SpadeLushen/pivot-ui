@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
 import { getWorkspaceDisplayGroups, getWorkspaceProjects } from "@/lib/workspace-order";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
+import { useWorkspaceRegistry } from "@/hooks/useWorkspaceRegistry";
+import { getWorkspaceEntries, workspaceName as projectLabel } from "@/lib/workspace-registry";
+import { AllWorkspacesModal } from "./AllWorkspacesModal";
+import { WorkspaceTagDialog } from "./WorkspaceTagDialog";
+import { WorkspaceTag } from "./WorkspaceDialog";
 
 interface Props {
   selectedSessionId: string | null;
@@ -35,8 +41,6 @@ interface Props {
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pivot-ui:unread-session-ids";
-const HIDDEN_WORKSPACES_STORAGE_KEY = "pivot-ui:hidden-workspaces";
-const CUSTOM_WORKSPACES_STORAGE_KEY = "pivot-ui:custom-workspaces";
 
 function loadUnreadSessionIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -61,47 +65,6 @@ function saveUnreadSessionIds(ids: Set<string>): void {
   }
 }
 
-function loadHiddenWorkspaces(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(HIDDEN_WORKSPACES_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((path): path is string => typeof path === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveHiddenWorkspaces(workspaces: Set<string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (workspaces.size === 0) window.localStorage.removeItem(HIDDEN_WORKSPACES_STORAGE_KEY);
-    else window.localStorage.setItem(HIDDEN_WORKSPACES_STORAGE_KEY, JSON.stringify([...workspaces]));
-  } catch {
-    // ignore storage quota / privacy-mode errors
-  }
-}
-
-function loadCustomWorkspaces(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(CUSTOM_WORKSPACES_STORAGE_KEY) ?? "[]") as unknown;
-    return Array.isArray(parsed) ? parsed.filter((path): path is string => typeof path === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomWorkspaces(workspaces: string[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (workspaces.length === 0) window.localStorage.removeItem(CUSTOM_WORKSPACES_STORAGE_KEY);
-    else window.localStorage.setItem(CUSTOM_WORKSPACES_STORAGE_KEY, JSON.stringify(workspaces));
-  } catch {
-    // ignore storage quota / privacy-mode errors
-  }
-}
-
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -119,16 +82,6 @@ function formatRelativeTime(dateStr: string): string {
 /** Substitute the home dir prefix with ~ (no path truncation) */
 function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
-}
-
-function projectLabel(cwd: string): string {
-  // Session paths can come from a Windows or POSIX workspace, regardless of
-  // the platform serving the UI. Strip trailing separators before taking the
-  // final directory name, while keeping filesystem roots readable.
-  const normalized = cwd.replace(/[\\/]+$/, "");
-  if (!normalized) return cwd || "/";
-  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  return normalized.slice(separator + 1) || normalized;
 }
 
 /** Ellipsize the least significant part of a path/name on the left. */
@@ -158,6 +111,7 @@ interface DirectoryListing {
 }
 
 function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onClose: () => void; onSelect: (path: string) => Promise<string | null> }) {
+  const backdrop = useBackdropDismiss(onClose);
   const { t } = useI18n();
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [loading, setLoading] = useState(false);
@@ -262,7 +216,7 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
     <div
       role="presentation"
       style={{ position: "fixed", inset: 0, zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,0.38)" }}
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      {...backdrop}
     >
       <div className="modal-surface" role="dialog" aria-modal="true" aria-label="Select project folder" style={{ width: "min(720px, 100%)", height: "min(620px, calc(100dvh - 32px))", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
@@ -536,8 +490,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [errorSessionIds, setErrorSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => new Set());
-  const [hiddenWorkspaces, setHiddenWorkspaces] = useState<Set<string>>(() => new Set());
-  const [customWorkspaces, setCustomWorkspaces] = useState<string[]>([]);
+  const { records: workspaceRecords, ready: workspacesReady, error: workspaceError, refresh: refreshWorkspaces, update: updateWorkspace } = useWorkspaceRegistry();
+  const hiddenWorkspaces = useMemo(() => new Set(workspaceRecords.filter((record) => record.removed).map((record) => record.path)), [workspaceRecords]);
+  const customWorkspaces = useMemo(() => workspaceRecords.map((record) => record.path), [workspaceRecords]);
+  const workspaceTags = useMemo(() => new Map(workspaceRecords.map((record) => [record.path, record.tag])), [workspaceRecords]);
+  const [allWorkspacesOpen, setAllWorkspacesOpen] = useState(false);
+  const [tagWorkspace, setTagWorkspace] = useState<string | null>(null);
   const [storageLoaded, setStorageLoaded] = useState(false);
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   // Once the SSE stream has delivered a frame it is the source of truth for
@@ -593,8 +551,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   useEffect(() => {
     setUnreadSessionIds(loadUnreadSessionIds());
-    setHiddenWorkspaces(loadHiddenWorkspaces());
-    setCustomWorkspaces(loadCustomWorkspaces());
     setStorageLoaded(true);
   }, []);
 
@@ -604,16 +560,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (!storageLoaded) return;
     saveUnreadSessionIds(unreadSessionIds);
   }, [storageLoaded, unreadSessionIds]);
-
-  useEffect(() => {
-    if (!storageLoaded) return;
-    saveHiddenWorkspaces(hiddenWorkspaces);
-  }, [hiddenWorkspaces, storageLoaded]);
-
-  useEffect(() => {
-    if (!storageLoaded) return;
-    saveCustomWorkspaces(customWorkspaces);
-  }, [customWorkspaces, storageLoaded]);
 
   // The confirmation is intentionally scoped to the open workspace menu. A
   // menu close, workspace switch, or opening the new-workspace menu starts the
@@ -745,7 +691,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (allSessions.length === 0) return;
+    if (!workspacesReady || loading) return;
 
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
@@ -763,7 +709,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
       if (projects.length > 0) setSelectedCwd(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspacesReady, loading]);
 
   const selectWorkspaceDirectory = useCallback(async (path: string): Promise<string | null> => {
     try {
@@ -778,20 +724,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       }
       const cwd = data.cwd ?? path;
       const project = projectRootFor(cwd) ?? cwd;
-      setHiddenWorkspaces((current) => {
-        if (!current.has(project)) return current;
-        const next = new Set(current);
-        next.delete(project);
-        return next;
-      });
-      setCustomWorkspaces((current) => current.includes(project) ? current : [...current, project]);
+      await updateWorkspace({ path: project, removed: false });
       setSelectedCwd(cwd);
       setWorkspaceMenu(null);
       return null;
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
-  }, [projectRootFor]);
+  }, [projectRootFor, updateWorkspace]);
 
   const handleDefaultCwd = useCallback(async (): Promise<string | null> => {
     try {
@@ -855,13 +795,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Custom workspaces without a session remain in their saved order. Selecting
   // a workspace must not change either order; only a user message updates
   // the activity used here, so an assistant reply cannot promote it.
-  const workspaceProjects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
+  const workspaceProjects = workspacesReady ? getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces) : [];
   const selectedProject = projectRootFor(selectedCwd);
   const { resident: residentWorkspaceProjects, overflow: overflowWorkspaceProjects } = getWorkspaceDisplayGroups(workspaceProjects, selectedProject);
 
   useEffect(() => {
     if (overflowWorkspaceProjects.length === 0) setMoreWorkspacesOpen(false);
   }, [overflowWorkspaceProjects.length]);
+
+  // A removal from any device also moves this browser off a hidden workspace.
+  useEffect(() => {
+    if (workspacesReady && selectedProject && hiddenWorkspaces.has(selectedProject)) {
+      setSelectedCwd(getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces)[0] ?? null);
+    }
+  }, [workspacesReady, selectedProject, hiddenWorkspaces, allSessions, customWorkspaces, recentUserMessageWorkspaces]);
 
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
@@ -878,12 +825,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
     setWorkspaceMenu(null);
     setWorkspaceDeleteConfirmation(null);
-    setHiddenWorkspaces((current) => new Set(current).add(project));
-    setCustomWorkspaces((current) => current.filter((item) => item !== project));
-    if (project === selectedProject) {
-      setSelectedCwd(workspaceProjects.find((candidate) => candidate !== project) ?? null);
-    }
-  }, [selectedProject, workspaceProjects, workspaceDeleteConfirmation]);
+    void updateWorkspace({ path: project, removed: true }).catch(() => {});
+  }, [updateWorkspace, workspaceDeleteConfirmation]);
 
   const handleCopyWorkspacePath = useCallback((project: string) => {
     setWorkspaceDeleteConfirmation(null);
@@ -899,6 +842,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       // Clipboard access can be unavailable in an insecure browsing context.
     });
   }, []);
+
+  const seeAllWorkspaces = (
+    <div className="sidebar-project-row">
+      <button type="button" className="sidebar-project-select" disabled={!workspacesReady}
+        onClick={() => {
+          setWorkspaceMenu(null);
+          setMoreWorkspacesOpen(false);
+          setAllWorkspacesOpen(true);
+          void refreshWorkspaces();
+          void loadSessions();
+        }}>
+        <List size={17} strokeWidth={1.8} aria-hidden="true" />
+        <span>{t("workspaces.seeAll")}</span>
+      </button>
+    </div>
+  );
 
   const filteredSessions = selectedProject
     ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
@@ -1025,6 +984,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     >
                       <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
                       <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                      <WorkspaceTag tag={workspaceTags.get(project)} />
                       <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
                     </button>
                     {isSelected && (hoveredWorkspace === project || workspaceMenu === "active") && (
@@ -1076,6 +1036,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         >
                           <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
                           <span>{copiedWorkspacePath === project ? t("fileTree.pathCopied") : t("fileTree.copyFullPath")}</span>
+                        </button>
+                        <button type="button" className="sidebar-workspace-menu-item" role="menuitem"
+                          onClick={() => { setWorkspaceMenu(null); setTagWorkspace(project); }}>
+                          <Tag size={14} strokeWidth={1.8} aria-hidden="true" />
+                          <span>{t("workspaces.setTag")}</span>
                         </button>
                         <div className="sidebar-workspace-menu-divider" role="separator" />
                         <button
@@ -1138,24 +1103,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         }),
                   }}
                 >
-                  <div role="menu" style={{ maxHeight: isMobile ? 278 : 318, overflowY: "auto" }}>
-                    {overflowWorkspaceProjects.map((project) => {
-                      const isSelected = project === selectedProject;
-                      return (
-                        <div key={project} className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
-                          <button
-                            type="button"
-                            className="sidebar-project-select"
-                            onClick={() => handleProjectSelect(project)}
-                            title={displayCwd(project, homeDir)}
-                          >
-                            <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
-                            <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
-                            <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
-                          </button>
-                        </div>
-                      );
-                    })}
+                  <div role="menu" className="sidebar-workspace-overflow-menu" style={{ maxHeight: isMobile ? 278 : 318 }}>
+                    <div className="sidebar-workspace-overflow-list">
+                      {overflowWorkspaceProjects.map((project) => {
+                        const isSelected = project === selectedProject;
+                        return (
+                          <div key={project} className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
+                            <button
+                              type="button"
+                              className="sidebar-project-select"
+                              onClick={() => handleProjectSelect(project)}
+                              title={displayCwd(project, homeDir)}
+                            >
+                              <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
+                              <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                              <WorkspaceTag tag={workspaceTags.get(project)} />
+                              <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="sidebar-workspace-overflow-footer">
+                      <div className="sidebar-workspace-menu-divider" role="separator" />
+                      {seeAllWorkspaces}
+                    </div>
                   </div>
                 </AnimatedDropdown>
               </div>
@@ -1169,11 +1141,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   title={t("app.selectWorkspace")}
                 >
                   <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{initialSessionId && !restoredRef.current ? "" : t("app.selectWorkspace")}</span>
+                  <span>{!workspacesReady ? t("general.loading") : initialSessionId && !restoredRef.current ? "" : t("app.selectWorkspace")}</span>
                 </button>
               </div>
             )}
+            {overflowWorkspaceProjects.length === 0 && seeAllWorkspaces}
           </div>
+          {workspaceError && <div role="alert" className="workspace-error">{workspaceError}</div>}
         </div>
 
       </div>
@@ -1307,6 +1281,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       )}
     </div>
     <DirectoryPickerModal open={directoryPickerOpen} onClose={() => setDirectoryPickerOpen(false)} onSelect={selectWorkspaceDirectory} />
+    {allWorkspacesOpen && <AllWorkspacesModal entries={getWorkspaceEntries(allSessions, workspaceRecords)}
+      onClose={() => setAllWorkspacesOpen(false)} onSelect={handleProjectSelect} onTag={setTagWorkspace} onUpdate={updateWorkspace} />}
+    {tagWorkspace && <WorkspaceTagDialog key={tagWorkspace} path={tagWorkspace} tag={workspaceTags.get(tagWorkspace) ?? ""}
+      onClose={() => setTagWorkspace(null)} onSave={updateWorkspace} />}
     </>
   );
 }

@@ -8,7 +8,7 @@ export interface WorkspaceDisplayGroups {
 }
 
 /**
- * Keep the workspace picker at five rows, including the More row when needed.
+ * Keep five rows including See all, or four projects + More (with See all last).
  * An overflow selection temporarily takes the last resident workspace's slot;
  * selection never changes the ordering of the projects themselves.
  */
@@ -16,7 +16,7 @@ export function getWorkspaceDisplayGroups(
   projects: readonly string[],
   selectedProject: string | null = null,
 ): WorkspaceDisplayGroups {
-  if (projects.length <= 5) {
+  if (projects.length <= 4) {
     return { resident: [...projects], overflow: [] };
   }
 

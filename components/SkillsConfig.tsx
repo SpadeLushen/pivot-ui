@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { ArrowUp, ExternalLink, Plus, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import { WorkspacePacks } from "./WorkspacePacks";
 import type {
@@ -1015,6 +1016,7 @@ export function SkillsConfig({
   onPacksChanged?: () => void;
   packsRefreshKey?: number;
 }) {
+  const backdrop = useBackdropDismiss(onClose);
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [tab, setTab] = useState<"workspace" | "library" | "acquire">("workspace");
@@ -1220,9 +1222,7 @@ export function SkillsConfig({
         alignItems: "center",
         justifyContent: "center",
       }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdrop}
     >
       <div
         className="modal-surface"

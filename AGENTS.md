@@ -171,7 +171,17 @@ hooks/
 
 ### Shared user preferences
 - The seven user preferences live in `~/.pivot-ui/preferences.json` with unprefixed keys: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, and `time-format`.
-- The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs and workspace visibility remains in `localStorage`.
+- The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs remains in `localStorage`.
+
+### Shared workspace registry
+- `~/.pivot-ui/workspaces.json` stores `{ version: 1, workspaces: [{ path, tag, removed }] }`. `lib/workspace-store.ts` serializes field-level updates and writes atomically; `/api/workspaces` exposes GET/PATCH only; there is no legacy browser import endpoint. Metadata never grants filesystem access or deletes directories/sessions.
+- `hooks/useWorkspaceRegistry.ts` loads server records and refreshes on focus and every 15 seconds. Legacy custom/hidden workspace localStorage entries are ignored and left untouched (no migration or cleanup). The UI combines session project roots with saved records, including removed workspaces without remaining sessions.
+- `AllWorkspacesModal` owns search and status/tag grouping. Search is a case-insensitive whole-phrase substring, not separate space-delimited tokens. Tag mode has one non-collapsible section per tag (including Untagged); active workspaces precede removed ones within the same section, with each status sorted by name. Status grouping forces Removed open during search.
+- The sidebar keeps five rows: up to four workspaces + See all, or four workspaces + More with See all pinned in a non-scrolling footer below a separator. Only the workspace list above that footer scrolls. Tags precede workspace names; tag editing is shared via `WorkspaceTagDialog`.
+
+### Modal backdrop dismissal
+- Modal backdrops use `useBackdropDismiss()` from `hooks/useBackdropDismiss.ts`. Dismiss only after the same primary pointer presses and releases outside; close on the ensuing click, not on pointerdown/up. Interior-to-exterior and exterior-to-interior drags must not dismiss.
+- Hit-test both positions with `elementFromPoint()` to handle touch pointer capture; native `<dialog>` also excludes its own border/padding rectangle. Keep close buttons and Escape separate. Tests live in `lib/backdrop-dismiss.test.mjs` and `hooks/useBackdropDismiss.test.mjs`.
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.

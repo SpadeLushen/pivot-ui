@@ -28,6 +28,19 @@ test("directory picker can create and select a named workspace", async () => {
   assert.match(sidebar, /const selectError = await onSelect\(data\.path\);/);
 });
 
+test("More keeps See all in a non-scrolling footer beneath the workspace list", async () => {
+  const [sidebar, css] = await Promise.all([
+    readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(sidebar, /className="sidebar-workspace-overflow-menu" style=\{\{ maxHeight: isMobile \? 278 : 318 \}\}/);
+  assert.match(sidebar, /className="sidebar-workspace-overflow-list">[\s\S]*?overflowWorkspaceProjects\.map[\s\S]*?\}\)\}\s*<\/div>\s*<div className="sidebar-workspace-overflow-footer">\s*<div[^>]+role="separator" \/>\s*\{seeAllWorkspaces\}/);
+  const block = (name) => css.match(new RegExp(`\\.${name} \\{[^}]*\\}`))?.[0] ?? "";
+  assert.match(block("sidebar-workspace-overflow-menu"), /display: flex;\s*flex-direction: column;\s*overflow: hidden;/);
+  assert.match(block("sidebar-workspace-overflow-list"), /min-height: 0;\s*overflow-y: auto;/);
+  assert.match(block("sidebar-workspace-overflow-footer"), /flex-shrink: 0;/);
+});
+
 test("overflow workspaces use a reachable hover menu", async () => {
   const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 

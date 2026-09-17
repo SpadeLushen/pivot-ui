@@ -84,6 +84,19 @@ const en: Record<string, string> = {
   "app.closeNavigation": "Close navigation",
   "app.recentSessions": "Recent sessions",
 
+  "workspaces.seeAll": "See all",
+  "workspaces.all": "All workspaces",
+  "workspaces.tag": "Tag",
+  "workspaces.setTag": "Set tag",
+  "workspaces.tagHint": "Leave empty to clear the tag.",
+  "workspaces.search": "Search tag, name or full path…",
+  "workspaces.groupBy": "Group workspaces",
+  "workspaces.byStatus": "By status",
+  "workspaces.byTag": "By tag",
+  "workspaces.removed": "Removed",
+  "workspaces.untagged": "Untagged",
+  "workspaces.restore": "Restore",
+
   // Navigation & Sidebar
   "nav.skills": "Skills",
   "nav.mcp": "MCP",

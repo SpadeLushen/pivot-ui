@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Globe, Cpu, Gauge, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
 
@@ -21,6 +22,7 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
+  const backdrop = useBackdropDismiss(onClose);
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -54,9 +56,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
         alignItems: "center",
         justifyContent: "center",
       }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdrop}
     >
       <div
         className="modal-surface"

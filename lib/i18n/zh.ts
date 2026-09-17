@@ -86,6 +86,19 @@ const zh: Record<string, string> = {
   "app.closeNavigation": "关闭导航",
   "app.recentSessions": "最近会话",
 
+  "workspaces.seeAll": "查看全部",
+  "workspaces.all": "所有工作区",
+  "workspaces.tag": "标签",
+  "workspaces.setTag": "设定标签",
+  "workspaces.tagHint": "留空可清除标签。",
+  "workspaces.search": "搜索标签、名称或完整路径…",
+  "workspaces.groupBy": "工作区分组",
+  "workspaces.byStatus": "按状态",
+  "workspaces.byTag": "按标签",
+  "workspaces.removed": "已移除",
+  "workspaces.untagged": "无标签",
+  "workspaces.restore": "还原",
+
   // Navigation & Sidebar
   "nav.skills": "Skills",
   "nav.mcp": "MCP",

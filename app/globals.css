@@ -1679,6 +1679,23 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   background: var(--border);
 }
 
+.sidebar-workspace-overflow-menu {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-workspace-overflow-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sidebar-workspace-overflow-footer {
+  flex-shrink: 0;
+}
+
 .sidebar-workspace-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text);

@@ -14,6 +14,7 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -772,6 +773,7 @@ function NoticeShelfItem({ notice, isLast, floating, onShowDetails }: { notice: 
 }
 
 function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose: () => void }) {
+  const backdrop = useBackdropDismiss(onClose);
   const { t } = useI18n();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -798,9 +800,7 @@ function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose:
         padding: 16,
         background: "rgba(0,0,0,0.38)",
       }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      {...backdrop}
     >
       <div
         className="modal-surface"

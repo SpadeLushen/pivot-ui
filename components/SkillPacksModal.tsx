@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type {
   LibrarySkillInfo,
@@ -30,6 +31,7 @@ export function SkillPacksModal({
 }: {
   onClose: () => void;
 }) {
+  const backdrop = useBackdropDismiss(onClose);
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [packs, setPacks] = useState<SkillPackInfo[]>([]);
@@ -156,9 +158,7 @@ export function SkillPacksModal({
   return (
     <div
       className="skill-packs-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      {...backdrop}
     >
       <div
         className="modal-surface skill-packs-modal"
