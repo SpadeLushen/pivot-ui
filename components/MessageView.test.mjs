@@ -39,7 +39,7 @@ test("collapsed previews ignore args, including partial MCP calls", () => {
   assert.equal(collapsedPreview("mcp", undefined, true), "");
 });
 
-test("collapsed previews use the first non-args field when tool and path are absent", () => {
+test("collapsed previews use the first non-args field when tool, path, and question are absent", () => {
   for (const key of ["command", "file_path", "pattern", "query", "server"]) {
     for (const input of [{ args: {}, [key]: "first", other: "second" }, { [key]: "first", args: {} }]) {
       assert.equal(collapsedPreview("custom", input), "first");
@@ -54,9 +54,24 @@ test("collapsed previews prefer path over other fields when tool is absent", () 
     { args: {}, command: "ignored", path },
     { offset: 10, path, args: {} },
     { path, command: "ignored", args: {} },
+    { question: "ignored", args: {}, path },
+    { path, question: "ignored" },
   ]) {
     for (const streaming of [false, true]) {
       assert.equal(collapsedPreview("custom", input, streaming), path);
+    }
+  }
+});
+
+test("collapsed previews prefer question when tool and path are absent", () => {
+  const question = "Which option should we use?";
+  for (const input of [
+    { args: {}, options: [{ label: "First" }], question },
+    { question, options: [], args: {} },
+    { command: "ignored", question },
+  ]) {
+    for (const streaming of [false, true]) {
+      assert.equal(collapsedPreview("ask_question", input, streaming), question);
     }
   }
 });
@@ -80,6 +95,8 @@ test("collapsed MCP calls show the tool regardless of argument order", () => {
         { args, server: "ignored", query: "ignored", tool },
         { args, path: "ignored", tool },
         { tool, path: "ignored", args },
+        { question: "ignored", args, tool },
+        { tool, question: "ignored", args },
       ]) {
         for (const streaming of [false, true]) {
           assert.equal(collapsedPreview(toolName, input, streaming), tool);

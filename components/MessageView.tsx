@@ -1590,8 +1590,8 @@ function getToolPreview(block: ToolCallContent): string {
   const keys = Object.keys(input).filter((key) => key !== "args");
   if (keys.length === 0) return "";
 
-  // Prefer tool, then path; otherwise use the first non-args field.
-  const previewKey = ["tool", "path"].find((key) => keys.includes(key)) ?? keys[0];
+  // Prefer tool, then path, then question; otherwise use the first non-args field.
+  const previewKey = ["tool", "path", "question"].find((key) => keys.includes(key)) ?? keys[0];
   const value = input[previewKey];
   const preview = typeof value === "string" ? value : JSON.stringify(value);
   return (preview ?? "").slice(0, 120);
