@@ -318,6 +318,23 @@ function userMessageKey(message: Partial<AgentMessage>): string {
   });
 }
 
+export function reconcileOptimisticUserMessage(
+  messages: AgentMessage[], delivered: AgentMessage, optimisticKey: string | null,
+): AgentMessage[] {
+  // Pi may emit a system prompt update before the initial user message. It is
+  // invisible in chat, but can sit after the optimistic bubble in this array.
+  let lastVisibleIndex = messages.length - 1;
+  while (lastVisibleIndex >= 0 && messages[lastVisibleIndex].role !== "user" && messages[lastVisibleIndex].role !== "assistant") {
+    lastVisibleIndex--;
+  }
+  const lastVisible = messages[lastVisibleIndex];
+  if (optimisticKey && lastVisible?.role === "user" && userMessageKey(lastVisible) === optimisticKey) {
+    if (optimisticKey === userMessageKey(delivered)) return messages;
+    return messages.map((message, index) => index === lastVisibleIndex ? delivered : message);
+  }
+  return [...messages, delivered];
+}
+
 function readCompactResult(result: unknown, reason: string): CompactResultInfo | null {
   if (!result || typeof result !== "object") return null;
   const r = result as CompactCommandResult;
@@ -1044,21 +1061,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
           // messages. The run's initial prompt also emits one, but handleSend
-          // already appended it optimistically. Consume only the still-adjacent
-          // optimistic bubble; later same-text queue deliveries must render.
+          // already appended it optimistically. Ignore intervening invisible
+          // messages (e.g. pi 0.87's first-run system prompt update), but not
+          // other visible turns; later same-text queue deliveries must render.
           const delivered = normalizeToolCalls(completed);
-          const deliveredKey = userMessageKey(delivered);
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
-              return optimisticKey === deliveredKey
-                ? prev
-                : [...prev.slice(0, -1), delivered];
-            }
-            return [...prev, delivered];
-          });
+          setMessages((prev) => reconcileOptimisticUserMessage(prev, delivered, optimisticKey));
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
