@@ -170,7 +170,7 @@ hooks/
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
-- The seven user preferences live in `~/.pivot-ui/preferences.json` with unprefixed keys: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, and `time-format`.
+- The eight user preferences live in `~/.pivot-ui/preferences.json` with keys: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`).
 - The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs remains in `localStorage`.
 
 ### Shared workspace registry
@@ -178,7 +178,7 @@ hooks/
 - `hooks/useWorkspaceRegistry.ts` loads server records and refreshes on focus and every 15 seconds. Legacy custom/hidden workspace localStorage entries are ignored and left untouched (no migration or cleanup). The UI combines session project roots with saved records, including archived workspaces without remaining sessions.
 - `AllWorkspacesModal` owns search and status/tag grouping. Search is a case-insensitive whole-phrase substring, not separate space-delimited tokens. Tag mode has one non-collapsible section per tag (including Untagged); active workspaces precede archived ones within the same section, with each status sorted by name. Rows show the tag prefix only in status mode, because tag mode already labels the section. Status grouping forces Archived open during search.
 - The sidebar keeps five rows: up to four workspaces + See all, or four workspaces + More with See all pinned in a non-scrolling footer below a separator. Only the workspace list above that footer scrolls. Tags precede workspace names; tag editing is shared via `WorkspaceTagDialog`.
-- "Use default directory" creates `~/pi-cwd-<YYYYMMDD>` and saves it with the automatic `DEFAULT_WORKSPACE_TAG` (`default`). The client sends that tag as `tagIfEmpty`, so a tag already stored — by this or another client — is never overwritten.
+- "Use default directory" creates `<default-workspace-parent>/pi-cwd-<YYYYMMDD>` and saves it with the automatic `DEFAULT_WORKSPACE_TAG` (`default`). The client sends that tag as `tagIfEmpty`, so a tag already stored — by this or another client — is never overwritten.
 
 ### Modal backdrop dismissal
 - Modal backdrops use `useBackdropDismiss()` from `hooks/useBackdropDismiss.ts`. Dismiss only after the same primary pointer presses and releases outside; close on the ensuing click, not on pointerdown/up. Interior-to-exterior and exterior-to-interior drags must not dismiss.
@@ -243,7 +243,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### File access allow-list
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
-- `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
+- `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable. Dated directories under the configured default workspace parent and legacy `~/pi-cwd-*` remain browsable after restart.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.

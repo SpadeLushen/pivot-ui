@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Globe, Cpu, Gauge, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
+import { usePreferences } from "@/lib/preferences-context";
 import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
 
@@ -26,6 +27,24 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const { preferences, updatePreferences } = usePreferences();
+  const [workspaceParent, setWorkspaceParent] = useState(preferences["default-workspace-parent"]);
+  const [parentError, setParentError] = useState("");
+  const [savingParent, setSavingParent] = useState(false);
+  useEffect(() => setWorkspaceParent(preferences["default-workspace-parent"]), [preferences["default-workspace-parent"]]);
+
+  const saveWorkspaceParent = async () => {
+    setSavingParent(true);
+    setParentError("");
+    try {
+      const response = await updatePreferences({ "default-workspace-parent": workspaceParent.trim() });
+      setWorkspaceParent(response["default-workspace-parent"]);
+    } catch {
+      setParentError(t("settings.defaultWorkspaceParentError"));
+    } finally {
+      setSavingParent(false);
+    }
+  };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: "general", label: t("settings.general"), icon: <Globe size={15} strokeWidth={1.8} aria-hidden="true" /> },
@@ -227,6 +246,28 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     🇨🇳 中文
                   </button>
                 </div>
+              </section>
+
+              {/* Default workspace parent on the server */}
+              <section style={{ marginTop: 32 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+                  {t("settings.defaultWorkspaceParent")}
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.5 }}>
+                  {t("settings.defaultWorkspaceParentDescription")}
+                </p>
+                <form onSubmit={(event) => { event.preventDefault(); void saveWorkspaceParent(); }} style={{ display: "flex", gap: 8 }}>
+                  <input
+                    aria-label={t("settings.defaultWorkspaceParent")}
+                    value={workspaceParent}
+                    onChange={(event) => { setWorkspaceParent(event.target.value); setParentError(""); }}
+                    style={{ flex: 1, minWidth: 0, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
+                  />
+                  <button type="submit" disabled={savingParent || !workspaceParent.trim()} style={{ padding: "8px 14px", cursor: "pointer" }}>
+                    {t("settings.saveWorkspaceParent")}
+                  </button>
+                </form>
+                {parentError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{parentError}</p>}
               </section>
 
               {/* Time format */}

@@ -13,6 +13,7 @@ export interface UserPreferences {
   "tps-enabled": boolean;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
+  "default-workspace-parent": string;
 }
 
 export type PreferencePatch = Partial<UserPreferences>;
@@ -25,6 +26,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "tps-enabled": false,
   "enter-behavior": "followUp",
   "time-format": "24",
+  "default-workspace-parent": "~/pivot-default-workspaces",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,5 +45,8 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "tps-enabled": raw["tps-enabled"] === true,
     "enter-behavior": raw["enter-behavior"] === "steer" ? "steer" : DEFAULT_PREFERENCES["enter-behavior"],
     "time-format": raw["time-format"] === "12" ? "12" : DEFAULT_PREFERENCES["time-format"],
+    "default-workspace-parent": typeof raw["default-workspace-parent"] === "string" && raw["default-workspace-parent"].trim()
+      ? raw["default-workspace-parent"].trim()
+      : DEFAULT_PREFERENCES["default-workspace-parent"],
   };
 }

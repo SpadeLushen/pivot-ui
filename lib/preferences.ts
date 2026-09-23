@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getPivotUiConfigDir } from "./attachment-config";
+import { resolveDefaultWorkspaceParent } from "./default-workspace-parent";
 import {
   DEFAULT_PREFERENCES,
   normalizePreferences,
@@ -88,6 +89,15 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
       case "time-format":
         if (item !== "12" && item !== "24") return { error: `Invalid preference: ${key}` };
         patch["time-format"] = item;
+        break;
+      case "default-workspace-parent":
+        if (typeof item !== "string" || !item.trim()) return { error: `Invalid preference: ${key}` };
+        try {
+          resolveDefaultWorkspaceParent(item);
+        } catch {
+          return { error: `Invalid preference: ${key} (use an absolute path or ~/...)` };
+        }
+        patch["default-workspace-parent"] = item.trim();
         break;
       default:
         return { error: `Unknown preference: ${key}` };
