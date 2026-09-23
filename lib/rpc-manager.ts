@@ -123,7 +123,8 @@ class PlainTextTheme extends Theme {
     super(
       {
         thinkingXhigh: "",
-        // Newer pi versions derive searchMatchText from this value.
+        // Pi derives optional colors from muted/text and thinkingXhigh.
+        muted: "",
         text: "",
       } as ConstructorParameters<typeof Theme>[0],
       {

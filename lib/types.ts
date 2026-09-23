@@ -301,6 +301,13 @@ export interface LabelEntry extends SessionEntryBase {
   label: string | undefined;
 }
 
+// Pi 0.87 context edits affect future model input, not the displayed transcript.
+export interface ContextEditEntry extends SessionEntryBase {
+  type: "context_edit";
+  targetId: string;
+  replacement: null | { content: string | AssistantContentBlock[] };
+}
+
 export interface SessionInfoEntry extends SessionEntryBase {
   type: "session_info";
   name?: string;
@@ -315,6 +322,7 @@ export type SessionEntry =
   | CustomEntry
   | CustomMessageEntry
   | LabelEntry
+  | ContextEditEntry
   | SessionInfoEntry;
 
 export type FileEntry = SessionHeader | SessionEntry;
