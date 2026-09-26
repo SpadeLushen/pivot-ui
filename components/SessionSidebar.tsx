@@ -1430,6 +1430,7 @@ function RunningSessionIndicator() {
     <span
       title="Agent running…"
       aria-label="Agent running"
+      className="sidebar-running-indicator"
       style={{
         width: 14,
         height: 14,

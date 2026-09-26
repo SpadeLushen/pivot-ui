@@ -1595,6 +1595,12 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   white-space: nowrap;
 }
 
+.sidebar-project-select > .sidebar-running-indicator {
+  display: inline-flex;
+  width: 17px;
+  flex: 0 0 17px;
+}
+
 .sidebar-project-menu-button {
   display: inline-flex;
   align-items: center;
@@ -3379,6 +3385,10 @@ html.dark .user-message-bubble {
   .sidebar-container .sidebar-project-select > svg {
     width: 20px;
     height: 20px;
+  }
+  .sidebar-container .sidebar-project-select > .sidebar-running-indicator {
+    width: 20px;
+    flex-basis: 20px;
   }
   .sidebar-container .sidebar-project-menu-button {
     width: 36px;
