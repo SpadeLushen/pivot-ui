@@ -1321,28 +1321,45 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [loadContext]);
 
+  const persistNewSessionDefault = useCallback(async (selection: { provider: string; modelId: string } | { thinkingLevel: string }) => {
+    const res = await fetch("/api/models/defaults", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: newSessionCwd, ...selection }),
+    });
+    if (!res.ok) throw new Error(`Failed to save default: HTTP ${res.status}`);
+  }, [newSessionCwd]);
+
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {
       setNewSessionModel({ provider, modelId });
       setPendingModel({ provider, modelId });
-      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-      if (!sid) return;
       try {
-        await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        await persistNewSessionDefault({ provider, modelId });
       } catch (e) {
-        console.error("Failed to set model:", e);
+        console.error("Failed to save default model:", e);
+        addNotice({ type: "error", message: "Failed to save default model" });
+      }
+      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+      if (sid) {
+        try {
+          await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        } catch (e) {
+          console.error("Failed to set model:", e);
+        }
       }
       return;
     }
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+      await sendAgentCommand(sid, { type: "set_model", provider, modelId, persist: true });
       setCurrentModelOverride({ provider, modelId });
     } catch (e) {
       console.error("Failed to set model:", e);
+      addNotice({ type: "error", message: "Failed to save default model" });
     }
-  }, [isNew, setNewSessionModel]);
+  }, [isNew, persistNewSessionDefault, addNotice]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1585,14 +1602,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     thinkingLevelUserSelectedRef.current = true;
     setThinkingLevel(level);
     if (level === "auto") return; // "auto" leaves pi's current setting untouched
+    if (isNew) {
+      try {
+        await persistNewSessionDefault({ thinkingLevel: level });
+      } catch (e) {
+        console.error("Failed to save default thinking level:", e);
+        addNotice({ type: "error", message: "Failed to save default thinking level" });
+      }
+    }
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level });
+      await sendAgentCommand(sid, { type: "set_thinking_level", level, persist: !isNew });
     } catch (e) {
       console.error("Failed to set thinking level:", e);
+      addNotice({ type: "error", message: "Failed to save default thinking level" });
     }
-  }, []);
+  }, [isNew, persistNewSessionDefault, addNotice]);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
     const toolNames = getToolNamesForPreset(preset);

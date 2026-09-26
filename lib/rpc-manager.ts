@@ -553,7 +553,12 @@ export class AgentSessionWrapper {
         const registry = this.inner.modelRuntime;
         const model = registry.getModel(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
-        await this.inner.setModel(model);
+        await this.inner.setModel(model, { persist: command.persist === true });
+        if (command.persist === true) {
+          await this.inner.settingsManager.flush();
+          const errors = this.inner.settingsManager.drainErrors();
+          if (errors.length) throw errors[0];
+        }
         invalidateModelsCache();
         invalidateSessionListCache();
         return { id: model.id, provider: model.provider };
@@ -600,12 +605,17 @@ export class AgentSessionWrapper {
 
       case "set_thinking_level": {
         const level = command.level as string;
-        this.inner.setThinkingLevel(level);
+        this.inner.setThinkingLevel(level, { persist: command.persist === true });
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
         // force the state back so the compat layer can use it correctly.
         if (level === "xhigh" && (this.inner.model as { compat?: { thinkingFormat?: string } } | null)?.compat?.thinkingFormat === "deepseek" && this.inner.agent?.state) {
           this.inner.agent.state.thinkingLevel = "xhigh";
+        }
+        if (command.persist === true) {
+          await this.inner.settingsManager.flush();
+          const errors = this.inner.settingsManager.drainErrors();
+          if (errors.length) throw errors[0];
         }
         invalidateModelsCache();
         invalidateSessionListCache();

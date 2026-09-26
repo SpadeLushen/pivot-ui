@@ -140,9 +140,9 @@ export interface AgentSessionLike {
     source?: "interactive" | "rpc";
   }): Promise<void>;
   abort(): Promise<void>;
-  setModel(model: ModelLike): Promise<void>;
+  setModel(model: ModelLike, options?: { persist?: boolean }): Promise<void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
-  setThinkingLevel(level: string): void;
+  setThinkingLevel(level: string, options?: { persist?: boolean }): void;
   compact(customInstructions?: string): Promise<unknown>;
   setSessionName(name: string): void;
   getSessionStats(): Omit<SessionStatsInfo, "sessionName">;

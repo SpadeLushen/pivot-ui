@@ -11,6 +11,25 @@ const jiti = createJiti(import.meta.url, {
 });
 const { ExtensionDialog } = await jiti.import("./ChatWindow.tsx");
 
+test("persists explicit model and thinking changes without persisting session initialization", async () => {
+  const [hook, wrapper, newRoute, defaultsRoute] = await Promise.all([
+    readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/rpc-manager.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/agent/new/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/models/defaults/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(hook, /persistNewSessionDefault\(\{ provider, modelId \}\)/);
+  assert.match(hook, /persistNewSessionDefault\(\{ thinkingLevel: level \}\)/);
+  assert.match(hook, /type: "set_model", provider, modelId, persist: true/);
+  assert.match(hook, /type: "set_thinking_level", level, persist: !isNew/);
+  assert.match(hook, /if \(level === "auto"\) return/);
+  assert.match(wrapper, /setModel\(model, \{ persist: command\.persist === true \}\)/);
+  assert.match(wrapper, /setThinkingLevel\(level, \{ persist: command\.persist === true \}\)/);
+  assert.match(defaultsRoute, /setDefaultModelAndProvider\(body\.provider, body\.modelId\)/);
+  assert.match(defaultsRoute, /setDefaultThinkingLevel\(body\.thinkingLevel/);
+  assert.doesNotMatch(newRoute, /persist: true/);
+});
+
 test("waits for a pending pack reload before sending", async () => {
   const [chatWindow, hook] = await Promise.all([
     readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
