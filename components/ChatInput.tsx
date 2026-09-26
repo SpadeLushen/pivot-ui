@@ -13,8 +13,8 @@ import { DEFAULT_MAX_ATTACHMENT_BYTES, formatBytes, type ChatAttachment } from "
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
-import type { AppliedPackInfo } from "@/lib/api-types";
-import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, PackagePlus, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, Wrench, X } from "lucide-react";
+import { ChatPackSelector } from "./ChatPackSelector";
+import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, Wrench, X } from "lucide-react";
 
 export interface Props {
   onSend: (message: string, attachments?: ChatAttachment[]) => Promise<boolean> | boolean | void;
@@ -57,8 +57,8 @@ export interface Props {
   cwd?: string | null;
   /** Starts a new chat in the selected worktree. */
   onCwdChange?: (cwd: string, projectRoot: string) => void;
-  onOpenSkills?: () => void;
   packsRefreshKey?: number;
+  onPacksChanged?: () => void;
 }
 
 interface ModelOption {
@@ -234,8 +234,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   draftKey,
   cwd,
   onCwdChange,
-  onOpenSkills,
   packsRefreshKey,
+  onPacksChanged,
 }: Props, ref) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -257,8 +257,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
-  const [appliedPacks, setAppliedPacks] = useState<AppliedPackInfo[]>([]);
-  const [packsError, setPacksError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -493,30 +491,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       attachments: attachments.map(attachmentToDraft),
     });
   }, [attachments, draftKey, value]);
-
-  // Fetch applied packs for the current cwd to show pack tags in the input bar.
-  useEffect(() => {
-    if (!cwd) {
-      setAppliedPacks([]);
-      setPacksError(null);
-      return;
-    }
-    let cancelled = false;
-    setPacksError(null);
-    fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`)
-      .then((res) => res.json() as Promise<{ appliedPacks?: AppliedPackInfo[]; error?: string }>)
-      .then((data) => {
-        if (cancelled) return;
-        if (data.error) setPacksError(data.error);
-        else setAppliedPacks(data.appliedPacks ?? []);
-      })
-      .catch((e) => {
-        if (!cancelled) setPacksError(String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, packsRefreshKey, draftKey]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -1725,61 +1699,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <Paperclip size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
 
-            {/* Pack tags */}
-            {cwd && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4, flexWrap: "wrap", minWidth: 0 }}>
-                {appliedPacks.length === 0 && onOpenSkills && (
-                  <button
-                    onClick={onOpenSkills}
-                    title="Apply skill packs"
-                    style={{
-                      flexShrink: 0,
-                      padding: "3px 10px",
-                      borderRadius: 12,
-                      border: "1px dashed var(--border)",
-                      background: "none",
-                      color: "var(--text-muted)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <PackagePlus size={11} strokeWidth={2} aria-hidden="true" />
-                    Add Pack
-                  </button>
-                )}
-                {(isMobile ? appliedPacks.slice(0, 1) : appliedPacks).map((p) => (
-                  <button
-                    key={p.packId}
-                    onClick={onOpenSkills}
-                    title={isMobile && appliedPacks.length > 1
-                      ? `Applied packs: ${appliedPacks.map((pack) => pack.packName || pack.packId).join(", ")}`
-                      : p.status === "partial" ? "Some skills were skipped" : "Applied pack"}
-                    style={{
-                      flexShrink: 0,
-                      padding: "3px 10px",
-                      borderRadius: 12,
-                      border: "1px solid var(--border)",
-                      background: p.status === "partial" ? "rgba(217,119,6,0.10)" : "color-mix(in srgb, var(--accent) 12%, transparent)",
-                      color: p.status === "partial" ? "#d97706" : "var(--accent)",
-                      fontSize: 11,
-                      cursor: onOpenSkills ? "pointer" : "default",
-                      maxWidth: 140,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {p.packName || p.packId}
-                    {isMobile && appliedPacks.length > 1 && "\u22ef"}
-                    {p.status === "partial" && <span style={{ marginLeft: 4 }}>· 有跳过</span>}
-                  </button>
-                ))}
-                {packsError && <span style={{ fontSize: 11, color: "#f87171" }}>{packsError}</span>}
-              </div>
-            )}
+            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
 
             {/* Model selector — visible always, disabled during streaming */}
             {modelOptions.length > 0 && currentName && onModelChange && (

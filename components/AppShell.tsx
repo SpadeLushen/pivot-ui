@@ -1238,7 +1238,6 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onCwdChange={handleWorktreeChange}
-              onOpenSkills={() => setSkillsConfigOpen(true)}
               packsRefreshKey={packsRefreshKey}
               onPacksChanged={handlePacksChanged}
             />

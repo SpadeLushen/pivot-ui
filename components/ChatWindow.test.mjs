@@ -85,11 +85,23 @@ test("preserves multiline extension dialog titles", () => {
   assert.match(html, /overflow-wrap:anywhere/);
 });
 
-test("collapses mobile pack badges to the first pack", async () => {
-  const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-
-  assert.match(chatInput, /isMobile \? appliedPacks\.slice\(0, 1\) : appliedPacks/);
-  assert.match(chatInput, /isMobile && appliedPacks\.length > 1 && "\\u22ef"/);
+test("uses a pack checkbox dropdown in both new and existing chats", async () => {
+  const [chatInput, selector, chatWindow] = await Promise.all([
+    readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatPackSelector.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(chatInput, /<ChatPackSelector key=\{cwd\}/);
+  assert.match(chatWindow, /onPacksChanged=\{onPacksChanged\}/);
+  assert.match(selector, /packs\.map\(\(pack\) =>/);
+  assert.match(selector, /type="checkbox" checked=\{selected\.includes\(pack\.id\)\}/);
+  assert.match(selector, /isMobile \? `\$\{applied\[0\]/);
+  assert.match(selector, /applied\.length \? <Package size=\{11\}/);
+  assert.match(selector, /background: applied\.length \? "color-mix\(in srgb, var\(--accent\) 12%, transparent\)"/);
+  assert.match(selector, /onChange=\{\(e\) => void toggle\(pack\.id, e\.target\.checked\)\}/);
+  assert.match(selector, /fetch\("\/api\/workspace-skill-packs\/apply"/);
+  assert.doesNotMatch(selector, /runPreview|general\.preview|packs\.add"/);
+  assert.doesNotMatch(chatInput, /onClick=\{onOpenSkills\}/);
 });
 
 test("keeps the live stream anchored to the real chat tail", async () => {

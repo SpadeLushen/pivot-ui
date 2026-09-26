@@ -51,7 +51,6 @@ interface Props {
   enterBehavior?: EnterBehavior;
   onOpenFile?: (filePath: string) => void;
   onCwdChange?: (cwd: string, projectRoot: string) => void;
-  onOpenSkills?: () => void;
   packsRefreshKey?: number;
   onPacksChanged?: () => void;
 }
@@ -158,7 +157,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, onOpenSkills, packsRefreshKey, onPacksChanged }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -341,8 +340,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
       onCwdChange={onCwdChange}
-      onOpenSkills={onOpenSkills}
       packsRefreshKey={packsRefreshKey}
+      onPacksChanged={onPacksChanged}
     />
   );
 
