@@ -31,6 +31,7 @@ export interface Props {
   isCompacting?: boolean;
   compactResult?: CompactResultInfo | null;
   toolPreset?: "none" | "default" | "full";
+  toolPresetReady?: boolean;
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
@@ -223,7 +224,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
-  isCompacting, compactResult, toolPreset, onToolPresetChange,
+  isCompacting, compactResult, toolPreset, toolPresetReady = true, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -1002,7 +1003,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
   })();
-  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "full"))?.[0] ?? "full";
+  const toolPresetLabel = toolPresetReady
+    ? Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "full"))?.[0] ?? "full"
+    : "…";
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1982,9 +1985,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                  title={`Change tool preset: ${toolPresetLabel}`}
+                  onClick={() => !isStreaming && toolPresetReady && setToolDropdownOpen((v) => !v)}
+                  disabled={isStreaming || !toolPresetReady}
+                  title={toolPresetReady ? `Change tool preset: ${toolPresetLabel}` : "Loading tool preset"}
                   aria-label="Change tool preset"
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -1995,13 +1998,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: isStreaming || !toolPresetReady ? "not-allowed" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
+                    opacity: isStreaming || !toolPresetReady ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (isStreaming || !toolPresetReady) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
@@ -2013,7 +2016,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <Wrench size={11} strokeWidth={2} aria-hidden="true" />
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
                 </button>
-                {toolDropdownOpen && !isStreaming && (
+                {toolDropdownOpen && !isStreaming && toolPresetReady && (
                   <div className="overlay-surface" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",

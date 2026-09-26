@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { isToolPreset } from "@/lib/tool-presets";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
 // type:"ensure_session" only creates the runtime so clients can query commands.
@@ -21,10 +22,13 @@ export async function POST(req: Request) {
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
-    const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: string; [key: string]: unknown };
+    const { provider, modelId, toolNames, toolPreset, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; toolPreset?: unknown; thinkingLevel?: string; [key: string]: unknown };
+    if (toolPreset !== undefined && !isToolPreset(toolPreset)) {
+      return NextResponse.json({ error: "Invalid tool preset" }, { status: 400 });
+    }
 
     const tempKey = `__new__${randomUUID()}`;
-    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
+    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames, toolPreset);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
     // in sync so the new cwd is immediately readable via /api/files. Without this,

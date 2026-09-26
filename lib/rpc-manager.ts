@@ -7,6 +7,8 @@ import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "./extension-statusline";
+import { getToolNamesForPreset, getPresetFromTools, isToolPreset, withExtensionTools, type ToolPreset } from "./tool-presets";
+import { restoreSessionToolPreset, saveSessionToolPreset } from "./session-tool-preset";
 
 // ============================================================================
 // Types
@@ -107,7 +109,6 @@ function findTrackedQueueMessageIndex(messages: unknown[], tracked: readonly str
   return -1;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const MODEL_START_TIMEOUT_MS = 300_000;
 const MODEL_ABORT_GRACE_MS = 10_000;
 
@@ -181,16 +182,12 @@ function renderStatuslineWidget(content: unknown): string[] | null {
   }
 }
 
-function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
-  if (toolNames.length === 0) return [];
-
-  const codingToolNames = new Set(CODING_TOOL_NAMES);
-  const extensionToolNames = session
-    .getAllTools()
-    .map((t) => t.name)
-    .filter((name) => !codingToolNames.has(name));
-
-  return [...new Set([...toolNames, ...extensionToolNames])];
+function getSessionToolPreset(session: AgentSessionLike) {
+  const active = new Set(session.getActiveToolNames());
+  return getPresetFromTools(session.getAllTools().map((tool) => ({
+    name: tool.name, description: tool.description, sourceInfo: tool.sourceInfo,
+    active: active.has(tool.name),
+  })));
 }
 
 // ============================================================================
@@ -342,6 +339,7 @@ export class AgentSessionWrapper {
 
   private applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
+      if (this.inner.getActiveToolNames().length > 0) this.inner.setActiveToolsByName([]);
       this.inner.agent.state.systemPrompt = "";
     }
   }
@@ -692,6 +690,7 @@ export class AgentSessionWrapper {
         return all.map((t) => ({
           name: t.name,
           description: t.description,
+          sourceInfo: { source: t.sourceInfo.source },
           active: active.has(t.name),
         }));
       }
@@ -728,10 +727,16 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
-        const toolNames = command.toolNames as string[];
-        this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
+        const requestedPreset = isToolPreset(command.preset) ? command.preset : undefined;
+        const toolNames = requestedPreset
+          ? getToolNamesForPreset(requestedPreset, this.inner.getAllTools())
+          : command.toolNames as string[];
+        const disableTools = requestedPreset === "none" || (!requestedPreset && toolNames.length === 0);
+        this.setForceEmptySystemPrompt(disableTools);
+        this.inner.setActiveToolsByName(withExtensionTools(this.inner.getAllTools(), toolNames, !disableTools));
         this.applyForcedEmptySystemPrompt();
+        const preset = requestedPreset ?? getSessionToolPreset(this.inner);
+        saveSessionToolPreset(this.inner.sessionManager, preset);
         return null;
       }
 
@@ -1255,13 +1260,14 @@ export function notifyRunningChange(): void {
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
- * Pass toolNames to pre-configure active tools (empty array = all tools disabled).
+ * Pass a preset to select tools from the SDK registry, or toolNames for legacy callers.
  */
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
   cwd: string,
-  toolNames?: string[]
+  toolNames?: string[],
+  toolPreset?: ToolPreset
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const registry = getRegistry();
   const locks = getLocks();
@@ -1281,27 +1287,14 @@ export async function startRpcSession(
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
 
-    // Determine which tools to pass based on requested toolNames.
-    // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined;
-    if (toolNames !== undefined) {
-      // toolNames === [] -> "all off" (an empty allow-list disables every tool).
-      // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
-      // set allowedToolNames to coding builtins only, which filtered every
-      // extension/package-provided tool (e.g. subagents, web access) out of the
-      // tool registry — so they were unavailable in pivot-ui sessions even though the
-      // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
-      // tools (and activate extension tools); we narrow the ACTIVE set below.
-      toolsOption = toolNames.length === 0 ? [] : undefined;
-    }
-
+    // Keep the SDK registry intact even for none, so a later switch to full
+    // can activate all currently available built-ins and extension tools.
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
     const services = await createAgentSessionServices({ cwd, agentDir });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
-      ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
     // pi defers writing a new session's .jsonl file until the first assistant
@@ -1324,18 +1317,27 @@ export async function startRpcSession(
       }
     }
 
-    // If specific tool names were requested (non-empty), set the active tools to the
-    // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in pivot-ui just like in the `pi` CLI.
-    if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+    // Apply the requested preset against the SDK registry, retaining extension
+    // tools for default/full while leaving the full registry available for none.
+    const requestedNames = toolPreset
+      ? getToolNamesForPreset(toolPreset, inner.getAllTools())
+      : toolNames;
+    if (requestedNames !== undefined) {
+      inner.setActiveToolsByName(withExtensionTools(inner.getAllTools(), requestedNames, toolPreset === "full" || requestedNames.length > 0));
+    }
+    const savedPreset = sessionFile ? restoreSessionToolPreset(sessionManager) : undefined;
+    if (savedPreset !== undefined) {
+      inner.setActiveToolsByName(withExtensionTools(inner.getAllTools(), getToolNamesForPreset(savedPreset, inner.getAllTools()), savedPreset !== "none"));
+    } else if (!sessionFile && requestedNames !== undefined) {
+      saveSessionToolPreset(sessionManager, toolPreset ?? getSessionToolPreset(inner));
     }
 
     const wrapper = new AgentSessionWrapper(inner);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
-    if (toolNames?.length === 0) {
+    const disableTools = savedPreset === "none" || toolPreset === "none" || (toolPreset === undefined && requestedNames?.length === 0);
+    if (disableTools) {
       wrapper.setForceEmptySystemPrompt(true);
     }
     wrapper.start();
@@ -1346,7 +1348,7 @@ export async function startRpcSession(
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
+    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: disableTools });
 
     return { session: wrapper, realSessionId };
   })().finally(() => locks.delete(sessionId));

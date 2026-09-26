@@ -13,7 +13,7 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
-import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import type { ToolEntry } from "@/lib/tool-presets";
 import { clearDraft } from "@/lib/draft-store";
 import { usePreferences } from "@/lib/preferences-context";
 import { prepareWorkspacePacks } from "@/lib/pack-preferences";
@@ -398,6 +398,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
+  const [toolPresetReady, setToolPresetReady] = useState(isNew);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -574,6 +575,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (tools) {
         const { getPresetFromTools } = await import("@/lib/tool-presets");
         setToolPresetState(getPresetFromTools(tools));
+        setToolPresetReady(true);
       }
     } catch (e) {
       console.error("Failed to load tools:", e);
@@ -612,14 +614,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await prepareWorkspacePacks(newSessionCwd, { inherit: true });
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const toolNames = getToolNamesForPreset(toolPreset);
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
-          toolNames,
+          toolPreset,
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
         }),
@@ -1621,13 +1622,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, persistNewSessionDefault, addNotice]);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
-    const toolNames = getToolNamesForPreset(preset);
     void updatePreferences({ "tool-preset": preset }).catch(() => undefined);
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_tools", toolNames });
+      await sendAgentCommand(sid, { type: "set_tools", preset });
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
@@ -1647,8 +1647,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
         if (cancelled) return;
+        // The state endpoint does not start idle sessions. Fetching tools does:
+        // wait for the actual restored loadout rather than showing the initial
+        // full placeholder until this session is opened a second time.
+        void loadTools(session.id);
         if (agentState?.running) {
-          loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
             agentRunRef.current.ensureRunning();
             setAgentRunning(true);
@@ -1744,7 +1747,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, toolPresetReady, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,

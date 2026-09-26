@@ -20,6 +20,7 @@ export interface ModelLike {
 export interface ToolInfo {
   name: string;
   description: string;
+  sourceInfo: { source: string };
 }
 
 export interface NavigateTreeResult {
