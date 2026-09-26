@@ -18,6 +18,7 @@ import { clearDraft } from "@/lib/draft-store";
 import { usePreferences } from "@/lib/preferences-context";
 import { prepareWorkspacePacks } from "@/lib/pack-preferences";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
+import { getSessionDocumentTitle } from "@/lib/background-title";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -1639,7 +1640,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // UI event bridge.
   useEffect(() => {
     let cancelled = false;
-    baseDocumentTitleRef.current = session?.name || "Pivot UI";
+    baseDocumentTitleRef.current = getSessionDocumentTitle(session);
     extensionTitleRef.current = null;
     fastModeTitleSuffixRef.current = null;
     applyDocumentTitle();
@@ -1688,9 +1689,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useEffect(() => {
     if (extensionTitleRef.current !== null) return;
-    baseDocumentTitleRef.current = session?.name || "Pivot UI";
+    baseDocumentTitleRef.current = getSessionDocumentTitle(session);
     applyDocumentTitle();
-  }, [applyDocumentTitle, session?.name]);
+  }, [applyDocumentTitle, session?.name, session?.firstMessage]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

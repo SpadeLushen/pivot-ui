@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Menu, Minimize2, Moon, PanelLeftClose, RotateCcw, Square, Sun } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { SessionSidebar } from "./SessionSidebar";
@@ -21,6 +21,7 @@ import { usePreferences } from "@/lib/preferences-context";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import { copyText } from "@/lib/clipboard";
 import { nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
+import { replaceSessionUrl } from "@/lib/session-url";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
@@ -168,7 +169,6 @@ const EMPTY_COMPACTION_STATE: CompactionDisplayState = {
 };
 
 export function AppShell() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const { t } = useI18n();
@@ -265,6 +265,7 @@ export function AppShell() {
     if (titleSessionRef.current !== sessionId) {
       titleSessionRef.current = sessionId;
       titleStatusRef.current = null;
+      if (!sessionId) document.title = "Pivot UI";
     }
     const updateTitle = () => {
       const isAway = document.visibilityState === "hidden" || !document.hasFocus();
@@ -403,8 +404,8 @@ export function AppShell() {
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
-    router.replace("/", { scroll: false });
-  }, [newSessionCwd, router, selectedSession]);
+    replaceSessionUrl(null);
+  }, [newSessionCwd, selectedSession]);
 
   // A worktree is a distinct checkout. Do not keep the old AgentSession open:
   // it owns its original cwd even when both worktrees share a git project.
@@ -421,8 +422,8 @@ export function AppShell() {
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
-    router.replace("/", { scroll: false });
-  }, [router]);
+    replaceSessionUrl(null);
+  }, []);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
@@ -441,12 +442,12 @@ export function AppShell() {
       // onCwdChange effect firing after setSelectedCwd in the sidebar
       suppressCwdBumpRef.current = true;
     }
-    // Skip router.replace when restoring from URL — the param is already correct
-    // and calling replace in production Next.js triggers a Suspense remount loop
+    // Restoring from URL needs no history update; native history avoids
+    // a Next.js navigation that would reset the session's document title.
     if (!isRestore) {
-      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      replaceSessionUrl(session.id);
     }
-  }, [router, isMobile]);
+  }, [isMobile]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
     setSelectedSession(null);
@@ -461,20 +462,21 @@ export function AppShell() {
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace("/", { scroll: false });
-  }, [router, isMobile]);
+    replaceSessionUrl(null);
+  }, [isMobile]);
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectRoot, which the same-project check in
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
-  const hydrateSelectedSession = useCallback((sessionId: string) => {
+  const hydrateSelectedSession = useCallback((sessionId: string, refreshTitle = false) => {
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);
         if (!full) return;
-        setSelectedSession((prev) => (prev && prev.id === sessionId && !prev.projectRoot ? full : prev));
+        setSelectedSession((prev) => (prev && prev.id === sessionId && (refreshTitle || !prev.projectRoot)
+          ? { ...prev, ...full } : prev));
       })
       .catch(() => {});
   }, []);
@@ -497,13 +499,14 @@ export function AppShell() {
     setActiveProjectRoot(session.projectRoot ?? session.cwd);
     setRefreshKey((k) => k + 1);
     hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [router, hydrateSelectedSession]);
+    replaceSessionUrl(session.id);
+  }, [hydrateSelectedSession]);
 
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-  }, []);
+    if (selectedSession) hydrateSelectedSession(selectedSession.id, true);
+  }, [selectedSession, hydrateSelectedSession]);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
     setRefreshKey((k) => k + 1);
@@ -512,12 +515,14 @@ export function AppShell() {
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
+      name: undefined,
+      firstMessage: "(no messages)",
     }));
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
-    hydrateSelectedSession(newSessionId);
-    router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [router, hydrateSelectedSession]);
+    hydrateSelectedSession(newSessionId, true);
+    replaceSessionUrl(newSessionId);
+  }, [hydrateSelectedSession]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -537,9 +542,9 @@ export function AppShell() {
       compactControlsRef.current = null;
       setCompactionState(EMPTY_COMPACTION_STATE);
       setActiveTopPanel(null);
-      router.replace("/", { scroll: false });
+      replaceSessionUrl(null);
     }
-  }, [selectedSession, router]);
+  }, [selectedSession]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     const sessionId = selectedSession?.id ?? null;
@@ -586,6 +591,7 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
+        onSessionRenamed={handleSessionNameChange}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         onInitialRestoreDone={handleInitialRestoreDone}

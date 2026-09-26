@@ -219,12 +219,15 @@ test("keeps extension-generated session names and browser titles synchronized", 
   assert.match(hook, /void connectEvents\(session\.id, true\)/);
   assert.match(hook, /extensionTitleRef\.current = request\.title \|\| "Pivot UI"/);
   assert.match(hook, /getFastModeTitleSuffix\(extensionWidgets\)/);
-  assert.match(hook, /document\.title = suffix \? `\$\{base\} \$\{suffix\}` : base/);
+  assert.match(hook, /document\.title = prefix \+ \(suffix \? `\$\{base\} \$\{suffix\}` : base\)/);
   assert.match(rpc, /EXTENSION_STATUSLINE_WIDGET_KEY/);
   assert.match(chatWindow, /widget\.key !== EXTENSION_STATUSLINE_WIDGET_KEY/);
   assert.doesNotMatch(chatWindow, /aria-label="Extension status line"/);
   assert.match(chatWindow, /onSessionNameChange, onSessionForked/);
   assert.match(appShell, /onSessionNameChange=\{handleSessionNameChange\}/);
+  assert.match(appShell, /onSessionRenamed=\{handleSessionNameChange\}/);
+  assert.match(hook, /baseDocumentTitleRef\.current = getSessionDocumentTitle\(session\)/);
+  assert.match(hook, /session\?\.name, session\?\.firstMessage/);
 });
 test("uses Pi's default thinking level for new sessions", async () => {
   const [route, hook] = await Promise.all([

@@ -20,6 +20,7 @@ import { WorkspaceTag } from "./WorkspaceDialog";
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
+  onSessionRenamed?: (sessionId: string, name: string | undefined) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
   onInitialRestoreDone?: () => void;
@@ -466,7 +467,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1200,7 +1201,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               errorSessionIds={errorSessionIds}
               unreadSessionIds={unreadSessionIds}
               onSelectSession={handleSelectSessionFromList}
-              onRenamed={loadSessions}
+              onRenamed={(id, name) => {
+                onSessionRenamed?.(id, name);
+                void loadSessions();
+              }}
               onSessionDeleted={(id) => {
                 onSessionDeleted?.(id);
                 loadSessions();
@@ -1317,7 +1321,7 @@ function SessionTreeItem({
   errorSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
   onSelectSession: (s: SessionInfo) => void;
-  onRenamed?: () => void;
+  onRenamed?: (sessionId: string, name: string | undefined) => void;
   onSessionDeleted?: (id: string) => void;
   depth: number;
 }) {
@@ -1489,7 +1493,7 @@ function SessionItem({
   isError?: boolean;
   isUnread?: boolean;
   onClick: () => void;
-  onRenamed?: () => void;
+  onRenamed?: (sessionId: string, name: string | undefined) => void;
   onDeleted?: (id: string) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -1518,12 +1522,13 @@ function SessionItem({
     setRenaming(false);
     if (name === (session.name ?? "")) return;
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      onRenamed?.();
+      if (!response.ok) throw new Error("Failed to rename session");
+      onRenamed?.(session.id, name || undefined);
     } catch {
       // ignore
     }
