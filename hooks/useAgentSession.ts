@@ -427,7 +427,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const applyDocumentTitle = useCallback(() => {
     const base = extensionTitleRef.current ?? baseDocumentTitleRef.current;
     const suffix = fastModeTitleSuffixRef.current;
-    document.title = suffix ? `${base} ${suffix}` : base;
+    const prefix = document.title.match(/^\[(?:Ongoing|Done)\] /)?.[0] ?? "";
+    document.title = prefix + (suffix ? `${base} ${suffix}` : base);
   }, []);
   const queueToggleInFlightRef = useRef(false);
   const agentRunRef = useRef(new AgentRunState());

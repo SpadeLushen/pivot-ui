@@ -258,11 +258,9 @@ export function AppShell() {
     } : EMPTY_COMPACTION_STATE);
   }, []);
 
-  const baseTitleRef = useRef<string | null>(null);
   const titleSessionRef = useRef<string | null>(null);
   const titleStatusRef = useRef<BackgroundTitleStatus>(null);
   useEffect(() => {
-    if (baseTitleRef.current === null) baseTitleRef.current = document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
     const sessionId = selectedSession?.id ?? null;
     if (titleSessionRef.current !== sessionId) {
       titleSessionRef.current = sessionId;
@@ -272,7 +270,7 @@ export function AppShell() {
       const isAway = document.visibilityState === "hidden" || !document.hasFocus();
       titleStatusRef.current = nextBackgroundTitleStatus(titleStatusRef.current, isAway, compactionState.isStreaming, !!sessionId);
       const prefix = titleStatusRef.current === "ongoing" ? "[Ongoing] " : titleStatusRef.current === "done" ? "[Done] " : "";
-      document.title = prefix + baseTitleRef.current;
+      document.title = prefix + document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
     };
     updateTitle();
     window.addEventListener("blur", updateTitle);
@@ -285,7 +283,7 @@ export function AppShell() {
     };
   }, [selectedSession?.id, compactionState.isStreaming]);
   useEffect(() => () => {
-    if (baseTitleRef.current !== null) document.title = baseTitleRef.current;
+    document.title = document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
