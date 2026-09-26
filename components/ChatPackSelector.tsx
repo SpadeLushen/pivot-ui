@@ -13,8 +13,8 @@ async function json<T extends JsonResponse>(response: Response): Promise<T> {
   return data;
 }
 
-export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile }: {
-  cwd: string; refreshKey?: number; onChanged?: () => void; isMobile: boolean;
+export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disabled = false }: {
+  cwd: string; refreshKey?: number; onChanged?: () => void; isMobile: boolean; disabled?: boolean;
 }) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -56,8 +56,12 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile }: {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
   }, []);
 
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
   const toggle = async (packId: string, checked: boolean) => {
-    if (busy || loading) return;
+    if (disabled || busy || loading) return;
     setError(null);
     setSelected((current) => checked ? [...current, packId] : current.filter((id) => id !== packId));
     setBusy(true);
@@ -80,12 +84,12 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile }: {
   };
   return (
     <div ref={rootRef} style={{ position: "relative", marginLeft: 4, minWidth: 0, display: "flex", gap: 6 }}>
-      <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} title="Select skill packs"
-        style={{ display: "flex", alignItems: "center", gap: 4, border: applied.length ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: applied.length ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: applied.length ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
+      <button type="button" onClick={() => setOpen((value) => !value)} disabled={disabled} aria-expanded={open && !disabled} title="Select skill packs"
+        style={{ display: "flex", alignItems: "center", gap: 4, border: applied.length ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: applied.length ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: applied.length ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
         {applied.length ? <Package size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : <PackagePlus size={11} aria-hidden="true" style={{ flexShrink: 0 }} />}
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{applied.length ? (isMobile ? `${applied[0].packName || applied[0].packId}${applied.length > 1 ? "…" : ""}` : applied.map((p) => p.packName || p.packId).join(", ")) : "Add Pack"}</span>
       </button>
-      {open && (
+      {open && !disabled && (
         <div role="group" aria-label="Skill packs" style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100, width: 290, maxWidth: "calc(100vw - 32px)", maxHeight: "min(380px, 60vh)", overflowY: "auto", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.25)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <strong style={{ fontSize: 12, color: "var(--text)" }}>Packs</strong>

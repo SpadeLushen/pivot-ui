@@ -1031,6 +1031,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
 
+  useEffect(() => {
+    if (isStreaming) {
+      setThinkingDropdownOpen(false);
+      setToolDropdownOpen(false);
+    }
+  }, [isStreaming]);
+
 
 
   return (
@@ -1699,7 +1706,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <Paperclip size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
 
-            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
+            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} disabled={isStreaming} />}
 
             {/* Model selector — visible always, disabled during streaming */}
             {modelOptions.length > 0 && currentName && onModelChange && (
@@ -1809,7 +1816,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* spacer */}
           {!isMobile && <div style={{ flex: 1 }} />}
 
-          {/* RIGHT: thinking + tools preset + sound (idle) | Stop + sound (streaming) */}
+          {/* RIGHT: thinking + tools preset + sound, plus Stop during streaming */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
             display: "flex",
@@ -1889,7 +1896,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 backdropFilter: "blur(10px)",
               } : null),
             }}>
-            {!isStreaming && onThinkingLevelChange && (
+            {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
@@ -1923,7 +1930,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <Lightbulb size={11} strokeWidth={2} aria-hidden="true" />
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
-                {thinkingDropdownOpen && (
+                {thinkingDropdownOpen && !isStreaming && (
                   <div className="overlay-surface" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
@@ -1972,7 +1979,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {!isStreaming && onToolPresetChange && (
+            {onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
@@ -2006,7 +2013,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <Wrench size={11} strokeWidth={2} aria-hidden="true" />
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
                 </button>
-                {toolDropdownOpen && (
+                {toolDropdownOpen && !isStreaming && (
                   <div className="overlay-surface" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
