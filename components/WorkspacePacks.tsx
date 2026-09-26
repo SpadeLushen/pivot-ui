@@ -211,7 +211,7 @@ function PackPicker({
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }}
+      style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
       {...backdrop}
     >
       <div style={{ width: 420, maxWidth: "calc(100vw - 24px)", maxHeight: "80vh", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>

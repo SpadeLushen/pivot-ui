@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Archive, Box, Check, ChevronDown, ChevronRight, CirclePlus, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, RefreshCw, Search, Tag, Trash2, X } from "lucide-react";
+import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, Search, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
@@ -37,6 +37,7 @@ interface Props {
   onOpenMcp?: () => void;
   onOpenPlugins?: () => void;
   onOpenPacks?: () => void;
+  onOpenSettings?: () => void;
   onClose?: () => void;
 }
 
@@ -465,7 +466,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -894,10 +895,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
 
-        <nav className="sidebar-primary-navigation" aria-label={t("app.workspace")}>
-          <SidebarNavigationAction label={t("nav.newSession")} disabled={!selectedCwd} onClick={handleNewSession}>
-            <CirclePlus size={19} strokeWidth={1.8} aria-hidden="true" />
-          </SidebarNavigationAction>
+        <nav className="sidebar-primary-navigation" aria-label={t("app.settings")}>
           <SidebarNavigationAction label="Skills" disabled={!selectedCwd || !onOpenSkills} onClick={() => onOpenSkills?.()}>
             <Search size={19} strokeWidth={1.8} aria-hidden="true" />
           </SidebarNavigationAction>
@@ -910,11 +908,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <SidebarNavigationAction label="Plugins" disabled={!selectedCwd || !onOpenPlugins} onClick={() => onOpenPlugins?.()}>
             <PlugZap size={19} strokeWidth={1.8} aria-hidden="true" />
           </SidebarNavigationAction>
+          <SidebarNavigationAction label={t("app.settings")} disabled={!onOpenSettings} onClick={() => onOpenSettings?.()}>
+            <Settings size={19} strokeWidth={1.8} aria-hidden="true" />
+          </SidebarNavigationAction>
         </nav>
 
         <div className="sidebar-section-label sidebar-workspace-heading">
           <span className="sidebar-workspace-title">
-            {t("app.workspace")}
+            {t("app.workspaces")}
             <span className="sidebar-workspace-count">{workspaceProjects.length}</span>
           </span>
           <div ref={newWorkspaceMenuRef} style={{ position: "relative" }}>
@@ -984,8 +985,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       onClick={() => handleProjectSelect(project)}
                       title={displayCwd(project, homeDir)}
                     >
-                      <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
-                      <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                      {workspaceActivityByProject.get(project)?.isRunning
+                        ? <RunningSessionIndicator />
+                        : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
                       <WorkspaceTag tag={workspaceTags.get(project)} />
                       <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
                     </button>
@@ -1117,8 +1119,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               onClick={() => handleProjectSelect(project)}
                               title={displayCwd(project, homeDir)}
                             >
-                              <WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} />
-                              <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
+                              {workspaceActivityByProject.get(project)?.isRunning
+                                ? <RunningSessionIndicator />
+                                : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
                               <WorkspaceTag tag={workspaceTags.get(project)} />
                               <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
                             </button>
@@ -1157,14 +1160,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       <div className="sidebar-session-section" style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", minHeight: 80, background: isMobile ? "var(--overlay-bg)" : undefined }}>
         <div className="sidebar-session-heading">
           <span style={{ paddingLeft: 10 }}>{t("app.recentSessions")}</span>
-          <button
-            type="button"
-            onClick={() => loadSessions(false, true)}
-            title={t("app.refreshSessions")}
-            aria-label={t("app.refreshSessions")}
-          >
-            {sessionRefreshDone ? <Check size={16} strokeWidth={2.5} color="#4ade80" aria-hidden="true" /> : <RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />}
-          </button>
+          <div className="sidebar-session-actions">
+            <button type="button" className="sidebar-new-session" disabled={!selectedCwd} onClick={handleNewSession} title={t("nav.newSession")}>
+              <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
+              <span>{t("nav.newSession")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => loadSessions(false, true)}
+              title={t("app.refreshSessions")}
+              aria-label={t("app.refreshSessions")}
+            >
+              {sessionRefreshDone ? <Check size={16} strokeWidth={2.5} color="#4ade80" aria-hidden="true" /> : <RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />}
+            </button>
+          </div>
         </div>
         <div className="sidebar-session-list">
           {loading && (
@@ -1636,6 +1645,7 @@ function SessionItem({
           {depth > 0 && (
             <GitFork size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           )}
+          {isRunning && <RunningSessionIndicator />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
@@ -1648,9 +1658,9 @@ function SessionItem({
                 lineHeight: 1.4,
                 color: "var(--text)",
               }}
-              title={isError ? `${title} · Execution failed` : isRunning ? `${title} · Agent running…` : isUnread ? `${title} · New activity` : title}
+              title={isRunning ? `${title} · Agent running…` : isError ? `${title} · Execution failed` : isUnread ? `${title} · New activity` : title}
             >
-              {isError ? <ErrorSessionIndicator /> : isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
+              {!isRunning && (isError ? <ErrorSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null)}
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
               </span>

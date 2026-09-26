@@ -1359,8 +1359,7 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 .sidebar-brand-row,
 .sidebar-brand-identity,
 .sidebar-brand-actions,
-.sidebar-session-heading,
-.sidebar-settings-action {
+.sidebar-session-heading {
   display: flex;
   align-items: center;
 }
@@ -1422,25 +1421,28 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 
 .sidebar-primary-navigation {
   display: grid;
-  gap: 2px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
   margin: 0 0 14px;
 }
 
 .sidebar-navigation-action {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 38px;
-  padding: 0 10px;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: 3px 0;
   background: none;
   border: none;
   border-radius: 7px;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 10px;
   font-weight: 500;
-  text-align: left;
+  white-space: nowrap;
 }
 
 .sidebar-navigation-action:hover {
@@ -1455,7 +1457,7 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 
 .sidebar-navigation-icon {
   display: inline-flex;
-  flex: 0 0 20px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
 }
@@ -1722,6 +1724,34 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   font-weight: 600;
 }
 
+.sidebar-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-session-heading .sidebar-new-session {
+  width: auto;
+  gap: 4px;
+  padding: 0 7px;
+  background: var(--accent-gradient);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(107, 119, 212, 0.18);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-session-heading .sidebar-new-session:not(:disabled):hover {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  filter: brightness(1.06);
+}
+
+.sidebar-session-heading .sidebar-new-session:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .sidebar-session-list {
   min-height: 0;
   flex: 1;
@@ -1731,26 +1761,6 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 
 .sidebar-session-item {
   border-radius: 7px;
-}
-
-.sidebar-settings-action {
-  width: 100%;
-  min-height: 32px;
-  gap: 8px;
-  padding: 0 8px;
-  background: none;
-  border: none;
-  border-radius: 7px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-}
-
-.sidebar-settings-action:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 .workspace-popover {
@@ -2409,7 +2419,7 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .skill-packs-modal {
@@ -3318,14 +3328,8 @@ html.dark .user-message-bubble {
     margin-bottom: 20px;
   }
   .sidebar-container .sidebar-navigation-action {
-    height: 32px;
-    gap: 12px;
-    padding: 0 10px;
     border-radius: 8px;
-    font-size: 14px;
-  }
-  .sidebar-container .sidebar-navigation-icon {
-    flex-basis: 24px;
+    font-size: 11px;
   }
   .sidebar-container .sidebar-navigation-icon svg {
     width: 22px;
@@ -3402,6 +3406,9 @@ html.dark .user-message-bubble {
     width: 36px;
     height: 36px;
   }
+  .sidebar-container .sidebar-session-heading .sidebar-new-session {
+    width: auto;
+  }
   .sidebar-container .sidebar-session-list {
     padding: 0 8px 12px;
   }
@@ -3417,16 +3424,6 @@ html.dark .user-message-bubble {
   }
   .sidebar-container .sidebar-file-explorer {
     display: none !important;
-  }
-  .sidebar-utility-bar {
-    padding: 10px 16px !important;
-    background: var(--overlay-bg);
-  }
-  .sidebar-container .sidebar-settings-action {
-    min-height: 46px;
-    gap: 12px;
-    padding: 0 8px;
-    font-size: 16px;
   }
   .sidebar-container.sidebar-open {
     transform: translateX(0);
@@ -3540,17 +3537,6 @@ html.dark .user-message-bubble {
   .sidebar-container .sidebar-utility-bar {
     background: var(--overlay-bg) !important;
   }
-}
-
-.sidebar-primary-navigation .sidebar-navigation-action:first-child {
-  background: var(--accent-gradient);
-  color: #ffffff;
-  box-shadow: 0 8px 18px rgba(107, 119, 212, 0.18);
-}
-
-.sidebar-primary-navigation .sidebar-navigation-action:first-child:hover {
-  filter: brightness(1.06);
-  color: #ffffff;
 }
 
 .sidebar-project-row.is-active {
@@ -3886,7 +3872,6 @@ html.eye .chat-version-list span,
 html.eye .right-panel-launcher-icon { background: rgba(75, 130, 184, 0.1); }
 html.eye .chat-version-list span { color: var(--text-muted); }
 
-html.eye .sidebar-primary-navigation .sidebar-navigation-action:first-child,
 html.eye .chat-send-button:not(:disabled) {
   box-shadow: 0 8px 18px rgba(49, 57, 67, 0.14) !important;
 }

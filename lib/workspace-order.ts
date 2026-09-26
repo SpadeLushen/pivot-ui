@@ -8,7 +8,7 @@ export interface WorkspaceDisplayGroups {
 }
 
 /**
- * Keep five rows including See all, or four projects + More (with See all last).
+ * Keep seven rows including See all, or six projects + More (with See all last).
  * An overflow selection temporarily takes the last resident workspace's slot;
  * selection never changes the ordering of the projects themselves.
  */
@@ -16,19 +16,19 @@ export function getWorkspaceDisplayGroups(
   projects: readonly string[],
   selectedProject: string | null = null,
 ): WorkspaceDisplayGroups {
-  if (projects.length <= 4) {
+  if (projects.length <= 6) {
     return { resident: [...projects], overflow: [] };
   }
 
-  const firstFour = [...projects.slice(0, 4)];
+  const firstSix = [...projects.slice(0, 6)];
   const selectedOverflowProject = selectedProject !== null
     && projects.includes(selectedProject)
-    && !firstFour.includes(selectedProject)
+    && !firstSix.includes(selectedProject)
     ? selectedProject
     : null;
   const resident = selectedOverflowProject !== null
-    ? [...firstFour.slice(0, -1), selectedOverflowProject]
-    : firstFour;
+    ? [...firstSix.slice(0, -1), selectedOverflowProject]
+    : firstSix;
   const residentSet = new Set(resident);
 
   return {

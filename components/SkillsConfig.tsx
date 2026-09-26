@@ -1217,7 +1217,7 @@ export function SkillsConfig({
         position: "fixed",
         inset: 0,
         zIndex: 1000,
-        background: "rgba(0,0,0,0.85)",
+        background: "rgba(0,0,0,0.35)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

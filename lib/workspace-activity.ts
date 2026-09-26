@@ -26,9 +26,9 @@ export function getWorkspaceActivity(
     if (unreadSessionIds.has(session.id)) hasUnread = true;
   }
 
-  // A failed execution is more actionable than a running or unread marker, so
-  // the workspace indicator uses the error state when any session failed.
-  if (isError) return { isRunning: false, hasUnread: false, isError: true };
+  // Show the spinner while any session runs, even if another session failed.
+  // Once all runs finish, the failure marker becomes visible again.
   if (isRunning) return { isRunning: true, hasUnread: false };
+  if (isError) return { isRunning: false, hasUnread: false, isError: true };
   return { isRunning: false, hasUnread };
 }

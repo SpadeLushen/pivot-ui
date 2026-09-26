@@ -406,7 +406,7 @@ export function McpConfig({ cwd, onClose }: { cwd: string; onClose: () => void }
   const tabs: { key: Tab; label: string }[] = [{ key: "workspace", label: t("app.workspace") }, { key: "library", label: t("mcp.library") }, { key: "acquire", label: t("mcp.acquire") }];
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center" }} {...backdrop}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }} {...backdrop}>
       <div className="modal-surface" style={{ width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}><span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("mcp.title")}</span><code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenPath(cwd)}</code></div>

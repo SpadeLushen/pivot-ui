@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Menu, Minimize2, Moon, PanelLeftClose, RotateCcw, Settings, Square, Sun } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Menu, Minimize2, Moon, PanelLeftClose, RotateCcw, Square, Sun } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow, type CompactionControls } from "./ChatWindow";
@@ -20,6 +20,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePreferences } from "@/lib/preferences-context";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import { copyText } from "@/lib/clipboard";
+import { nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
@@ -255,6 +256,36 @@ export function AppShell() {
       isStreaming: controls.isStreaming,
       error: controls.error,
     } : EMPTY_COMPACTION_STATE);
+  }, []);
+
+  const baseTitleRef = useRef<string | null>(null);
+  const titleSessionRef = useRef<string | null>(null);
+  const titleStatusRef = useRef<BackgroundTitleStatus>(null);
+  useEffect(() => {
+    if (baseTitleRef.current === null) baseTitleRef.current = document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
+    const sessionId = selectedSession?.id ?? null;
+    if (titleSessionRef.current !== sessionId) {
+      titleSessionRef.current = sessionId;
+      titleStatusRef.current = null;
+    }
+    const updateTitle = () => {
+      const isAway = document.visibilityState === "hidden" || !document.hasFocus();
+      titleStatusRef.current = nextBackgroundTitleStatus(titleStatusRef.current, isAway, compactionState.isStreaming, !!sessionId);
+      const prefix = titleStatusRef.current === "ongoing" ? "[Ongoing] " : titleStatusRef.current === "done" ? "[Done] " : "";
+      document.title = prefix + baseTitleRef.current;
+    };
+    updateTitle();
+    window.addEventListener("blur", updateTitle);
+    window.addEventListener("focus", updateTitle);
+    document.addEventListener("visibilitychange", updateTitle);
+    return () => {
+      window.removeEventListener("blur", updateTitle);
+      window.removeEventListener("focus", updateTitle);
+      document.removeEventListener("visibilitychange", updateTitle);
+    };
+  }, [selectedSession?.id, compactionState.isStreaming]);
+  useEffect(() => () => {
+    if (baseTitleRef.current !== null) document.title = baseTitleRef.current;
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
@@ -582,21 +613,12 @@ export function AppShell() {
           setPluginsConfigOpen(true);
           if (isMobile) setSidebarOpen(false);
         }}
+        onOpenSettings={() => {
+          setSettingsOpen(true);
+          if (isMobile) setSidebarOpen(false);
+        }}
         onClose={() => setSidebarOpen(false)}
       />
-      <div className="sidebar-utility-bar" style={{ padding: "8px", flexShrink: 0, background: isMobile ? "var(--overlay-bg)" : undefined }}>
-        <button
-          type="button"
-          className="sidebar-settings-action"
-          onClick={() => {
-            setSettingsOpen(true);
-            if (isMobile) setSidebarOpen(false);
-          }}
-        >
-          <Settings size={18} strokeWidth={1.8} aria-hidden="true" />
-          <span>{t("app.settings")}</span>
-        </button>
-      </div>
     </>
   );
 
