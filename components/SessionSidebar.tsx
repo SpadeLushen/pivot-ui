@@ -504,7 +504,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadSessions = useCallback(async (showLoading = false) => {
+  const loadSessions = useCallback(async (showLoading = false, manualRefresh = false) => {
     try {
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
@@ -530,7 +530,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return next.size === prev.size ? prev : next;
       });
       setError(null);
-      if (!showLoading) {
+      if (manualRefresh) {
         setSessionRefreshDone(true);
         if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
@@ -1159,7 +1159,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <span style={{ paddingLeft: 10 }}>{t("app.recentSessions")}</span>
           <button
             type="button"
-            onClick={() => loadSessions(false)}
+            onClick={() => loadSessions(false, true)}
             title={t("app.refreshSessions")}
             aria-label={t("app.refreshSessions")}
           >
