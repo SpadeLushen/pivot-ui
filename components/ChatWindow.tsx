@@ -20,6 +20,7 @@ import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "@/lib/extension-statusline";
+import { assistantTimingId } from "@/lib/timing-store";
 
 export interface CompactionControls {
   isCompacting: boolean;
@@ -191,7 +192,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
-    agentPhase,
+    agentPhase, timings,
     isNew,
     sessionIdRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -493,6 +494,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                const timingMessageId = msg.role === "assistant" ? assistantTimingId(messages[idx] as AssistantMessage) : undefined;
+                const isActiveTimingMessage = agentRunning && idx > lastUserIdx && timingMessageId !== undefined
+                  && timingMessageId === timings.liveAssistantId;
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -510,8 +514,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     showTps={showTps}
                     hour12={hour12}
-                    prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    timingMessageId={timingMessageId}
+                    showTurnDuration={!options.messageOverride || Boolean((msg as AssistantMessage).usage)}
+                    timingBlockIndices={options.messageOverride && msg.role === "assistant"
+                      ? (msg as AssistantMessage).content.map((block) => (messages[idx] as AssistantMessage).content.indexOf(block)) : undefined}
+                    timingRevision={timings.revision}
+                    liveThinking={isActiveTimingMessage ? timings.liveThinking : undefined}
+                    runningThinking={isActiveTimingMessage ? timings.runningThinking : undefined}
+                    liveTools={agentRunning && idx > lastUserIdx ? timings.liveTools : undefined}
+                    runningTools={agentRunning && idx > lastUserIdx ? timings.runningTools : undefined}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -616,7 +628,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               );
             })()}
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} hour12={hour12} />
+              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} hour12={hour12} sessionId={session?.id ?? sessionIdRef.current ?? undefined} timingRevision={timings.revision} liveThinking={timings.liveThinking} runningThinking={timings.runningThinking} liveTools={timings.liveTools} runningTools={timings.runningTools} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (

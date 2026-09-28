@@ -257,7 +257,7 @@ test("propagates the TPS visibility preference to session messages", async () =>
   assert.match(settings, /id="settings-show-tps"/);
 });
 
-test("keeps thinking previews collapsed while retaining positive duration and toggle controls", async () => {
+test("keeps thinking previews collapsed while retaining recorded duration and toggle controls", async () => {
   const messageView = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
   const thinkingBlock = messageView.slice(
     messageView.indexOf("function ThinkingBlock"),
@@ -268,7 +268,8 @@ test("keeps thinking previews collapsed while retaining positive duration and to
   assert.match(thinkingBlock, /!expanded \? \(/);
   assert.match(thinkingBlock, /direction: "rtl"/);
   assert.match(thinkingBlock, /textOverflow: "ellipsis"/);
-  assert.match(thinkingBlock, /duration !== undefined && \(duration > 0 \|\| isLive\)/);
+  assert.match(thinkingBlock, /durationLabel !== undefined && \(/);
+  assert.match(thinkingBlock, /formatDisplayedElapsed\(duration, durationRunning\)/);
   assert.match(thinkingBlock, /<ChevronDown/);
   assert.match(thinkingBlock, /transform: expanded \? "rotate\(180deg\)" : "none"/);
   assert.match(thinkingBlock, /className="markdown-thinking-message"/);
@@ -283,18 +284,16 @@ test("starts live thinking at the model header and removes empty provider thinki
     readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"),
   ]);
 
-  // A new prompt gets a fresh live-message instance, so its local timer starts
-  // when the assistant/model header first becomes visible.
+  const timings = await readFile(new URL("../hooks/useTimings.ts", import.meta.url), "utf8");
   assert.match(chatWindow, /key=\{`stream-\$\{promptGeneration\}`\}/);
-  assert.match(messageView, /const thinkingTimingsRef = useRef<Map<number, StreamingThinkingTiming>>/);
-  assert.match(messageView, /setInterval\(tick, 1000\)/);
-  assert.match(messageView, /return \(\) => clearInterval\(id\)/);
-
-  // A real thinking block replaces the provisional one; an empty one is
-  // removed as soon as the first non-thinking block arrives.
+  assert.match(chatWindow, /liveThinking=\{timings.liveThinking\}/);
+  assert.match(chatWindow, /runningThinking=\{timings.runningThinking\}/);
+  assert.match(chatWindow, /runningThinking=\{isActiveTimingMessage \? timings.runningThinking : undefined\}/);
+  assert.match(chatWindow, /runningTools=\{timings.runningTools\}/);
+  assert.match(timings, /thinking_start/);
+  assert.match(timings, /thinking_end/);
+  assert.match(timings, /setInterval\(\(\) => setNow\(performance.now\(\)\), 100\)/);
   assert.match(messageView, /getStreamingAssistantBlockItems\(message\)/);
-  assert.match(messageView, /thinkingStructureKey/);
-  assert.match(messageView, /updateStreamingThinkingDurations/);
 });
 
 test("always shows notice details in a modal instead of expanding the toast", async () => {

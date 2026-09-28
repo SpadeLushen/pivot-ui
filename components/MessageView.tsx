@@ -5,7 +5,8 @@ import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFor
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock, updateStreamingThinkingDurations, type StreamingThinkingTiming } from "@/lib/message-display";
+import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock } from "@/lib/message-display";
+import { appendElapsedToUsage, formatDisplayedElapsed, readTiming } from "@/lib/timing-store";
 import { useI18n } from "@/lib/i18n";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import {
@@ -70,8 +71,15 @@ interface Props {
   showTimestamp?: boolean;
   showTps?: boolean;
   hour12?: boolean;
-  prevTimestamp?: number;
   sessionId?: string;
+  timingMessageId?: string;
+  showTurnDuration?: boolean;
+  timingBlockIndices?: number[];
+  timingRevision?: number;
+  liveThinking?: Map<number, number>;
+  runningThinking?: Set<number>;
+  liveTools?: Map<string, number>;
+  runningTools?: Set<string>;
 }
 
 function formatTime(ts?: number, hour12 = false): string | null {
@@ -101,12 +109,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -135,8 +143,15 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.showTimestamp === next.showTimestamp
     && prev.showTps === next.showTps
     && prev.hour12 === next.hour12
-    && prev.prevTimestamp === next.prevTimestamp
-    && prev.sessionId === next.sessionId;
+    && prev.sessionId === next.sessionId
+    && prev.timingMessageId === next.timingMessageId
+    && prev.showTurnDuration === next.showTurnDuration
+    && prev.timingBlockIndices?.join(",") === next.timingBlockIndices?.join(",")
+    && prev.timingRevision === next.timingRevision
+    && prev.liveThinking === next.liveThinking
+    && prev.runningThinking === next.runningThinking
+    && prev.liveTools === next.liveTools
+    && prev.runningTools === next.runningTools;
 });
 
 // ── <file name="..."> tag rendering ──────────────────────────────────────
@@ -535,9 +550,16 @@ function AssistantMessageView({
   showTimestamp,
   showTps = false,
   hour12,
-  prevTimestamp,
   sessionId,
   entryId,
+  timingMessageId,
+  showTurnDuration = true,
+  timingBlockIndices,
+  timingRevision,
+  liveThinking,
+  runningThinking,
+  liveTools,
+  runningTools,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -548,9 +570,16 @@ function AssistantMessageView({
   showTimestamp?: boolean;
   showTps?: boolean;
   hour12: boolean;
-  prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  timingMessageId?: string;
+  showTurnDuration?: boolean;
+  timingBlockIndices?: number[];
+  timingRevision?: number;
+  liveThinking?: Map<number, number>;
+  runningThinking?: Set<number>;
+  liveTools?: Map<string, number>;
+  runningTools?: Set<string>;
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp, hour12) : null;
@@ -566,68 +595,11 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
-  // Keep one timing record per thinking block. The provisional block uses -1;
-  // when Pi later supplies the first real thinking block, its start time is
-  // transferred so the timer does not jump backwards.
-  const thinkingTimingsRef = useRef<Map<number, StreamingThinkingTiming>>(new Map());
-  const [thinkingDurations, setThinkingDurations] = useState<Map<number, number>>(new Map());
-  const thinkingStructureKey = blockItems
-    .map(({ block, originalIndex }) => `${originalIndex}:${block.type}`)
-    .join("|");
-
-  // Update each block once per second. A thinking block ends when its next
-  // content block appears, including another thinking block. This keeps
-  // consecutive thinking blocks from sharing one cumulative duration.
-  useEffect(() => {
-    const tick = () => {
-      const nextDurations = updateStreamingThinkingDurations(
-        blockItemsRef.current,
-        thinkingTimingsRef.current,
-        Date.now(),
-      );
-      setThinkingDurations((previous) => {
-        if (
-          previous.size === nextDurations.size
-          && [...nextDurations].every(([key, value]) => previous.get(key) === value)
-        ) {
-          return previous;
-        }
-        return nextDurations;
-      });
-    };
-
-    if (!isStreaming) {
-      if (thinkingTimingsRef.current.size > 0) tick();
-      return;
-    }
-
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [isStreaming, thinkingStructureKey]);
-
-  // Thinking duration for completed history is derived from file timestamps:
-  // time from the previous message to this assistant message.
-  const thinkingDurationFromFile = useMemo<number | undefined>(() => {
-    if (!message.timestamp || !prevTimestamp) return undefined;
-    const secs = Math.round((message.timestamp - prevTimestamp) / 1000);
-    return secs > 0 ? secs : undefined;
-  }, [message.timestamp, prevTimestamp]);
-
-  // Tool call durations derived from session file timestamps (accurate for completed messages)
-  // assistant message timestamp = when generation ended = when tools started running
-  // toolResult timestamp = when tool execution finished
-  const toolCallDurations = useMemo<Map<string, number>>(() => {
-    const map = new Map<string, number>();
-    if (!toolResults || !message.timestamp) return map;
-    for (const [callId, result] of toolResults) {
-      if (result.timestamp && message.timestamp) {
-        const secs = Math.round((result.timestamp - message.timestamp) / 1000);
-        if (secs > 0) map.set(callId, secs);
-      }
-    }
-    return map;
-  }, [toolResults, message.timestamp]);
+  // Timing records exist only for events observed by this tab. An unknown
+  // historical duration is deliberately omitted rather than estimated.
+  const turnDuration = showTurnDuration && timingRevision && sessionId && timingMessageId
+    ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
+  const usageLine = appendElapsedToUsage(message.usage ? formatUsage(message.usage) : "", turnDuration);
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
@@ -728,17 +700,15 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? (thinkingDurations.get(originalIndex) ?? 0) : thinkingDurationFromFile) : undefined} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? liveThinking?.get(originalIndex) : (liveThinking?.get(timingBlockIndices?.[originalIndex] ?? originalIndex) ?? (timingRevision && sessionId && timingMessageId ? readTiming(`thinking:${sessionId}:${timingMessageId}:${timingBlockIndices?.[originalIndex] ?? originalIndex}`) : undefined))) : undefined} runningThinking={runningThinking?.has(timingBlockIndices?.[originalIndex] ?? originalIndex)} toolCallDurations={liveTools} runningTools={runningTools} sessionTimingId={timingRevision ? sessionId : undefined} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
-        {message.usage && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
-          </div>
+        {usageLine && !isStreaming && (
+          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{usageLine}</div>
         )}
         {textContent && !isStreaming && (
           <button
@@ -776,18 +746,18 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, runningThinking, toolCallDurations, runningTools, sessionTimingId, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; runningThinking?: boolean; toolCallDurations?: Map<string, number>; runningTools?: Set<string>; sessionTimingId?: string; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} durationRunning={Boolean(runningThinking)} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
-    const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    const duration = toolCallDurations?.get(tc.toolCallId) ?? (sessionTimingId ? readTiming(`tool:${sessionTimingId}:${tc.toolCallId}`) : undefined);
+    return <ToolCallBlock block={tc} result={result} duration={duration} durationRunning={runningTools?.has(tc.toolCallId) ?? false} />;
   }
   return null;
 }
@@ -796,9 +766,10 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex, cwd, onOpenFile }: {
+function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, entryId, blockIndex, cwd, onOpenFile }: {
   block: ThinkingContent;
   duration?: number;
+  durationRunning: boolean;
   isLive?: boolean;
   sessionId?: string;
   entryId?: string;
@@ -811,6 +782,7 @@ function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const preview = getLastThinkingLine(content ?? block.thinkingPreview ?? block.thinking);
+  const durationLabel = formatDisplayedElapsed(duration, durationRunning);
 
   const toggle = async () => {
     const nextExpanded = !expanded;
@@ -886,8 +858,8 @@ function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex
         ) : (
           <span style={{ flex: 1, minWidth: 0 }} />
         )}
-        {duration !== undefined && (duration > 0 || isLive) && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        {durationLabel !== undefined && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{durationLabel}</span>
         )}
         <ChevronDown
           size={10}
@@ -929,8 +901,9 @@ function ThinkingBlock({ block, duration, isLive, sessionId, entryId, blockIndex
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+function ToolCallBlock({ block, result, duration, durationRunning }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; durationRunning: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const durationLabel = formatDisplayedElapsed(duration, durationRunning);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
@@ -976,8 +949,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        {durationLabel !== undefined && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{durationLabel}</span>
         )}
         <ChevronDown size={10} strokeWidth={1.6} aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
       </button>

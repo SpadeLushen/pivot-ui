@@ -19,6 +19,7 @@ import { usePreferences } from "@/lib/preferences-context";
 import { prepareWorkspacePacks } from "@/lib/pack-preferences";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import { getSessionDocumentTitle } from "@/lib/background-title";
+import { useTimings } from "@/hooks/useTimings";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -423,6 +424,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const timings = useTimings(sessionIdRef);
+  const recordTimingEvent = timings.recordEvent;
+  const stopActiveTimings = timings.stopActive;
+  useEffect(() => {
+    // Reconciliation can finish a run without receiving agent_end over SSE.
+    if (!agentRunning) stopActiveTimings();
+  }, [agentRunning, stopActiveTimings]);
   const baseDocumentTitleRef = useRef("Pivot UI");
   const extensionTitleRef = useRef<string | null>(null);
   const fastModeTitleSuffixRef = useRef<string | null>(null);
@@ -977,6 +985,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning, reconcileAgentState]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    if (event.type === "agent_start" || agentRunRef.current.running) recordTimingEvent(event);
     switch (event.type) {
       case "agent_start":
         agentRunRef.current.ensureRunning();
@@ -1136,7 +1145,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange]);
+  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, recordTimingEvent]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Sanitize a file name for embedding inside a <file name="..."> tag.
@@ -1754,7 +1763,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
-    agentPhase,
+    agentPhase, timings,
     isNew,
     // Runtime refs
     sessionIdRef, eventSourceRef,
