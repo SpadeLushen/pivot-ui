@@ -30,6 +30,13 @@ button.workspace-group-heading:disabled { cursor: default; opacity: 1; }
 .workspace-row-text { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 .workspace-row-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; }
 .workspace-row-title > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.workspace-search-match { color: #007aff; font-weight: 700; }
+html.dark .workspace-search-match { color: #0a84ff; }
+.workspace-session-result { display: flex; align-items: center; gap: 12px; width: calc(100% - 38px); min-width: 0; margin: 0 0 2px 38px; padding: 6px 8px; border: none; border-radius: 5px; background: none; color: var(--text); text-align: left; cursor: pointer; font-size: 12px; font-weight: 400; }
+.workspace-session-result:hover, .workspace-session-result:focus-visible { background: var(--bg-hover); }
+.workspace-session-result:disabled { cursor: wait; }
+.workspace-session-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.workspace-session-meta { display: flex; gap: 8px; flex-shrink: 0; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
 .workspace-full-path { display: block; font-size: 11px; line-height: 1.5; color: var(--text-dim); overflow-wrap: anywhere; }
 .workspace-row-text > .workspace-full-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-row-actions { display: flex; gap: 4px; flex-shrink: 0; }

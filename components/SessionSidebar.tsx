@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, 
 import { createPortal } from "react-dom";
 import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, Search, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
+import { formatRelativeTime, sessionTitle } from "@/lib/session-display";
 import { copyText } from "@/lib/clipboard";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
 import { getWorkspaceDisplayGroups, getWorkspaceProjects } from "@/lib/workspace-order";
@@ -65,20 +66,6 @@ function saveUnreadSessionIds(ids: Set<string>): void {
   } catch {
     // ignore storage quota / privacy-mode errors
   }
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
 }
 
 /** Substitute the home dir prefix with ~ (no path truncation) */
@@ -1296,8 +1283,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       )}
     </div>
     <DirectoryPickerModal open={directoryPickerOpen} onClose={() => setDirectoryPickerOpen(false)} onSelect={selectWorkspaceDirectory} />
-    {allWorkspacesOpen && <AllWorkspacesModal entries={getWorkspaceEntries(allSessions, workspaceRecords)}
-      onClose={() => setAllWorkspacesOpen(false)} onSelect={handleProjectSelect} onTag={setTagWorkspace} onUpdate={updateWorkspace} />}
+    {allWorkspacesOpen && <AllWorkspacesModal entries={getWorkspaceEntries(allSessions, workspaceRecords)} sessions={allSessions}
+      onClose={() => setAllWorkspacesOpen(false)} onSelect={handleProjectSelect} onSelectSession={handleSelectSessionFromList}
+      onTag={setTagWorkspace} onUpdate={updateWorkspace} />}
     {tagWorkspace && <WorkspaceTagDialog key={tagWorkspace} path={tagWorkspace} tag={workspaceTags.get(tagWorkspace) ?? ""}
       onClose={() => setTagWorkspace(null)} onSave={updateWorkspace} />}
     </>
@@ -1508,7 +1496,7 @@ function SessionItem({
   const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const title = sessionTitle(session);
 
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

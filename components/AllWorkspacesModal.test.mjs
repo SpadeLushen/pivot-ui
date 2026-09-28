@@ -5,6 +5,7 @@ import { createJiti } from "jiti";
 
 const modal = await readFile(new URL("./AllWorkspacesModal.tsx", import.meta.url), "utf8");
 const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("./workspaces.css", import.meta.url), "utf8");
 
 test("archived section starts collapsed and cannot collapse during search", () => {
   assert.match(modal, /\[archivedOpen, setArchivedOpen\] = useState\(false\)/);
@@ -32,6 +33,25 @@ test("row navigation is separate from copy, tag and reversible archive controls"
   assert.doesNotMatch(modal, /Trash2|general\.remove|workspaces\.removed/);
   assert.ok(modal.indexOf("void copy()") < modal.indexOf("onTag(entry.path)"));
   assert.ok(modal.indexOf("onTag(entry.path)") < modal.indexOf("void toggleArchived()"));
+});
+
+test("matching sessions render below their workspace and navigate via the sidebar's session path", () => {
+  assert.match(modal, /matchingWorkspaceSessions\(sessions, query\)/);
+  assert.match(modal, /groupWorkspaces\(entries, query, mode, new Set\(matchingSessions.keys\(\)\)\)/);
+  assert.match(modal, /sessions=\{matchingSessions.get\(entry.path\) \?\? \[\]\}/);
+  assert.match(modal, /if \(entry.removed\) await onUpdate\(\{ path: entry.path, removed: false \}\)/);
+  assert.match(modal, /onSelectSession=\{\(session\) => \{ onSelectSession\(session\); onClose\(\); \}\}/);
+  assert.match(sidebar, /onSelectSession=\{handleSelectSessionFromList\}/);
+  assert.match(sidebar, /if \(s.cwd\) setSelectedCwd\(s.cwd\);\s*onSelectSession\(s\);/);
+  assert.match(modal, /className="workspace-session-result"/);
+  assert.match(styles, /\.workspace-session-result \{[^}]*margin: 0 0 2px 38px/);
+  assert.match(styles, /\.workspace-session-title \{[^}]*white-space: nowrap/);
+  assert.match(styles, /\.workspace-search-match \{ color: #007aff; font-weight: 700; \}/);
+  assert.match(styles, /\.workspace-session-meta \{[^}]*color: var\(--text-dim\); font-size: 11px/);
+  assert.match(modal, /<HighlightMatch text=\{sessionTitle\(session\)\} query=\{query\} \/>/);
+  assert.match(modal, /<HighlightMatch text=\{entry.name\} query=\{query\} \/>/);
+  assert.match(modal, /formatRelativeTime\(session.modified\)/);
+  assert.match(modal, /session.messageCount\} msgs/);
 });
 
 test("archive action and status use matching English and Chinese labels", async () => {

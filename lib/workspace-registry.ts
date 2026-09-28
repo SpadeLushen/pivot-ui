@@ -1,4 +1,5 @@
 import type { SessionInfo } from "./types";
+import { sessionTitle } from "./session-display";
 
 export interface WorkspaceRecord {
   path: string;
@@ -26,9 +27,26 @@ export interface WorkspaceGroup {
 }
 
 /** Match the whole phrase (including spaces), not separate search tokens. */
-export function groupWorkspaces(entries: readonly WorkspaceEntry[], query: string, mode: "status" | "tag"): WorkspaceGroup[] {
+export function matchingWorkspaceSessions(sessions: readonly SessionInfo[], query: string): Map<string, SessionInfo[]> {
   const phrase = query.trim().toLocaleLowerCase();
-  const matches = entries.filter((entry) => [entry.tag, entry.name, entry.path]
+  const byWorkspace = new Map<string, SessionInfo[]>();
+  if (!phrase) return byWorkspace;
+  for (const session of sessions) {
+    if (!sessionTitle(session).toLocaleLowerCase().includes(phrase)) continue;
+    const root = session.projectRoot ?? session.cwd;
+    const matches = byWorkspace.get(root) ?? [];
+    matches.push(session);
+    byWorkspace.set(root, matches);
+  }
+  for (const matches of byWorkspace.values()) {
+    matches.sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified));
+  }
+  return byWorkspace;
+}
+
+export function groupWorkspaces(entries: readonly WorkspaceEntry[], query: string, mode: "status" | "tag", sessionPaths: ReadonlySet<string> = new Set()): WorkspaceGroup[] {
+  const phrase = query.trim().toLocaleLowerCase();
+  const matches = entries.filter((entry) => sessionPaths.has(entry.path) || [entry.tag, entry.name, entry.path]
     .some((value) => value.toLocaleLowerCase().includes(phrase)))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.path.localeCompare(b.path));
   if (mode === "status") {
