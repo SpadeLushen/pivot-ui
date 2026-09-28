@@ -11,6 +11,17 @@ test("uses the configured streaming Enter action and keeps Alt+Enter as follow-u
   assert.match(chatInput, /onToggleQueuedMessage/);
 });
 
+test("mobile Enter inserts a newline instead of sending or choosing a suggestion", async () => {
+  const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const keyHandler = chatInput.slice(chatInput.indexOf("const handleKeyDown = useCallback("), chatInput.indexOf("const handleInput = useCallback("));
+
+  assert.match(keyHandler, /if \(isMobile && e\.key === "Enter"\) return;/);
+  assert.ok(keyHandler.indexOf('if (isMobile && e.key === "Enter") return;') < keyHandler.indexOf("if (slashMenuOpen && slashQuery !== null)"));
+  assert.ok(keyHandler.indexOf('if (isMobile && e.key === "Enter") return;') < keyHandler.indexOf('if (e.key === "Enter" && !e.shiftKey) {'));
+  assert.match(chatInput, /enterKeyHint=\{isMobile \? "enter" : undefined\}/);
+  assert.match(chatInput, /onClick=\{handleSend\}/);
+});
+
 test("renders queue mode badges as controls that can switch a queued message", async () => {
   const [chatInput, hook, rpc] = await Promise.all([
     readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8"),

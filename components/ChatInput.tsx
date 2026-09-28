@@ -837,6 +837,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      // On the mobile layout, Enter always inserts a newline in the textarea;
+      // use the visible buttons to send or select a suggestion instead.
+      if (isMobile && e.key === "Enter") return;
+
       if (slashMenuOpen && slashQuery !== null) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -913,7 +917,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, enterBehavior, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion]
+    [isMobile, isStreaming, onSteer, onFollowUp, enterBehavior, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion]
   );
 
   const handleInput = useCallback(() => {
@@ -1563,6 +1567,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               updateAtQuery(el.value, el.selectionStart);
             }}
             onKeyDown={handleKeyDown}
+            enterKeyHint={isMobile ? "enter" : undefined}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
