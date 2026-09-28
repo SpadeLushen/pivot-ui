@@ -296,6 +296,20 @@ test("starts live thinking at the model header and removes empty provider thinki
   assert.match(messageView, /getStreamingAssistantBlockItems\(message\)/);
 });
 
+test("collapsing Process details switches only the final answer to the full group timing", async () => {
+  const [chat, view] = await Promise.all([
+    readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(chat, /const processExpanded = expandedProcessGroups\.has\(processGroupId\)/);
+  assert.match(chat, /expanded=\{processExpanded\}/);
+  assert.match(chat, /if \(processCount > 0 && !processExpanded\)/);
+  assert.match(chat, /sumPreciseTurnDurations\(messages, userIdx, finalAssistantIdx/);
+  assert.match(chat, /exact === undefined\s+\? estimateGroupedTurnDuration\(messages, entryTimestamps, userIdx, finalAssistantIdx\)/);
+  assert.match(chat, /renderMessage\(finalAssistantIdx, \{ messageOverride: finalAnswerMessage, turnDurationOverride \}\)/);
+  assert.match(view, /turnDurationOverride !== undefined\s+\? turnDurationOverride\.exact/);
+});
+
 test("always shows notice details in a modal instead of expanding the toast", async () => {
   const chatWindow = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
   const noticeBlock = chatWindow.slice(

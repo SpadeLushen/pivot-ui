@@ -81,7 +81,8 @@ export function formatDisplayedElapsed(ms: number | undefined, running: boolean)
   return formatElapsed(ms);
 }
 
-export function appendElapsedToUsage(usage: string, duration?: number): string {
-  const elapsed = duration === undefined ? "" : formatElapsed(duration);
+export function appendElapsedToUsage(usage: string, exact?: number, estimate?: number): string {
+  const elapsed = exact !== undefined ? formatElapsed(exact)
+    : estimate !== undefined ? formatElapsed(estimate) : "";
   return [usage, elapsed].filter(Boolean).join(" · ");
 }

@@ -241,18 +241,21 @@ export function buildSessionContext(
   // fork/navigation targets aligned while preserving pi's compaction ordering.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
+  const entryTimestamps: (number | null)[] = [];
   for (const entry of contextEntries) {
     const localEntry = entry as unknown as SessionEntry;
     const m = entryToUiMessage(localEntry, options);
     if (m) {
       messages.push(m);
       entryIds.push(localEntry.id);
+      entryTimestamps.push(parseEntryTimestamp(localEntry.timestamp) ?? null);
     }
   }
 
   return {
     messages,
     entryIds,
+    entryTimestamps,
     thinkingLevel: piCtx.thinkingLevel,
     model: piCtx.model,
   };

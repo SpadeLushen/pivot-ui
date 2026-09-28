@@ -357,6 +357,7 @@ export interface SessionInfo {
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
+  entryTimestamps: (number | null)[]; // parallel to messages — JSONL entry write times (ms)
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }

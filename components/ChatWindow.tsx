@@ -20,7 +20,8 @@ import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "@/lib/extension-statusline";
-import { assistantTimingId } from "@/lib/timing-store";
+import { assistantTimingId, readTiming } from "@/lib/timing-store";
+import { estimateGroupedTurnDuration, estimateTurnDuration, sumPreciseTurnDurations } from "@/lib/turn-duration";
 
 export interface CompactionControls {
   isCompacting: boolean;
@@ -117,8 +118,7 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false);
+function ProcessDetailsGroup({ messageCount, toolCallCount, expanded, onToggle, children }: { messageCount: number; toolCallCount: number; expanded: boolean; onToggle: () => void; children: ReactNode }) {
   const parts = ["Process details", `${messageCount} ${messageCount === 1 ? "message" : "messages"}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`);
 
@@ -127,7 +127,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onToggle}
         style={{
           display: "flex",
           alignItems: "center",
@@ -159,6 +159,15 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
 }
 
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
+  const [expandedProcessGroups, setExpandedProcessGroups] = useState<Set<string>>(() => new Set());
+  const toggleProcessGroup = useCallback((key: string) => {
+    setExpandedProcessGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -185,7 +194,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [chatInputRef]);
 
   const {
-    loading, error, messages, entryIds, streamState,
+    loading, error, messages, entryIds, entryTimestamps, streamState,
     agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, toolPresetReady, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
@@ -471,7 +480,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (idx === lastUserIdx) lastUserMessageRef.current = el;
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; turnDurationOverride?: { exact?: number; estimate?: number } } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -517,6 +526,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     timingMessageId={timingMessageId}
                     showTurnDuration={!options.messageOverride || Boolean((msg as AssistantMessage).usage)}
+                    turnDurationOverride={options.turnDurationOverride}
+                    estimatedTurnDuration={timingMessageId && (!agentRunning || idx < lastUserIdx)
+                      ? estimateTurnDuration(messages, entryTimestamps, idx) : undefined}
                     timingBlockIndices={options.messageOverride && msg.role === "assistant"
                       ? (msg as AssistantMessage).content.map((block) => (messages[idx] as AssistantMessage).content.indexOf(block)) : undefined}
                     timingRevision={timings.revision}
@@ -583,6 +595,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   : null;
 
                 const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
+                const processGroupId = `${entryIds[userIdx] ?? userIdx}:${entryIds[finalAssistantIdx] ?? finalAssistantIdx}`;
+                const processExpanded = expandedProcessGroups.has(processGroupId);
                 if (processCount > 0) {
                   const processRefIdx = visibleProcessIndices
                     .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
@@ -592,6 +606,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     <ProcessDetailsGroup
                       messageCount={processCount}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
+                      expanded={processExpanded}
+                      onToggle={() => toggleProcessGroup(processGroupId)}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
@@ -608,7 +624,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 }
 
                 if (finalAnswerMessage) {
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                  let turnDurationOverride: { exact?: number; estimate?: number } | undefined;
+                  if (processCount > 0 && !processExpanded) {
+                    const sid = session?.id ?? sessionIdRef.current;
+                    const exact = sid ? sumPreciseTurnDurations(messages, userIdx, finalAssistantIdx,
+                      (assistant) => readTiming(`turn:${sid}:${assistantTimingId(assistant)}`)) : undefined;
+                    turnDurationOverride = { exact, estimate: exact === undefined
+                      ? estimateGroupedTurnDuration(messages, entryTimestamps, userIdx, finalAssistantIdx) : undefined };
+                  }
+                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage, turnDurationOverride }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));

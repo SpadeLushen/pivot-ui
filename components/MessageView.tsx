@@ -74,6 +74,8 @@ interface Props {
   sessionId?: string;
   timingMessageId?: string;
   showTurnDuration?: boolean;
+  estimatedTurnDuration?: number;
+  turnDurationOverride?: { exact?: number; estimate?: number };
   timingBlockIndices?: number[];
   timingRevision?: number;
   liveThinking?: Map<number, number>;
@@ -109,12 +111,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -146,6 +148,10 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.sessionId === next.sessionId
     && prev.timingMessageId === next.timingMessageId
     && prev.showTurnDuration === next.showTurnDuration
+    && prev.estimatedTurnDuration === next.estimatedTurnDuration
+    && prev.turnDurationOverride?.exact === next.turnDurationOverride?.exact
+    && prev.turnDurationOverride?.estimate === next.turnDurationOverride?.estimate
+    && Boolean(prev.turnDurationOverride) === Boolean(next.turnDurationOverride)
     && prev.timingBlockIndices?.join(",") === next.timingBlockIndices?.join(",")
     && prev.timingRevision === next.timingRevision
     && prev.liveThinking === next.liveThinking
@@ -554,6 +560,8 @@ function AssistantMessageView({
   entryId,
   timingMessageId,
   showTurnDuration = true,
+  estimatedTurnDuration,
+  turnDurationOverride,
   timingBlockIndices,
   timingRevision,
   liveThinking,
@@ -574,6 +582,8 @@ function AssistantMessageView({
   entryId?: string;
   timingMessageId?: string;
   showTurnDuration?: boolean;
+  estimatedTurnDuration?: number;
+  turnDurationOverride?: { exact?: number; estimate?: number };
   timingBlockIndices?: number[];
   timingRevision?: number;
   liveThinking?: Map<number, number>;
@@ -595,11 +605,16 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
-  // Timing records exist only for events observed by this tab. An unknown
-  // historical duration is deliberately omitted rather than estimated.
-  const turnDuration = showTurnDuration && timingRevision && sessionId && timingMessageId
-    ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
-  const usageLine = appendElapsedToUsage(message.usage ? formatUsage(message.usage) : "", turnDuration);
+  // Expanded details show one turn; the collapsed answer may supply a group
+  // total. Never fall back to just the final turn when part of a group is missing.
+  const turnDuration = !showTurnDuration ? undefined : turnDurationOverride !== undefined
+    ? turnDurationOverride.exact
+    : timingRevision && sessionId && timingMessageId ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
+  const usageLine = appendElapsedToUsage(
+    message.usage ? formatUsage(message.usage) : "",
+    turnDuration,
+    showTurnDuration ? (turnDurationOverride !== undefined ? turnDurationOverride.estimate : estimatedTurnDuration) : undefined,
+  );
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
