@@ -14,6 +14,7 @@ Lint: `npm run lint`
 ## Git 操作
 
 - `lushen-custom` 分支推送时必须显式指定远端和目标分支：`git push selfhost HEAD:master`。不要使用不带远端和分支参数的 `git push`。
+- 当要求提交代码并同时更新版本号时，版本号更新必须单独创建一个 commit，且必须是此次提交中的最后一个 commit。
 
 ---
 
