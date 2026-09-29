@@ -136,6 +136,29 @@ test("keeps the live stream anchored to the real chat tail", async () => {
   assert.doesNotMatch(hook, /messagesEndRef|scrollContainerRef|lastUserMsgRef/);
 });
 
+test("keeps Markdown text nodes mounted when message hover changes during selection", async () => {
+  const markdown = await readFile(new URL("./MarkdownBody.tsx", import.meta.url), "utf8");
+  const messages = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
+
+  assert.match(messages, /onMouseLeave=\{\(\) => setHovered\(false\)\}/);
+  assert.match(markdown, /export const MarkdownBody = memo\(function MarkdownBody/);
+  assert.match(markdown, /const components = useMemo<Components>\(\(\) => \(\{/);
+  assert.match(markdown, /\}\), \[inline, cwd, onOpenFile, isStreaming\]\)/);
+  assert.match(markdown, /components=\{components\}/);
+});
+
+test("pauses live-tail scrolling while selecting chat text and resumes after returning to the tail", async () => {
+  const viewport = await readFile(new URL("./useChatViewport.ts", import.meta.url), "utf8");
+
+  assert.match(viewport, /if \(selectionPausedRef\.current\) return;\s+scrollTailPinnedRef\.current = true;/);
+  assert.match(viewport, /container\.addEventListener\("pointerdown", onPointerDown\)/);
+  assert.match(viewport, /window\.addEventListener\("pointerup", onPointerUp\)/);
+  assert.match(viewport, /selection\.toString\(\)\.trim\(\)/);
+  assert.match(viewport, /completionScrollAllowedRef\.current = false;/);
+  assert.match(viewport, /if \(atTail && !selectionPointerDownRef\.current\) \{\s+selectionPausedRef\.current = false;/);
+  assert.match(viewport, /selectionPausedRef\.current = false;\s+setPinnedVisibleStart\(null\);\s+completionScrollAllowedRef\.current = true;\s+initialScrollDoneRef/);
+});
+
 test("resumes following when the user returns to the live tail", async () => {
   const [viewport, state] = await Promise.all([
     readFile(new URL("./useChatViewport.ts", import.meta.url), "utf8"),

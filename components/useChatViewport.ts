@@ -19,6 +19,7 @@ type UseChatViewportOptions = {
   streamingMessage: Partial<AgentMessage> | null;
   agentRunning: boolean;
   loading: boolean;
+  hasMessageViewport: boolean;
   promptGeneration: number;
 };
 
@@ -27,9 +28,13 @@ export function useChatViewport({
   streamingMessage,
   agentRunning,
   loading,
+  hasMessageViewport,
   promptGeneration,
 }: UseChatViewportOptions) {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
+  const [pinnedVisibleStart, setPinnedVisibleStart] = useState<number | null>(null);
+  const lastVisibleStartRef = useRef(0);
+  const rememberVisibleStart = useCallback((start: number) => { lastVisibleStartRef.current = start; }, []);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -45,8 +50,13 @@ export function useChatViewport({
   const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
   const handledPromptGenerationRef = useRef(promptGeneration);
+  // Do not move the viewport while the user is dragging over chat text, or
+  // after they have selected a passage to copy for their next prompt.
+  const selectionPausedRef = useRef(false);
+  const selectionPointerDownRef = useRef(false);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (selectionPausedRef.current) return;
     scrollTailPinnedRef.current = true;
     if (behavior === "smooth") {
       ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
@@ -97,7 +107,8 @@ export function useChatViewport({
     const container = event.currentTarget as HTMLDivElement;
     const now = Date.now();
     const atTail = isAtScrollTail(container.scrollHeight, container.scrollTop, container.clientHeight);
-    if (atTail) {
+    if (atTail && !selectionPointerDownRef.current) {
+      selectionPausedRef.current = false;
       scrollTailPinnedRef.current = true;
       completionScrollAllowedRef.current = true;
     } else if (now >= ignoreProgrammaticScrollUntilRef.current && now <= userScrollIntentUntilRef.current) {
@@ -113,6 +124,59 @@ export function useChatViewport({
       userScrollIntentUntil: userScrollIntentUntilRef.current,
     });
   }, [agentRunning]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || !(event.target instanceof Element) ||
+          event.target.closest("button, a, input, textarea, select, [contenteditable]")) return;
+      clearTimeout(releaseTimer);
+      selectionPointerDownRef.current = true;
+      selectionPausedRef.current = true;
+      setPinnedVisibleStart((current) => current ?? lastVisibleStartRef.current);
+    };
+    const onSelectionChange = () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString().trim() &&
+          selection.anchorNode && container.contains(selection.anchorNode) &&
+          selection.focusNode && container.contains(selection.focusNode)) {
+        selectionPausedRef.current = true;
+        setPinnedVisibleStart((current) => current ?? lastVisibleStartRef.current);
+      } else if (!selectionPointerDownRef.current) {
+        setPinnedVisibleStart(null);
+      }
+    };
+    const onPointerUp = () => {
+      if (!selectionPointerDownRef.current) return;
+      // Wait until the browser has finalized the text selection after pointerup.
+      releaseTimer = setTimeout(() => {
+        selectionPointerDownRef.current = false;
+        const selection = window.getSelection();
+        const hasChatSelection = Boolean(selection && !selection.isCollapsed && selection.toString().trim() &&
+          ((selection.anchorNode && container.contains(selection.anchorNode)) ||
+           (selection.focusNode && container.contains(selection.focusNode))));
+        selectionPausedRef.current = hasChatSelection;
+        if (!hasChatSelection) setPinnedVisibleStart(null);
+        if (hasChatSelection) {
+          scrollTailPinnedRef.current = false;
+          completionScrollAllowedRef.current = false;
+        }
+      }, 0);
+    };
+    container.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("selectionchange", onSelectionChange);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      clearTimeout(releaseTimer);
+      container.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [loading, hasMessageViewport]);
 
   useEffect(() => {
     window.addEventListener("keydown", markUserScrollIntent);
@@ -183,6 +247,8 @@ export function useChatViewport({
   useEffect(() => {
     if (promptGeneration === handledPromptGenerationRef.current) return;
     handledPromptGenerationRef.current = promptGeneration;
+    selectionPausedRef.current = false;
+    setPinnedVisibleStart(null);
     completionScrollAllowedRef.current = true;
     initialScrollDoneRef.current = true;
     scrollUserMessageToTop();
@@ -206,6 +272,8 @@ export function useChatViewport({
 
   return {
     visibleCount,
+    pinnedVisibleStart,
+    rememberVisibleStart,
     sentinelRef,
     scrollContainerRef,
     messagesEndRef,

@@ -214,11 +214,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     modelsRefreshKey, packsRefreshKey, onPacksChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
 
-  const { visibleCount, sentinelRef, scrollContainerRef, messagesEndRef, lastUserMessageRef } = useChatViewport({
+  // A new session starts without a message viewport; it mounts on the first
+  // prompt even though loading stays false. Reattach selection listeners then.
+  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
+  const { visibleCount, pinnedVisibleStart, rememberVisibleStart, sentinelRef, scrollContainerRef, messagesEndRef, lastUserMessageRef } = useChatViewport({
     messageCount: messages.length,
     streamingMessage: streamState.streamingMessage,
     agentRunning,
     loading,
+    hasMessageViewport: !isEmptyNew,
     promptGeneration,
   });
   // Push session stats up to AppShell for the top bar.
@@ -296,7 +300,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
 
-  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
 
   const availableThinkingLevels = displayModelValue
@@ -639,7 +642,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 }
                 idx = endIdx;
               }
-              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
+              // Keep the selected history node mounted as the live tail grows.
+              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount, pinnedVisibleStart);
+              rememberVisibleStart(startIndex);
               return (
                 <>
                   {hasMore && (

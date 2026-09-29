@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { SyntaxHighlighter } from "@/lib/prism-highlighter";
 import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
 import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
@@ -20,16 +20,12 @@ interface MarkdownBodyProps {
   inline?: boolean;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, inline = false }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, inline = false }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   const Root = inline ? "span" : "div";
-
-  return (
-    <Root className={["markdown-body", className].filter(Boolean).join(" ")}>
-      <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
-        components={{
+  // ReactMarkdown treats each renderer function as a component type. Recreating
+  // them on hover/stream updates unmounts text nodes and invalidates selections.
+  const components = useMemo<Components>(() => ({
           p({ children, ...props }) {
             delete props.node;
             if (inline) return <span>{children}</span>;
@@ -163,13 +159,20 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
               </div>
             );
           },
-        }}
+  }), [inline, cwd, onOpenFile, isStreaming]);
+
+  return (
+    <Root className={["markdown-body", className].filter(Boolean).join(" ")}>
+      <ReactMarkdown
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins}
+        components={components}
       >
         {normalizedMarkdown}
       </ReactMarkdown>
     </Root>
   );
-}
+});
 
 function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
