@@ -419,26 +419,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         />
       )}
 
-      {isEmptyNew ? (
-        <div className="chat-empty-layout flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="chat-empty-content w-full max-w-[820px]">
-            <div className="chat-empty-heading">
-              <p>Hello, Developer</p>
-              <div className="chat-empty-title">
-                <img className="chat-empty-brand-icon" src="/pi-agent-mark.svg" width={52} height={52} alt="" />
-                <h1>Pivot UI </h1>
-              </div>
-              <div className="chat-version-list">
-                <span>web v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                <span>pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-              </div>
-            </div>
-            <NoticeShelf notices={nonErrorNotices} align="right" />
-            {chatInputElement}
-          </div>
-        </div>
-      ) : (
-      <>
+      {!isEmptyNew && (
       <div className="chat-scroll-region relative flex flex-1 flex-col overflow-hidden">
         <div
           style={{
@@ -685,8 +666,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           )}
         </div>
       </div>
+      )}
 
-      <div className="relative">
+      {/* Keep the composer mounted when the first prompt leaves the welcome layout. */}
+      <div className={isEmptyNew
+        ? "chat-empty-layout relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8"
+        : "relative"}>
+        <div className={isEmptyNew ? "chat-empty-content w-full max-w-[820px]" : undefined}>
+          {isEmptyNew && (
+            <>
+              <div className="chat-empty-heading">
+                <p>Hello, Developer</p>
+                <div className="chat-empty-title">
+                  <img className="chat-empty-brand-icon" src="/pi-agent-mark.svg" width={52} height={52} alt="" />
+                  <h1>Pivot UI </h1>
+                </div>
+                <div className="chat-version-list">
+                  <span>web v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                  <span>pi v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                </div>
+              </div>
+              <NoticeShelf notices={nonErrorNotices} align="right" />
+            </>
+          )}
         <div
           style={{
             padding: `0 ${CHAT_COLUMN_PADDING}px`,
@@ -698,9 +700,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           </div>
         </div>
         {chatInputElement}
+        </div>
       </div>
-      </>
-      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlu
 import type { SessionInfo } from "@/lib/types";
 import { formatRelativeTime, sessionTitle } from "@/lib/session-display";
 import { copyText } from "@/lib/clipboard";
+import { loadLastChat } from "@/lib/last-session";
 import { getWorkspaceActivity, type WorkspaceActivity } from "@/lib/workspace-activity";
 import { getWorkspaceDisplayGroups, getWorkspaceProjects } from "@/lib/workspace-order";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -22,9 +23,10 @@ interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onSessionRenamed?: (sessionId: string, name: string | undefined) => void;
-  onNewSession?: (sessionId: string, cwd: string) => void;
+  onNewSession?: (sessionId: string, cwd: string, projectRoot?: string) => void;
   initialSessionId?: string | null;
-  onInitialRestoreDone?: () => void;
+  initialNewSessionCwd?: string | null;
+  onInitialRestoreDone?: (missingSessionId?: string) => void;
   refreshKey?: number;
   /** Workspace roots with a just-accepted user message, newest first. */
   recentUserMessageWorkspaces?: readonly string[];
@@ -44,6 +46,18 @@ interface Props {
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pivot-ui:unread-session-ids";
+
+async function validateWorkspaceDirectory(cwd: string): Promise<string> {
+  const response = await fetch("/api/cwd/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd }),
+  });
+  const data = await response.json() as { cwd?: string; error?: string };
+  if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+  if (!data.cwd) throw new Error("Workspace validation did not return a path");
+  return data.cwd;
+}
 
 function loadUnreadSessionIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -454,7 +468,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -650,6 +664,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   }, []);
 
   const restoredRef = useRef(false);
+  const [restoringWorkspace, setRestoringWorkspace] = useState(false);
 
   /** Resolve the project root for a cwd from the loaded session data. */
   const projectRootFor = useCallback((cwd: string | null): string | null => {
@@ -678,13 +693,80 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     }
   }, [selectedCwdProp]);
 
-  // Auto-select cwd and restore session from URL on first load
+  const workspaceSelectionGeneration = useRef(0);
   useEffect(() => {
-    if (!workspacesReady || loading) return;
+    workspaceSelectionGeneration.current++;
+    return () => { workspaceSelectionGeneration.current++; };
+  }, [selectedCwd, selectedCwdProp]);
+
+  // Saved registry entries are metadata, not filesystem permission. Revalidate
+  // before selecting them so sessionless workspaces survive server restarts.
+  const handleProjectSelect = useCallback(async (project: string, onSettled?: () => void) => {
+    const generation = ++workspaceSelectionGeneration.current;
+    try {
+      let cwd = await validateWorkspaceDirectory(project);
+      const root = projectRootFor(cwd) ?? cwd;
+      // Homepage new-chat restoration is explicit and must not consult a
+      // workspace's older session record. Ordinary switches restore it.
+      const remembered = onSettled ? null : loadLastChat(root);
+      let target = remembered?.kind === "session"
+        ? allSessions.find((s) => s.id === remembered.sessionId && (s.projectRoot ?? s.cwd) === root)
+        : undefined;
+      if (target && target.cwd !== cwd) {
+        try {
+          cwd = await validateWorkspaceDirectory(target.cwd);
+        } catch {
+          target = undefined;
+        }
+      } else if (remembered?.kind === "new" && remembered.cwd !== cwd) {
+        try {
+          cwd = await validateWorkspaceDirectory(remembered.cwd);
+        } catch {
+          // A removed worktree falls back to the project's new-chat screen.
+        }
+      }
+      if (generation !== workspaceSelectionGeneration.current) return null;
+      setSelectedCwd(cwd);
+      if (!onSettled) {
+        if (target) onSelectSession(target);
+        else onNewSession?.("", cwd, root);
+      }
+      setWorkspaceMenu(null);
+      setMoreWorkspacesOpen(false);
+      setError(null);
+    } catch (error) {
+      if (generation === workspaceSelectionGeneration.current) setError(String(error));
+      return error instanceof Error ? error.message : String(error);
+    } finally {
+      onSettled?.();
+    }
+    return null;
+  }, [allSessions, projectRootFor, onSelectSession, onNewSession]);
+
+  // Auto-select cwd and restore the URL or remembered session on first load
+  useEffect(() => {
+    if (!workspacesReady || loading || restoringWorkspace) return;
 
     if (selectedCwd === null) {
+      if (initialNewSessionCwd && !restoredRef.current) {
+        restoredRef.current = true;
+        // Registry metadata does not grant filesystem access: validate even
+        // remembered, sessionless workspaces before opening the composer.
+        setRestoringWorkspace(true);
+        void handleProjectSelect(initialNewSessionCwd, () => {
+          setRestoringWorkspace(false);
+          onInitialRestoreDone?.();
+        });
+        return;
+      }
       // If restoring a session, set cwd to match that session
       if (initialSessionId && !restoredRef.current) {
+        // A failed list request cannot confirm that the session was deleted.
+        // Leave restoration pending so a later successful refresh can retry.
+        if (error) {
+          onInitialRestoreDone?.();
+          return;
+        }
         restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
@@ -693,36 +775,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
           return;
         }
         // Session not found — notify parent so it can show the placeholder
-        onInitialRestoreDone?.();
+        onInitialRestoreDone?.(initialSessionId);
       }
       const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
-      if (projects.length > 0) setSelectedCwd(projects[0]);
+      if (projects.length > 0) void handleProjectSelect(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspacesReady, loading]);
+  }, [allSessions, selectedCwd, initialSessionId, initialNewSessionCwd, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspacesReady, loading, restoringWorkspace, error, handleProjectSelect]);
 
   // An automatic `tag` is sent as `tagIfEmpty`, so a tag another client already
   // stored is never overwritten.
   const selectWorkspaceDirectory = useCallback(async (path: string, tag?: string): Promise<string | null> => {
     try {
-      const res = await fetch("/api/cwd/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
-      });
-      const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
-      if (!res.ok || data.error) {
-        return data.error ?? `HTTP ${res.status}`;
-      }
-      const cwd = data.cwd ?? path;
+      workspaceSelectionGeneration.current++;
+      const cwd = await validateWorkspaceDirectory(path);
       const project = projectRootFor(cwd) ?? cwd;
       await updateWorkspace({ path: project, removed: false, ...(tag ? { tag, tagIfEmpty: true } : {}) });
-      setSelectedCwd(cwd);
-      setWorkspaceMenu(null);
-      return null;
+      return await handleProjectSelect(cwd);
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
-  }, [projectRootFor, updateWorkspace]);
+  }, [projectRootFor, updateWorkspace, handleProjectSelect]);
 
   const handleDefaultCwd = useCallback(async (): Promise<string | null> => {
     try {
@@ -755,6 +827,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo) => {
+    workspaceSelectionGeneration.current++;
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s);
   }, [onSelectSession]);
@@ -766,14 +839,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     const tempId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, selectedCwd);
-  }, [selectedCwd, onNewSession]);
-
-  const handleProjectSelect = useCallback((project: string) => {
-    setSelectedCwd(project);
-    setWorkspaceMenu(null);
-    setMoreWorkspacesOpen(false);
-  }, []);
+    workspaceSelectionGeneration.current++;
+    onNewSession?.(tempId, selectedCwd, projectRootFor(selectedCwd) ?? selectedCwd);
+  }, [selectedCwd, onNewSession, projectRootFor]);
 
   const handleNewWorkspace = useCallback(() => {
     setMoreWorkspacesOpen(false);
@@ -797,9 +865,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   // Archiving on any device also moves this browser off the archived workspace.
   useEffect(() => {
     if (workspacesReady && selectedProject && hiddenWorkspaces.has(selectedProject)) {
-      setSelectedCwd(getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces)[0] ?? null);
+      const next = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces)[0];
+      if (next) void handleProjectSelect(next);
+      else setSelectedCwd(null);
     }
-  }, [workspacesReady, selectedProject, hiddenWorkspaces, allSessions, customWorkspaces, recentUserMessageWorkspaces]);
+  }, [workspacesReady, selectedProject, hiddenWorkspaces, allSessions, customWorkspaces, recentUserMessageWorkspaces, handleProjectSelect]);
 
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [

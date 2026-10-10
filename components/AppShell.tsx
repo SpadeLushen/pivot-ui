@@ -22,6 +22,7 @@ import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import { copyText } from "@/lib/clipboard";
 import { nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
 import { replaceSessionUrl } from "@/lib/session-url";
+import { loadLastChat, saveLastChat, forgetLastSessionId } from "@/lib/last-session";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
@@ -362,11 +363,35 @@ export function AppShell() {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
   }, []);
 
-  const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const [urlSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const [initialSessionId, setInitialSessionId] = useState<string | null>(urlSessionId);
+  const [initialNewSessionCwd, setInitialNewSessionCwd] = useState<string | null>(null);
+  const [sessionRestoreReady, setSessionRestoreReady] = useState(false);
+
+  // Read browser storage after hydration, before the sidebar auto-selects a cwd.
+  useEffect(() => {
+    const chat = urlSessionId !== null ? { kind: "session" as const, sessionId: urlSessionId } : loadLastChat();
+    setInitialSessionId(chat?.kind === "session" ? chat.sessionId : null);
+    setInitialNewSessionCwd(chat?.kind === "new" ? chat.cwd : null);
+    setInitialSessionRestored(!chat);
+    setSessionRestoreReady(true);
+  }, [urlSessionId]);
+
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const [activeProjectRoot, setActiveProjectRoot] = useState<string | null>(null);
-  // True once the initial ?session= URL param has been resolved (or confirmed absent)
-  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
+  // True once the initial URL or remembered session has been resolved.
+  const [initialSessionRestored, setInitialSessionRestored] = useState(false);
+
+  useEffect(() => {
+    if (!sessionRestoreReady || !initialSessionRestored) return;
+    if (selectedSession) saveLastChat(
+      { kind: "session", sessionId: selectedSession.id }, selectedSession.projectRoot ?? selectedSession.cwd,
+    );
+    else {
+      const cwd = newSessionCwd ?? activeCwd;
+      if (cwd) saveLastChat({ kind: "new", cwd }, activeProjectRoot ?? cwd);
+    }
+  }, [sessionRestoreReady, initialSessionRestored, selectedSession, newSessionCwd, activeCwd, activeProjectRoot]);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
   const rightPanelCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
@@ -382,7 +407,9 @@ export function AppShell() {
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     setActiveCwd(cwd);
-    setActiveProjectRoot(cwd ? projectRoot ?? cwd : null);
+    setActiveProjectRoot((current) => cwd
+      ? (selectedSession === null && newSessionCwd === cwd ? current ?? projectRoot ?? cwd : projectRoot ?? cwd)
+      : null);
     // Skip if cwd is null (initial mount) or during the initial URL restore.
     if (!cwd) return;
     // A worktree selection has already started a new chat for this cwd. The
@@ -437,6 +464,7 @@ export function AppShell() {
   }, []);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+    setActiveCwd(session.cwd);
     setNewSessionCwd(null);
     setSelectedSession(session);
     setActiveProjectRoot(session.projectRoot ?? session.cwd);
@@ -453,17 +481,17 @@ export function AppShell() {
       // onCwdChange effect firing after setSelectedCwd in the sidebar
       suppressCwdBumpRef.current = true;
     }
-    // Restoring from URL needs no history update; native history avoids
-    // a Next.js navigation that would reset the session's document title.
-    if (!isRestore) {
-      replaceSessionUrl(session.id);
-    }
+    // Also update the URL when restoring a remembered session from the homepage.
+    // Native history avoids resetting the session's document title.
+    replaceSessionUrl(session.id);
   }, [isMobile]);
 
-  const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
+  const handleNewSession = useCallback((_sessionId: string, cwd: string, projectRoot?: string) => {
+    setActiveCwd(cwd);
     setSelectedSession(null);
     setNewSessionCwd(cwd);
-    setActiveProjectRoot(cwd);
+    setActiveProjectRoot(projectRoot ?? cwd);
+    setInitialSessionRestored(true);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
@@ -535,11 +563,13 @@ export function AppShell() {
     replaceSessionUrl(newSessionId);
   }, [hydrateSelectedSession]);
 
-  const handleInitialRestoreDone = useCallback(() => {
+  const handleInitialRestoreDone = useCallback((missingSessionId?: string) => {
+    if (missingSessionId) forgetLastSessionId(missingSessionId);
     setInitialSessionRestored(true);
   }, []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
+    forgetLastSessionId(sessionId);
     setRefreshKey((k) => k + 1);
     if (selectedSession?.id === sessionId) {
       const cwd = selectedSession.cwd;
@@ -599,12 +629,13 @@ export function AppShell() {
 
   const sidebarContent = (
     <>
-      <SessionSidebar
+      {sessionRestoreReady && <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onSessionRenamed={handleSessionNameChange}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
+        initialNewSessionCwd={initialNewSessionCwd}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         recentUserMessageWorkspaces={recentUserMessageWorkspaces}
@@ -633,7 +664,7 @@ export function AppShell() {
           if (isMobile) setSidebarOpen(false);
         }}
         onClose={() => setSidebarOpen(false)}
-      />
+      />}
     </>
   );
 

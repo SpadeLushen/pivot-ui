@@ -84,6 +84,7 @@ export interface ChatInputHandle {
 }
 
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
+const DRAFT_SAVE_DEBOUNCE_MS = 500;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compareModelOptions(a: ModelOption, b: ModelOption): number {
@@ -503,10 +504,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
-    setDraft(draftKey, {
-      value,
-      attachments: attachments.map(attachmentToDraft),
-    });
+    const timer = window.setTimeout(() => {
+      if (draftKeyRef.current !== draftKey) return;
+      // Read current refs so accepting a send cannot resurrect its old text,
+      // even before React has cleaned up this pending timer.
+      setDraft(draftKey, {
+        value: valueRef.current,
+        attachments: attachmentsRef.current.map(attachmentToDraft),
+      });
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
   }, [attachments, draftKey, value]);
 
   useEffect(() => {
@@ -555,7 +562,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   useEffect(() => {
+    const flushDraft = () => {
+      const key = draftKeyRef.current;
+      if (key) setDraft(key, {
+        value: valueRef.current,
+        attachments: attachmentsRef.current.map(attachmentToDraft),
+      });
+    };
+    window.addEventListener("pagehide", flushDraft);
     return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      flushDraft();
       attachmentsRef.current.forEach(revokeAttachmentPreview);
     };
   }, []);
