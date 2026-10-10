@@ -28,6 +28,7 @@ import { buildAtMentionText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { preferredContextUsage } from "@/lib/context-usage";
 
 // Probe whether a chat-linked path is a directory so the right panel can
 // decide between opening a file tab and revealing a folder in the file tree.
@@ -314,6 +315,8 @@ export function AppShell() {
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
   }, []);
+
+  const displayedContextUsage = preferredContextUsage(contextUsage, sessionStats?.contextUsage);
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "extensions" | null>(null);
@@ -955,12 +958,12 @@ export function AppShell() {
 
             let ctxColor = "var(--text-muted)";
             let ctxStr: string | null = null;
-            if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
+            if (displayedContextUsage?.contextWindow) {
+              const pct = displayedContextUsage.percent;
               if (pct !== null && pct > 90) ctxColor = "#ef4444";
               else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.95)";
               const pctStr = pct !== null ? `${pct.toFixed(0)}%` : "?";
-              ctxStr = isMobile ? pctStr : `${pctStr} / ${fmt(contextUsage.contextWindow)}`;
+              ctxStr = isMobile ? pctStr : `${pctStr} / ${fmt(displayedContextUsage.contextWindow)}`;
             }
 
             const tooltipParts: string[] = [];
@@ -972,9 +975,9 @@ export function AppShell() {
               tooltipParts.push(`cache hit: ${cacheHitRateLabel}`);
               if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
             }
-            if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+            if (displayedContextUsage?.contextWindow) {
+              const pct = displayedContextUsage.percent;
+              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${displayedContextUsage.contextWindow.toLocaleString()} tokens`);
             }
             const tooltip = tooltipParts.join("  |  ");
 
@@ -1164,7 +1167,7 @@ export function AppShell() {
                         : "--"],
                       [t("session.total"), totals.tokens.total.toLocaleString()],
                     ];
-                    const ctx = sessionStats.contextUsage ?? contextUsage;
+                    const ctx = displayedContextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
                       [t("session.recordedCost"), coverage?.costRecords ? `$${totals.cost.toFixed(4)}` : t("session.unrecorded")],
