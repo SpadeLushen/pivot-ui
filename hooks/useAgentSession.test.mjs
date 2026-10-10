@@ -15,7 +15,7 @@ test("settled owns final cleanup and aborted runs cannot trigger completion audi
   assert.ok(end.length > 0 && settled.length > 0);
   assert.doesNotMatch(end, /\.finish\(|setAgentRunning\(false\)|onAgentEnd/);
   assert.match(end, /event\.willRetry !== true/);
-  assert.match(settled, /if \(!agentRunRef\.current\.finish\(\)\) break/);
+  assert.match(settled, /if \(!agentRunRef\.current\.finish\(settledRunId\)\) break/);
   assert.match(settled, /setAgentRunning\(false\)/);
   assert.match(settled, /if \(event\.aborted !== true\) onAgentEnd\?\.\(\)/);
 });

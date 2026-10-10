@@ -115,8 +115,9 @@ test("uses a pack checkbox dropdown in both new and existing chats", async () =>
   assert.match(selector, /type="checkbox" checked=\{selected\.includes\(pack\.id\)\}/);
   assert.match(selector, /<span>\{applied\.length\}<\/span>/);
   assert.match(selector, /title=\{t\("packs\.workspaceSwitches"\)\}/);
-  assert.match(selector, /applied\.length \? <Package size=\{11\}/);
-  assert.match(selector, /background: applied\.length \? "color-mix\(in srgb, var\(--accent\) 12%, transparent\)"/);
+  assert.match(selector, /const hasEnabledPacks = trust\.trusted === true && applied\.length > 0/);
+  assert.match(selector, /hasEnabledPacks \? <Package size=\{11\}/);
+  assert.match(selector, /background: hasEnabledPacks \? "color-mix\(in srgb, var\(--accent\) 12%, transparent\)"/);
   assert.match(selector, /onChange=\{\(e\) => void toggle\(pack\.id, e\.target\.checked\)\}/);
   assert.match(selector, /fetch\("\/api\/workspace-skill-packs\/apply"/);
   assert.doesNotMatch(selector, /runPreview|general\.preview|packs\.add"/);
@@ -208,11 +209,12 @@ test("clears the transient draft after a successful new-session send", async () 
   // A successful send creates the session before onSend resolves. The
   // composer then clears the original transient draft key, while clicking
   // New Session itself does not own draft cleanup.
-  assert.match(hook, /promoteNewSession\(1, message\)/);
+  assert.match(hook, /promoteNewSession\(receipt\?\.disposition === "started" \? 1 : 0/);
   assert.match(hook, /clearDraft\(`new:\$\{newSessionCwd\}`\)/);
-  assert.match(hook, /opts\.chatInputRef\?\.current\?\.clearInput\(\)/);
+  assert.match(hook, /opts\.chatInputRef\?\.current\?\.promoteDraft\?\.\(sid\)/);
   assert.match(handleSend, /const ok = await onSend\(msg, attachments\.length \? attachments : undefined\)/);
-  assert.match(handleSend, /if \(ok !== false\) clearInput\(\)/);
+  assert.match(handleSend, /if \(ok !== false\) clearAcceptedInput\(\)/);
+  assert.match(handleSend, /draftKeyRef\.current === submittedDraftKey && valueRef\.current === submittedValue\s+&& attachmentsRef\.current === submittedAttachments\) clearInput\(\)/);
   assert.match(clearInput, /valueRef\.current = ""/);
   assert.match(clearInput, /if \(draftKey\) clearDraft\(draftKey\)/);
   assert.match(chatInput, /clearInput\(\) \{\s+clearInputRef\.current\?\.\(\);/);

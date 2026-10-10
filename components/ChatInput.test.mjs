@@ -110,7 +110,7 @@ test("images stay base64, other files upload as-is via multipart", async () => {
 
   // Send is disabled until every attachment is ready; errors can retry.
   assert.match(chatInput, /attachmentsReady = attachments\.length === 0 \|\| attachments\.every/);
-  assert.match(chatInput, /disabled=\{\(!value\.trim\(\) && !attachments\.length\) \|\| !attachmentsReady\}/);
+  assert.match(chatInput, /disabled=\{isInputSending \|\| \(!value\.trim\(\) && !attachments\.length\) \|\| !attachmentsReady\}/);
   assert.match(chatInput, /retryAttachment/);
   assert.match(chatInput, /t\("chat\.attachRetry"\)/);
   assert.match(chatInput, /t\("chat\.attachUploading"\)/);
@@ -121,7 +121,7 @@ test("send handler sends images as content blocks and files as path refs", async
 
   // Images become pi image content blocks again.
   assert.match(hook, /piImages\.push\(\{ type: "image", data: att\.data, mimeType: att\.mimeType \}\)/);
-  assert.match(hook, /source: \{ type: "base64" as const, media_type: img\.mimeType, data: img\.data \}/);
+  assert.doesNotMatch(hook, /source: \{ type: "base64" as const/); // No optimistic user image/message: SDK delivery owns the transcript.
   assert.match(hook, /images: piImages/);
 
   // Uploaded files are referenced by their absolute saved path only.
