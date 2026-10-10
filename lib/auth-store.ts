@@ -1,8 +1,11 @@
-import { mkdirSync, readFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import lockfile from "proper-lockfile";
+import { setTimeout as sleep } from "node:timers/promises";
 import { rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
+  AuthOperationOptions,
   Credential,
   CredentialInfo,
   CredentialStore,
@@ -16,7 +19,7 @@ import type {
 // plus `ModelRuntime`. This store writes `~/.pi/agent/auth.json` in the exact
 // shape pi uses (`{ providerId: Credential }`, JSON.stringify(…, null, 2)), so
 // pi's own runtime (ModelRuntime / AuthStorage) reads credentials written here
-// and vice versa. Writes are serialized through an in-process promise chain.
+// and vice versa. Writes share the SDK's auth.json.lock across runtimes/processes.
 // ============================================================================
 
 function authPath(): string {
@@ -25,9 +28,13 @@ function authPath(): string {
 
 async function readAuthData(): Promise<Record<string, Credential>> {
   try {
-    return JSON.parse(readFileSync(authPath(), "utf8")) as Record<string, Credential>;
-  } catch {
-    return {};
+    const data: unknown = JSON.parse(readFileSync(authPath(), "utf8"));
+    if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("Invalid credential data");
+    return data as Record<string, Credential>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    // Do not expose parser snippets containing secrets or overwrite malformed data.
+    throw new Error("Cannot read auth.json; credentials left unchanged.");
   }
 }
 
@@ -44,8 +51,43 @@ async function writeAuthData(data: Record<string, Credential>): Promise<void> {
 class FileCredentialStore implements CredentialStore {
   private chain: Promise<unknown> = Promise.resolve();
 
-  private withLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(fn);
+  private withLock<T>(fn: (beforeWrite: () => void) => Promise<T>, options?: AuthOperationOptions): Promise<T> {
+    const run = this.chain.then(async () => {
+      const file = authPath();
+      options?.signal?.throwIfAborted();
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+      try { writeFileSync(file, "{}", { mode: 0o600, flag: "wx" }); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      const deadline = Date.now() + 30_000;
+      let compromised: Error | undefined;
+      let release: (() => Promise<void>) | undefined;
+      let windowsLockRetries = 0;
+      while (!release) {
+        options?.signal?.throwIfAborted();
+        try {
+          release = await lockfile.lock(file, {
+            realpath: false, stale: 30_000, retries: 0,
+            onCompromised: (error) => { compromised = error; },
+          });
+        } catch (error) {
+          const failure = error as NodeJS.ErrnoException;
+          // Windows can briefly deny mkdir while another process removes the
+          // lock directory. Retry only this acquisition race, never file access
+          // failures, and surface persistent permission errors after five retries.
+          const transientWindowsLock = process.platform === "win32" && failure.code === "EPERM"
+            && failure.syscall === "mkdir" && failure.path === `${file}.lock` && windowsLockRetries++ < 5;
+          if ((failure.code !== "ELOCKED" && !transientWindowsLock) || Date.now() >= deadline) throw error;
+          await sleep(20, undefined, { signal: options?.signal });
+        }
+      }
+      try {
+        options?.signal?.throwIfAborted();
+        if (compromised) throw compromised;
+        const result = await fn(() => { if (compromised) throw compromised; });
+        if (compromised) throw compromised;
+        return result;
+      } finally { await release(); }
+    });
     this.chain = run.catch(() => undefined);
     return run;
   }
@@ -65,24 +107,27 @@ class FileCredentialStore implements CredentialStore {
 
   modify(
     providerId: string,
-    fn: (current: Credential | undefined) => Promise<Credential | undefined>
+    fn: (current: Credential | undefined) => Promise<Credential | undefined>,
+    options?: AuthOperationOptions,
   ): Promise<Credential | undefined> {
-    return this.withLock(async () => {
+    return this.withLock(async (beforeWrite) => {
       const data = await readAuthData();
       const next = await fn(data[providerId]);
       if (next === undefined) return data[providerId];
       const merged: Record<string, Credential> = { ...data, [providerId]: next };
+      beforeWrite();
       await writeAuthData(merged);
       return next;
-    });
+    }, options);
   }
 
-  delete(providerId: string): Promise<void> {
-    return this.withLock(async () => {
+  delete(providerId: string, options?: AuthOperationOptions): Promise<void> {
+    return this.withLock(async (beforeWrite) => {
       const data = await readAuthData();
       delete data[providerId];
+      beforeWrite();
       await writeAuthData(data);
-    });
+    }, options);
   }
 }
 

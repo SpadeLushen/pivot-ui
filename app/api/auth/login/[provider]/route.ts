@@ -1,12 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
 
-// In-memory registry: loginToken -> resolve/reject for the manualCodeInput promise
+// Ephemeral registry: each provider-bound prompt owns a one-use token.
 declare global {
-  var __piLoginCallbacks: Map<string, { resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
+  var __piLoginCallbacks: Map<string, { provider: string; allowedValues?: ReadonlySet<string>; resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
 }
 
 function getCallbackRegistry() {
@@ -22,7 +23,7 @@ export async function POST(
   const { provider } = await params;
   const { token, code } = (await req.json()) as { token?: string; code?: string };
 
-  if (!token || !code) {
+  if (typeof token !== "string" || typeof code !== "string" || !token || !code) {
     return Response.json({ error: "token and code required" }, { status: 400 });
   }
 
@@ -31,9 +32,12 @@ export async function POST(
   if (!callbacks) {
     return Response.json({ error: "No pending login for token" }, { status: 404 });
   }
-  // Verify token belongs to this provider (token format: "<provider>-<ts>-<random>")
-  if (!token.startsWith(`${provider}-`)) {
+  if (callbacks.provider !== provider) {
     return Response.json({ error: "Token does not match provider" }, { status: 400 });
+  }
+
+  if (callbacks.allowedValues && !callbacks.allowedValues.has(code)) {
+    return Response.json({ error: "Invalid login selection" }, { status: 400 });
   }
 
   callbacks.resolve(code);
@@ -49,22 +53,33 @@ export async function GET(
   const { provider } = await params;
 
   const encoder = new TextEncoder();
+  let cancelled = false;
   const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    if (!cancelled && !abort.signal.aborted) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    }
+  };
+  const close = (controller: ReadableStreamDefaultController) => {
+    if (!cancelled) controller.close();
   };
 
   // AbortController propagates client disconnect into ModelRuntime.login()
   const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
+  if (req.signal.aborted) abort.abort();
+  else req.signal.addEventListener("abort", () => abort.abort(), { once: true });
 
   const stream = new ReadableStream({
     async start(controller) {
       const runtime = await ModelRuntime.create();
+      if (abort.signal.aborted) {
+        close(controller);
+        return;
+      }
       const providers = getOAuthProviders(runtime);
       const providerInfo = providers.find((p) => p.id === provider);
       if (!providerInfo) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        controller.close();
+        close(controller);
         return;
       }
 
@@ -72,12 +87,15 @@ export async function GET(
       const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
 
-      const createClientInputRequest = () => {
-        const token = `${provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const createClientInputRequest = (allowedValues?: ReadonlySet<string>) => {
+        abort.signal.throwIfAborted();
+        const token = `${provider}-${randomUUID()}`;
         activeTokens.add(token);
 
         const promise = new Promise<string>((resolve, reject) => {
           registry.set(token, {
+            provider,
+            allowedValues,
             resolve: (value) => {
               activeTokens.delete(token);
               registry.delete(token);
@@ -154,7 +172,7 @@ export async function GET(
             if (prompt.type === "select") {
               // Fresh token per select: a flow may emit auth_url then a select
               // prompt, and each prompt must resolve its own submission.
-              const request = createClientInputRequest();
+              const request = createClientInputRequest(new Set(prompt.options.map((option) => option.id)));
               send(controller, {
                 type: "select_request",
                 message: prompt.message,
@@ -185,10 +203,11 @@ export async function GET(
         }
       } finally {
         cleanup();
-        controller.close();
+        close(controller);
       }
     },
     cancel() {
+      cancelled = true;
       abort.abort();
     },
   });
