@@ -11,6 +11,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, formatBytes, type ChatAttachment } from "@/lib/types";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session-models";
 import { useI18n } from "@/lib/i18n";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 import { ChatPackSelector } from "./ChatPackSelector";
@@ -19,14 +20,17 @@ import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File 
 export interface Props {
   onSend: (message: string, attachments?: ChatAttachment[]) => Promise<boolean> | boolean | void;
   onAbort: () => void;
-  onSteer?: (message: string, attachments?: ChatAttachment[]) => void;
-  onFollowUp?: (message: string, attachments?: ChatAttachment[]) => void;
-  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => void;
+  onSteer?: (message: string, attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
+  onFollowUp?: (message: string, attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
+  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   isStreaming: boolean;
-  model?: { provider: string; modelId: string } | null;
+  isInputSending?: boolean;
+  model?: SelectedModel | null;
+  routedModel?: RoutedModel | null;
+  selectionNotice?: "unknown" | "missing" | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
-  modelList?: { id: string; name: string; provider: string }[];
+  modelList?: ModelPickerEntry[];
   onModelChange?: (provider: string, modelId: string) => void;
   isCompacting?: boolean;
   compactResult?: CompactResultInfo | null;
@@ -63,6 +67,7 @@ interface ModelOption {
   provider: string;
   modelId: string;
   name: string;
+  virtual?: boolean;
 }
 
 export interface ChatInputHandle {
@@ -72,6 +77,8 @@ export interface ChatInputHandle {
   addFiles: (files: File[]) => void;
   /** Clears the composer and its current draft. */
   clearInput: () => void;
+  /** Preserve edits while a new chat acquires its real session id. */
+  promoteDraft?: (draftKey: string) => void;
   /** @deprecated use addFiles — accepts any file, not just images */
   addImages: (files: File[]) => void;
 }
@@ -218,8 +225,8 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
-  isCompacting, compactResult,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  isCompacting, compactResult, routedModel, selectionNotice,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -268,6 +275,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
+  const composerSendRef = useRef(false);
+  const submittedInputRef = useRef<{ value: string; attachments: ChatAttachment[]; draftKey?: string } | null>(null);
   const attachmentsRef = useRef(attachments);
   const clearInputRef = useRef<(() => void) | null>(null);
   valueRef.current = value;
@@ -332,6 +341,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     clearInput() {
       clearInputRef.current?.();
+    },
+    promoteDraft(nextKey: string) {
+      const submitted = submittedInputRef.current;
+      if (submitted && submitted.draftKey === draftKeyRef.current
+        && submitted.value === valueRef.current && submitted.attachments === attachmentsRef.current) {
+        clearInputRef.current?.();
+      }
+      setDraft(nextKey, {
+        value: valueRef.current,
+        attachments: attachmentsRef.current.map(attachmentToDraft),
+      });
+      // Avoid the prop-transition effect saving the accepted old submission
+      // back to new:<cwd> or loading over newly edited text.
+      draftKeyRef.current = nextKey;
     },
     addImages(files: File[]) {
       void addFiles(files);
@@ -543,24 +566,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachments.length) return;
-    if (isStreaming) return;
-    if (!attachmentsReady) return;
-    onAudioUnlock?.();
-    if (!attachments.length && msg.startsWith("/") && onBuiltinCommand) {
-      const result = await onBuiltinCommand(msg);
-      if (result.handled) {
-        if (!result.error) clearInput();
-        return;
+    if (isStreaming || isInputSending || composerSendRef.current || !attachmentsReady) return;
+    composerSendRef.current = true;
+    const submittedValue = valueRef.current;
+    const submittedAttachments = attachmentsRef.current;
+    const submittedDraftKey = draftKeyRef.current;
+    submittedInputRef.current = { value: submittedValue, attachments: submittedAttachments, draftKey: submittedDraftKey };
+    const clearAcceptedInput = () => {
+      if (draftKeyRef.current === submittedDraftKey && valueRef.current === submittedValue
+        && attachmentsRef.current === submittedAttachments) clearInput();
+    };
+    try {
+      onAudioUnlock?.();
+      if (!attachments.length && msg.startsWith("/") && onBuiltinCommand) {
+        const result = await onBuiltinCommand(msg);
+        if (result.handled) {
+          if (!result.error) clearAcceptedInput();
+          return;
+        }
       }
+      const ok = await onSend(msg, attachments.length ? attachments : undefined);
+      if (ok !== false) clearAcceptedInput();
+    } finally {
+      submittedInputRef.current = null;
+      composerSendRef.current = false;
     }
-    const ok = await onSend(msg, attachments.length ? attachments : undefined);
-    // New-session promotion happens during onSend. Clear only after the
-    // successful result so the transient draft is not restored on workspace
-    // switches, while failed sends keep the input available for retry.
-    // onSend returns false when the message could not be dispatched (e.g. an
-    // attachment is missing) — keep the input so the user can retry.
-    if (ok !== false) clearInput();
-  }, [value, attachments, attachmentsReady, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachments, attachmentsReady, isStreaming, isInputSending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -600,7 +631,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (slashQuery ? "1 match" : "1 command")
     : `${filteredSlashCommands.length} ${slashQuery ? "matches" : "commands"}`;
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText && attachments.length === 0;
+  const canQueueStreamingMessage = hasInputText && attachments.length === 0 && !isInputSending;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -754,24 +785,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  const sendQueued = useCallback(async (mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg && !attachments.length) return;
-    if (attachments.length) return;
-    onAudioUnlock?.();
-    const streamingBehavior = mode === "steer" ? "steer" : "followUp";
-    if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
-      onPromptWithStreamingBehavior(msg, streamingBehavior, attachments.length ? attachments : undefined);
-      clearInput();
-      return;
+    if (!msg || attachments.length || isInputSending || composerSendRef.current) return;
+    const handler = msg.startsWith("/") && onPromptWithStreamingBehavior
+      ? () => onPromptWithStreamingBehavior(msg, mode === "steer" ? "steer" : "followUp")
+      : mode === "steer" && onSteer ? () => onSteer(msg)
+        : onFollowUp ? () => onFollowUp(msg) : null;
+    if (!handler) return;
+    composerSendRef.current = true;
+    const submittedValue = valueRef.current;
+    const submittedDraftKey = draftKeyRef.current;
+    try {
+      onAudioUnlock?.();
+      const ok = await handler();
+      if (ok !== false && valueRef.current === submittedValue && draftKeyRef.current === submittedDraftKey
+        && attachmentsRef.current.length === 0) clearInput();
+    } finally {
+      composerSendRef.current = false;
     }
-    if (mode === "steer" && onSteer) {
-      onSteer(msg, attachments.length ? attachments : undefined);
-    } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachments.length ? attachments : undefined);
-    }
-    clearInput();
-  }, [value, attachments, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachments, isInputSending, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = filteredSlashCommands.length - 1;
@@ -964,7 +997,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
     if (modelList && modelList.length > 0) {
-      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name })).sort(compareModelOptions);
+      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name, virtual: m.virtual })).sort(compareModelOptions);
     }
     return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
       provider: model?.provider ?? "unknown",
@@ -1057,6 +1090,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }}
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        {(model?.virtual || selectionNotice || (routedModel && model &&
+          (routedModel.provider !== model.provider || routedModel.modelId !== model.modelId))) && (
+          <div style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 5, overflowWrap: "anywhere" }}>
+            <div>{t("chat.selectedModel")}: {model ? `${model.provider}/${model.modelId}` : t("chat.modelUnknown")}
+              {model?.virtual && ` · ${t("chat.virtualModel")}`}
+            </div>
+            <div>{t("chat.routedModel")}: {routedModel ? `${routedModel.provider}/${routedModel.modelId}` : t("chat.noRoutedModel")}
+              {routedModel && ` · thinking: ${routedModel.thinkingLevel ?? t("chat.modelUnknown")}`}
+            </div>
+            {model?.virtual && <div>
+              {t("chat.modelContext")}: {(routedModel ?? model).contextWindow?.toLocaleString() ?? t("chat.modelUnknown")}
+              {" · "}{t("chat.modelMaxTokens")}: {(routedModel ?? model).maxTokens?.toLocaleString() ?? t("chat.modelUnknown")}
+            </div>}
+            {selectionNotice && <div role="status">{t(selectionNotice === "missing" ? "chat.selectedModelMissing" : "chat.selectedModelUnknown")}</div>}
+          </div>
+        )}
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
@@ -1545,6 +1594,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             ref={textareaRef}
             value={value}
             onChange={(e) => {
+              valueRef.current = e.target.value;
               setValue(e.target.value);
               updateAtQuery(e.target.value, e.target.selectionStart);
             }}
@@ -1644,7 +1694,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               className="chat-send-button"
               onClick={handleSend}
-              disabled={(!value.trim() && !attachments.length) || !attachmentsReady}
+              disabled={isInputSending || (!value.trim() && !attachments.length) || !attachmentsReady}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
@@ -1662,8 +1712,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
-              <SendHorizontal size={15} strokeWidth={2} aria-hidden="true" />
-              {t("chat.send")}
+              {isInputSending ? <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+                : <SendHorizontal size={15} strokeWidth={2} aria-hidden="true" />}
+              {t(isInputSending ? "chat.sending" : "chat.send")}
             </button>
           )}
           </div>
@@ -1747,7 +1798,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     }}
                   >
                     <Cpu size={11} strokeWidth={2} aria-hidden="true" />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}{model?.virtual ? ` · ${t("chat.virtualModel")}` : ""}</span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -1802,6 +1853,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                   ? <Check size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0 }} />
                                   : <span style={{ width: 10, flexShrink: 0 }} />}
                                 {opt.name}
+                                {opt.virtual && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{t("chat.virtualModel")}</span>}
                               </button>
                             );
                           })}

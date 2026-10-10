@@ -196,9 +196,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
+    agentRunning, inputSending, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
-    isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
+    isCompacting, compactError, compactResult, displayModel: displayModelValue, selectedModelInfo, routedModel, selectionNotice, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
@@ -328,7 +328,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       enterBehavior={enterBehavior}
       isStreaming={agentRunning}
-      model={displayModelValue}
+      isInputSending={inputSending}
+      model={selectedModelInfo}
+      routedModel={routedModel}
+      selectionNotice={selectionNotice}
       isAutoModelSelection={isAutoModelSelection}
       modelNames={modelNames}
       modelList={modelList}

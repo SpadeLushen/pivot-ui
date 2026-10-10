@@ -8,6 +8,7 @@ export type AgentRunReconciliation = "ignore" | "busy" | "finish";
 export class AgentRunState {
   #runId = 0;
   #running = false;
+  #started = false;
   #packReloadPending = false;
   #packReloadPromise: Promise<void> | null = null;
 
@@ -19,6 +20,17 @@ export class AgentRunState {
     return this.#running;
   }
 
+  /** A pending dispatch reserves the run but is not model execution. */
+  get started(): boolean {
+    return this.#started;
+  }
+
+  markStarted(runId: number): boolean {
+    if (!this.#running || !this.isCurrent(runId)) return false;
+    this.#started = true;
+    return true;
+  }
+
   get hasPendingPackReload(): boolean {
     return this.#packReloadPending;
   }
@@ -26,6 +38,7 @@ export class AgentRunState {
   start(): number {
     this.#runId += 1;
     this.#running = true;
+    this.#started = false;
     return this.#runId;
   }
 

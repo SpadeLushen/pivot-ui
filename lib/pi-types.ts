@@ -8,6 +8,12 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 
+/** Accepted input, not a run-completion acknowledgement. */
+export type InputDisposition = "started" | "queued" | "handled";
+export interface InputReceipt {
+  disposition: InputDisposition;
+}
+
 export interface ContextUsage {
   percent: number | null;
   contextWindow: number;
@@ -156,7 +162,8 @@ export interface AgentSessionLike {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";
-  }): Promise<"handled" | "queued" | "started" | void>;
+    preflightResult?: (disposition: InputDisposition) => void;
+  }): Promise<void>;
   abort(): Promise<void>;
   setModel(model: ModelLike, options?: { persist?: boolean }): Promise<void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
@@ -167,8 +174,8 @@ export interface AgentSessionLike {
   getLastAssistantText(): string | undefined;
   setAutoCompactionEnabled(enabled: boolean): void;
   setAutoRetryEnabled(enabled: boolean): void;
-  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<"handled" | "queued" | void>;
-  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<"handled" | "queued" | void>;
+  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>, options?: { source?: "interactive" | "rpc" }): Promise<"handled" | "queued">;
+  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>, options?: { source?: "interactive" | "rpc" }): Promise<"handled" | "queued">;
   readonly pendingMessageCount: number;
   getSteeringMessages(): readonly string[];
   getFollowUpMessages(): readonly string[];

@@ -1,3 +1,15 @@
+import type { InputReceipt } from "./pi-types";
+
+/** Old servers returned null: unknown is not the same as handled. */
+export function readInputReceipt(value: unknown): InputReceipt | null {
+  if (value == null) return null;
+  if (typeof value === "object" && "disposition" in value
+    && (value.disposition === "started" || value.disposition === "queued" || value.disposition === "handled")) {
+    return { disposition: value.disposition };
+  }
+  throw new Error("Invalid input receipt");
+}
+
 // Client-side helper for POST /api/agent/[id].
 //
 // Every /api/agent/[id] route returns one of:

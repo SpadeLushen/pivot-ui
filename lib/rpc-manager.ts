@@ -45,6 +45,7 @@ export class AgentBusyError extends Error {
 }
 
 type EventListener = (event: AgentEvent) => void;
+type InputReceipt = import("./pi-types").InputReceipt;
 
 type PendingUiResponse = {
   resolve: (response: ExtensionUiResponse) => void;
@@ -173,6 +174,8 @@ export class AgentSessionWrapper {
   private hasExtensionTitle = false;
   private extensionTitle = "";
   private promptRunning = false;
+  private pendingInputRejections = new Set<(error: Error) => void>();
+  private settledInputCompletions = new Set<() => void>();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
@@ -334,6 +337,7 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       this.emit(event);
+      if (event.type === "agent_settled") for (const complete of this.settledInputCompletions) complete();
       // Streaming / compaction / tool events flow through here; re-broadcast
       // the running-status snapshot so the sidebar can update live.
       notifyRunningChange();
@@ -571,40 +575,90 @@ export class AgentSessionWrapper {
 
     switch (type) {
       case "prompt": {
-        // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
-        if (this.isRunning()) throw new AgentBusyError();
-        // Empty-session metadata changes are deferred by pi; retain them before
-        // its first user-message append. Never rewrite an active conversation.
-        if (this.inner.sessionManager) persistEmptySession(this.inner.sessionManager);
-        this.promptRunning = true;
-        clearRpcSessionError(this.sessionId);
-        this.startModelStartTimer();
-        notifyRunningChange();
-        this.inner.prompt(command.message as string, {
-          ...(promptImages?.length ? { images: promptImages } : {}),
-          ...(streamingBehavior ? { streamingBehavior } : {}),
-          source: "rpc",
-        }).then(() => {
-          this.promptRunning = false;
-          this.clearModelStartTimer();
-          this.refreshWorkspacePacksInBackground();
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
+        const streamingBehavior = command.streamingBehavior === "steer" || command.streamingBehavior === "followUp"
+          ? command.streamingBehavior : undefined;
+        if (command.streamingBehavior != null && !streamingBehavior) throw new Error("Invalid streaming behavior");
+        const ownsPrompt = !this.isRunning();
+        // Allow explicit streaming dispatch, not arbitrary concurrent prompts
+        // or a second prompt while the first is still in its input hooks.
+        if (!ownsPrompt && (!streamingBehavior || !this.inner.isStreaming)) throw new AgentBusyError();
+        if (ownsPrompt && this.inner.sessionManager) persistEmptySession(this.inner.sessionManager);
+        const requestId = typeof command.requestId === "string" ? command.requestId : undefined;
+        if (ownsPrompt) {
+          this.promptRunning = true;
+          clearRpcSessionError(this.sessionId);
           notifyRunningChange();
-        }).catch((error) => {
-          this.promptRunning = false;
-          this.clearModelStartTimer();
-          this.refreshWorkspacePacksInBackground();
-          invalidateSessionListCache();
-          this.emit({
-            type: "prompt_error",
-            errorMessage: error instanceof Error ? error.message : String(error),
+        }
+        return new Promise<InputReceipt>((resolve, reject) => {
+          let disposition: InputReceipt["disposition"] | undefined;
+          let replied = false;
+          let returned = false;
+          const fail = (error: Error) => {
+            if (replied) return;
+            replied = true;
+            this.pendingInputRejections.delete(fail);
+            reject(error);
+          };
+          const reply = () => {
+            if (replied || !disposition || !this._alive) return;
+            replied = true;
+            this.pendingInputRejections.delete(fail);
+            resolve({ disposition });
+          };
+          this.pendingInputRejections.add(fail);
+          const complete = () => {
+            this.settledInputCompletions.delete(onSettled);
+            if (!ownsPrompt) return;
+            this.promptRunning = false;
+            this.clearModelStartTimer();
+            this.refreshWorkspacePacksInBackground();
+            notifyRunningChange();
+          };
+          const onSettled = () => {
+            // SDK can defer prompt() from an async agent_settled extension.
+            // Its original promise resolves before the deferred dispatch.
+            if (!returned || disposition !== "started") return;
+            complete();
+            if (ownsPrompt && this._alive) this.emit({ type: "prompt_done", requestId });
+          };
+          this.settledInputCompletions.add(onSettled);
+          // Only the preflight acknowledgement is awaited by HTTP. The SDK
+          // promise remains observed until its run/command actually completes.
+          void Promise.resolve().then(() => this.inner.prompt(command.message as string, {
+            ...(promptImages?.length ? { images: promptImages } : {}),
+            ...(streamingBehavior ? { streamingBehavior } : {}),
+            source: "rpc",
+            preflightResult: (value) => {
+              if (!this._alive) return;
+              disposition = value;
+              if (value === "started") {
+                if (ownsPrompt) this.startModelStartTimer();
+                reply();
+              } else if (returned) {
+                complete();
+                reply();
+                if (ownsPrompt) this.emit({ type: "prompt_done", requestId });
+              }
+            },
+          })).then(() => {
+            returned = true;
+            if (!disposition) return; // Deferred: the callback will acknowledge.
+            complete();
+            reply();
+            if (ownsPrompt && this._alive) this.emit({ type: "prompt_done", requestId });
+          }).catch((error: unknown) => {
+            complete();
+            const failure = error instanceof Error ? error : new Error(String(error));
+            if (!replied) {
+              fail(failure); // Rejection before acceptance belongs to HTTP.
+            } else if (this._alive) {
+              invalidateSessionListCache();
+              this.emit({ type: "prompt_error", requestId, errorMessage: failure.message });
+              if (ownsPrompt) this.emit({ type: "prompt_done", requestId });
+            }
           });
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
-          notifyRunningChange();
         });
-        return null;
       }
 
       case "abort":
@@ -780,14 +834,14 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
-        return null;
+        const disposition = await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined, { source: "rpc" });
+        return { disposition } satisfies InputReceipt;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
-        return null;
+        const disposition = await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined, { source: "rpc" });
+        return { disposition } satisfies InputReceipt;
       }
 
       case "get_tools": {
@@ -876,6 +930,9 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    for (const reject of this.pendingInputRejections) reject(new Error("Session closed before input was accepted"));
+    this.pendingInputRejections.clear();
+    this.settledInputCompletions.clear();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.clearModelStartTimer();
     this.unsubscribe?.();
