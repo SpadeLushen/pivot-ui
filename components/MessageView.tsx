@@ -77,6 +77,7 @@ interface Props {
   onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  showCost?: boolean;
   hour12?: boolean;
   sessionId?: string;
   timingMessageId?: string;
@@ -123,12 +124,12 @@ function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string
   return message.content.every((block) => block.type !== "toolCall" || previous?.get(block.toolCallId) === next?.get(block.toolCallId));
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -157,6 +158,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.showTps === next.showTps
+    && prev.showCost === next.showCost
     && prev.hour12 === next.hour12
     && prev.sessionId === next.sessionId
     && prev.timingMessageId === next.timingMessageId
@@ -561,6 +563,7 @@ function AssistantMessageView({
   onOpenFile,
   showTimestamp,
   showTps = false,
+  showCost = true,
   hour12,
   sessionId,
   entryId,
@@ -584,6 +587,7 @@ function AssistantMessageView({
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  showCost?: boolean;
   hour12: boolean;
   sessionId?: string;
   entryId?: string;
@@ -618,7 +622,7 @@ function AssistantMessageView({
     ? turnDurationOverride.exact
     : timingRevision && sessionId && timingMessageId ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
   const usageLine = appendElapsedToUsage(
-    message.usage ? formatUsage(message.usage) : "",
+    message.usage ? formatUsage(message.usage, showCost) : "",
     turnDuration,
     showTurnDuration ? (turnDurationOverride !== undefined ? turnDurationOverride.estimate : estimatedTurnDuration) : undefined,
   );
@@ -1576,11 +1580,11 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, showCost: boolean): string {
   const parts = [];
   if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
   if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
   if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache`);
-  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  if (showCost && usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }

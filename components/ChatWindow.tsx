@@ -50,6 +50,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   showTps?: boolean;
+  showCost?: boolean;
   timeFormat?: TimeFormat;
   enterBehavior?: EnterBehavior;
   onOpenFile?: (filePath: string) => void;
@@ -159,7 +160,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, expanded, onToggle, 
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
   const [expandedProcessGroups, setExpandedProcessGroups] = useState<Set<string>>(() => new Set());
   const toggleProcessGroup = useCallback((key: string) => {
     setExpandedProcessGroups((previous) => {
@@ -511,6 +512,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}
                     showTps={showTps}
+                    showCost={showCost}
                     hour12={hour12}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     timingMessageId={timingMessageId}
@@ -643,7 +645,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               );
             })()}
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} hour12={hour12} sessionId={session?.id ?? sessionIdRef.current ?? undefined} timingRevision={timings.revision} liveThinking={timings.liveThinking} runningThinking={timings.runningThinking} liveTools={timings.liveTools} runningTools={timings.runningTools} />
+              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={session?.id ?? sessionIdRef.current ?? undefined} timingRevision={timings.revision} liveThinking={timings.liveThinking} runningThinking={timings.runningThinking} liveTools={timings.liveTools} runningTools={timings.runningTools} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (

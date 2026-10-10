@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Cpu, Gauge, Keyboard, Clock, X } from "lucide-react";
+import { Globe, Cpu, ChartNoAxesCombined, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
@@ -16,13 +16,15 @@ interface SettingsModalProps {
   onModelsChanged?: () => void;
   showTps: boolean;
   onTpsToggle: () => void;
+  showCost: boolean;
+  onCostToggle: () => void;
   timeFormat: TimeFormat;
   onTimeFormatChange: (format: TimeFormat) => void;
   enterBehavior: "steer" | "followUp";
   onEnterBehaviorChange: (behavior: "steer" | "followUp") => void;
 }
 
-export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
+export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, showCost, onCostToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const backdrop = useBackdropDismiss(onClose);
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
@@ -384,7 +386,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </div>
               </section>
 
-              {/* TPS */}
+              {/* Usage and performance */}
               <section style={{ marginTop: 32 }}>
                 <h3
                   style={{
@@ -397,8 +399,8 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     gap: 8,
                   }}
                 >
-                  <Gauge size={16} strokeWidth={1.8} aria-hidden="true" />
-                  {t("settings.tps")}
+                  <ChartNoAxesCombined size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.usagePerformance")}
                 </h3>
                 <p
                   style={{
@@ -408,7 +410,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     lineHeight: 1.5,
                   }}
                 >
-                  {t("settings.tpsDescription")}
+                  {t("settings.usagePerformanceDescription")}
                 </p>
                 <label
                   htmlFor="settings-show-tps"
@@ -429,6 +431,19 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
                   />
                   {t("settings.showTps")}
+                </label>
+                <label
+                  htmlFor="settings-show-cost"
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, color: "var(--text)", cursor: "pointer", fontSize: 13 }}
+                >
+                  <input
+                    id="settings-show-cost"
+                    type="checkbox"
+                    checked={showCost}
+                    onChange={onCostToggle}
+                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("settings.showCost")}
                 </label>
               </section>
 

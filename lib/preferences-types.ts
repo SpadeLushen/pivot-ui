@@ -11,6 +11,7 @@ export interface UserPreferences {
   "tool-preset": ToolPreset;
   "sound-enabled": boolean;
   "tps-enabled": boolean;
+  "cost-enabled": boolean;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
   "default-workspace-parent": string;
@@ -24,6 +25,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "tool-preset": "full",
   "sound-enabled": false,
   "tps-enabled": false,
+  "cost-enabled": true,
   "enter-behavior": "followUp",
   "time-format": "24",
   "default-workspace-parent": "~/pivot-default-workspaces",
@@ -43,6 +45,7 @@ export function normalizePreferences(value: unknown): UserPreferences {
       : DEFAULT_PREFERENCES["tool-preset"],
     "sound-enabled": raw["sound-enabled"] === true,
     "tps-enabled": raw["tps-enabled"] === true,
+    "cost-enabled": typeof raw["cost-enabled"] === "boolean" ? raw["cost-enabled"] : DEFAULT_PREFERENCES["cost-enabled"],
     "enter-behavior": raw["enter-behavior"] === "steer" ? "steer" : DEFAULT_PREFERENCES["enter-behavior"],
     "time-format": raw["time-format"] === "12" ? "12" : DEFAULT_PREFERENCES["time-format"],
     "default-workspace-parent": typeof raw["default-workspace-parent"] === "string" && raw["default-workspace-parent"].trim()

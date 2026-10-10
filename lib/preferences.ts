@@ -79,6 +79,7 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
         break;
       case "sound-enabled":
       case "tps-enabled":
+      case "cost-enabled":
         if (typeof item !== "boolean") return { error: `Invalid preference: ${key}` };
         patch[key] = item;
         break;

@@ -186,6 +186,7 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const showTps = preferences["tps-enabled"];
+  const showCost = preferences["cost-enabled"];
   const timeFormat: TimeFormat = preferences["time-format"];
   const enterBehavior: EnterBehavior = preferences["enter-behavior"];
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
@@ -200,6 +201,10 @@ export function AppShell() {
   const handleTpsToggle = useCallback(() => {
     void updatePreferences({ "tps-enabled": !showTps }).catch(() => undefined);
   }, [showTps, updatePreferences]);
+
+  const handleCostToggle = useCallback(() => {
+    void updatePreferences({ "cost-enabled": !showCost }).catch(() => undefined);
+  }, [showCost, updatePreferences]);
 
   const handleEnterBehaviorChange = useCallback((behavior: EnterBehavior) => {
     void updatePreferences({ "enter-behavior": behavior }).catch(() => undefined);
@@ -973,7 +978,7 @@ export function AppShell() {
               tooltipParts.push(`cache read: ${tkn.cacheRead.toLocaleString()}`);
               tooltipParts.push(`cache write: ${tkn.cacheWrite.toLocaleString()}`);
               tooltipParts.push(`cache hit: ${cacheHitRateLabel}`);
-              if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
+              if (showCost && c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
             }
             if (displayedContextUsage?.contextWindow) {
               const pct = displayedContextUsage.percent;
@@ -1024,7 +1029,7 @@ export function AppShell() {
                     {cacheHitRateLabel}
                   </span>
                 )}
-                {!isMobile && costStr && (
+                {showCost && !isMobile && costStr && (
                   <span style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
                     {costStr}
                   </span>
@@ -1334,6 +1339,7 @@ export function AppShell() {
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               showTps={showTps}
+              showCost={showCost}
               timeFormat={timeFormat}
               enterBehavior={enterBehavior}
               chatInputRef={chatInputRef}
@@ -1375,7 +1381,7 @@ export function AppShell() {
         }}
       />
     </div>
-    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} timeFormat={timeFormat} onTimeFormatChange={handleTimeFormatChange} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
+    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} showCost={showCost} onCostToggle={handleCostToggle} timeFormat={timeFormat} onTimeFormatChange={handleTimeFormatChange} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}

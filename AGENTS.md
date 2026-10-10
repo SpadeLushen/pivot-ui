@@ -186,7 +186,7 @@ hooks/
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
-- The eight persisted preference keys live in `~/.pivot-ui/preferences.json`: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
+- The nine persisted preference keys live in `~/.pivot-ui/preferences.json`: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `cost-enabled` (defaults to `true` and controls turn-footer/top-bar cost display), `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
 - The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs remains in `localStorage`.
 
 ### Shared workspace registry
