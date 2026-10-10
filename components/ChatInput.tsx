@@ -83,6 +83,20 @@ export interface ChatInputHandle {
   addImages: (files: File[]) => void;
 }
 
+// Hold the field's layout height during measurement so the chat viewport
+// cannot briefly grow and clamp its bottom scroll position.
+function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
+  const field = textarea.parentElement;
+  const previousMinHeight = field?.style.minHeight ?? "";
+  if (field) field.style.minHeight = getComputedStyle(field).height;
+  try {
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+  } finally {
+    if (field) field.style.minHeight = previousMinHeight;
+  }
+}
+
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const DRAFT_SAVE_DEBOUNCE_MS = 500;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -293,8 +307,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     prependText(text: string) {
@@ -310,8 +323,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     insertText(text: string) {
@@ -333,8 +345,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        resizeComposerTextarea(ta);
       });
     },
     addFiles(files: File[]) {
@@ -540,8 +551,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    resizeComposerTextarea(ta);
   }, [value]);
 
   // Load the configured attachment size limit.
@@ -767,8 +777,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!el) return;
       el.focus();
       el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      resizeComposerTextarea(el);
     });
   }, [atQuery, value]);
 
@@ -797,8 +806,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      resizeComposerTextarea(ta);
     });
   }, []);
 
@@ -966,8 +974,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleInput = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    resizeComposerTextarea(ta);
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
