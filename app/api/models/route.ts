@@ -1,9 +1,13 @@
 import { stat } from "fs/promises";
-import { resolve } from "path";
+import { join, resolve } from "path";
 import { getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
 import { createPivotAgentSessionServices } from "@/lib/model-runtime";
+import { configuredNonChatRefs, modelIdentity, runtimeCatalog } from "@/lib/model-catalog";
+import { ModelConfigurationError } from "@/lib/typed-model-config";
+import type { ModelPickerEntry } from "@/lib/session-models";
+import { knownModelLimit, VIRTUAL_CHAT_API } from "@/lib/response-model";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +45,7 @@ function filterByExactEnabledModels<T extends { id: string; provider: string }>(
 
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: ModelPickerEntry[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
@@ -49,14 +53,19 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const agentDir = getAgentDir();
   const services = await createPivotAgentSessionServices({ cwd, agentDir });
   const runtime = services.modelRuntime;
-  const available = runtime.getAvailableSnapshot();
+  const excluded = await configuredNonChatRefs(join(agentDir, "models.json"));
+  const typedCatalog = runtimeCatalog(runtime, excluded);
+  const available = runtime.getAvailableSnapshot().filter((m) => !excluded.has(modelIdentity("chat", m.provider, m.id)));
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
   const visible = filterByExactEnabledModels(available, enabledModels);
-  modelList = visible.map((m: { id: string; name: string; provider: string }) => ({
+  modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
     provider: m.provider,
+    virtual: m.api === VIRTUAL_CHAT_API,
+    contextWindow: knownModelLimit(m.contextWindow),
+    maxTokens: knownModelLimit(m.maxTokens),
   })).sort(compareModelEntries);
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;
@@ -72,10 +81,12 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     defaultModel = { provider, modelId };
   }
 
-  return { models: Object.fromEntries(nameMap), modelList, defaultModel, defaultThinkingLevel, thinkingLevels, thinkingLevelMaps };
+  return { typedCatalog, catalogUnavailable: !!runtime.getError(), models: Object.fromEntries(nameMap), modelList, defaultModel, defaultThinkingLevel, thinkingLevels, thinkingLevelMaps };
 }
 
 const EMPTY_MODELS: ModelsData = {
+  typedCatalog: [],
+  catalogUnavailable: true,
   models: {},
   modelList: [],
   defaultModel: null,
@@ -100,7 +111,9 @@ export async function GET(req: Request) {
 
   try {
     return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
-  } catch {
-    return Response.json(EMPTY_MODELS);
+  } catch (error) {
+    return Response.json({ ...EMPTY_MODELS,
+      ...(error instanceof ModelConfigurationError ? { catalogError: error.message } : {}),
+    });
   }
 }

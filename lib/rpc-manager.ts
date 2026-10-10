@@ -4,6 +4,8 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { branchModelSelection } from "./session-models";
+import { knownModelLimit, VIRTUAL_CHAT_API } from "./response-model";
 import { sessionStatistics } from "./session-statistics";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -21,7 +23,10 @@ import { persistEmptySession } from "./session-persistence";
 import { readWorkspaceState } from "./workspace-packs";
 import { subscribeWorkspacePacks } from "./workspace-pack-events";
 import { createPivotAgentSessionServices, enableLegacyAzure, LEGACY_AZURE_PROVIDER } from "./model-runtime";
-import { nativeProjectTrusted } from "./native-mcp-runtime";
+import { nativeProjectTrusted, publishMcpLoad } from "./native-mcp-runtime";
+import { join } from "node:path";
+import { clearPivotTypedModels, reloadSessionTypedModels } from "./typed-model-runtime";
+import { assertSdkChatConfiguration, withModelConfigLock } from "./model-config-store";
 
 // ============================================================================
 // Types
@@ -274,7 +279,14 @@ export class AgentSessionWrapper {
       if (cwd && typeof settings.setProjectTrusted === "function" && typeof settings.getDefaultProjectTrust === "function") {
         settings.setProjectTrusted(nativeProjectTrusted(cwd, getAgentDir(), settings));
       }
-      await this.inner.reload();
+      const modelsPath = join(getAgentDir(), "models.json");
+      await withModelConfigLock(modelsPath, async () => {
+        await assertSdkChatConfiguration(modelsPath);
+        clearPivotTypedModels(this.inner.modelRuntime);
+        await this.inner.modelRuntime.refresh({ allowNetwork: false });
+      });
+      await this.inner.reload({ beforeSessionStart: () => reloadSessionTypedModels(this.inner.modelRuntime, modelsPath) });
+      publishMcpLoad(cwd ?? this.inner.sessionManager.getCwd(), getAgentDir(), this.inner.resourceLoader.getExtensions(), true);
       if (settings.drainErrors().length) throw new Error("Unable to apply workspace settings");
       this.beginExtensionBinding();
       await this.waitForExtensionsBound();
@@ -602,6 +614,13 @@ export class AgentSessionWrapper {
       case "get_state": {
         const model = this.inner.model;
         const contextUsage = this.inner.getContextUsage();
+        const routed = this.inner.routedModel;
+        const history = branchModelSelection(this.inner.sessionManager.getBranch() as never);
+        const routedModel = routed ? {
+          provider: routed.model.provider, modelId: routed.model.id, api: routed.model.api,
+          thinkingLevel: routed.thinkingLevel,
+          contextWindow: knownModelLimit(routed.model.contextWindow), maxTokens: knownModelLimit(routed.model.maxTokens),
+        } : history.routedModel;
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
@@ -611,6 +630,10 @@ export class AgentSessionWrapper {
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
+          selectedModel: model ? { provider: model.provider, modelId: model.id,
+            virtual: model.api === VIRTUAL_CHAT_API, contextWindow: knownModelLimit(model.contextWindow),
+            maxTokens: knownModelLimit(model.maxTokens) } : null,
+          routedModel,
           messageCount: 0,
           pendingMessageCount: this.inner.pendingMessageCount,
           queuedMessages: {

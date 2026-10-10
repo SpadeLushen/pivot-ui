@@ -5,6 +5,9 @@ import { Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search, X } from "lucide-re
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
+import type { CatalogModelType, ModelTypeCounts } from "@/lib/model-catalog";
+import { ProviderModelCatalog } from "./ProviderModelCatalog";
+import { MODEL_APIS, type SavedSamplingFields } from "@/lib/typed-model-config";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -95,6 +98,7 @@ interface OAuthProvider {
   loginLabel: string;
   storedType?: "api_key" | "oauth";
   supportsApiKey: boolean;
+  modelCounts?: ModelTypeCounts;
 }
 
 interface ApiKeyProvider {
@@ -103,6 +107,7 @@ interface ApiKeyProvider {
   configured: boolean;
   source?: string;
   modelCount: number;
+  modelCounts?: ModelTypeCounts;
   storedType?: "api_key" | "oauth";
 }
 
@@ -117,14 +122,16 @@ type OAuthLoginState =
   | { phase: "success" }
   | { phase: "error"; message: string };
 
-interface ModelEntry {
+interface ModelEntry extends SavedSamplingFields {
+  [field: string]: unknown;
+  type?: CatalogModelType;
+  output?: string[];
   id: string;
   name?: string;
   api?: string;
+  baseUrl?: string;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
-  samplingParams?: Record<string, unknown>;
-  samplingParamsByThinkingLevel?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", Record<string, unknown>>>;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -133,16 +140,18 @@ interface ModelEntry {
 }
 
 interface ProviderEntry {
+  [field: string]: unknown;
   baseUrl?: string;
   api?: string;
   apiKey?: string;
   headers?: Record<string, string>;
   compat?: Record<string, unknown>;
   models?: ModelEntry[];
-  modelOverrides?: Record<string, unknown>;
+  modelOverrides?: Record<string, unknown> | null;
 }
 
 interface ModelsJson {
+  [field: string]: unknown;
   providers?: Record<string, ProviderEntry>;
 }
 
@@ -262,6 +271,7 @@ function Select({ value, onChange, options, required }: { value: string; onChang
     <select value={value} onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
       {!required && <option value="">— inherit / none —</option>}
+      {value && !options.includes(value) && <option value={value}>{value}</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -292,11 +302,6 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
 
-  useEffect(() => {
-    if (!provider.api) onChange({ ...provider, api: "openai-completions" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider.api]);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -324,14 +329,14 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
 
       <Field label="API Key">
         <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
-          placeholder="ENV_VAR_NAME, !shell-command, or literal key" mono />
+          placeholder="$API_KEY / ${API_KEY}, !command, or literal key" mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env var name
+          {t("models.apiKeyConfigHelp")}
         </span>
       </Field>
 
       <Field label="API">
-        <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
+        <Select value={provider.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
       </Field>
     </div>
   );
@@ -515,6 +520,14 @@ function ModelDetail({
 }) {
   const { t } = useI18n();
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
+  const [classifierInput, setClassifierInput] = useState("");
+  const testRequestRef = useRef<AbortController | null>(null);
+  const modelType = model.type ?? "chat";
+  const changeType = (type: CatalogModelType) => onChange({ ...model, type,
+    api: type === "chat" ? undefined : MODEL_APIS[type][0],
+    ...(type === "image" ? { output: model.output?.includes("image") ? model.output : ["image"] } : {}),
+  });
+  const testDisabled = !model.id.trim() || modelType === "image" || (modelType === "classifier" && !classifierInput.trim());
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
   const setCost = (k: keyof NonNullable<ModelEntry["cost"]>, v: string) => {
@@ -536,43 +549,42 @@ function ModelDetail({
 
   useEffect(() => {
     setTestState({ phase: "idle" });
-  }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
+    return () => { testRequestRef.current?.abort(); testRequestRef.current = null; };
+  }, [providerName, provider, model, classifierInput]);
+  useEffect(() => { setClassifierInput(""); }, [providerName, model.id, modelType]);
 
   const handleTest = useCallback(async () => {
-    if (!model.id.trim() || testState.phase === "testing") return;
+    if (testState.phase === "testing") {
+      testRequestRef.current?.abort(); testRequestRef.current = null;
+      setTestState({ phase: "idle" }); return;
+    }
+    if (testDisabled || testRequestRef.current) return;
+    let input: unknown;
+    if (modelType === "classifier") {
+      try { input = JSON.parse(classifierInput); }
+      catch { setTestState({ phase: "error", message: t("models.invalidClassifierInput") }); return; }
+    }
+    const controller = new AbortController();
+    testRequestRef.current = controller;
     setTestState({ phase: "testing" });
     try {
       const res = await fetch("/api/models-config/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerName, provider, model }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName, provider, model,
+          ...(modelType === "classifier" ? { classifierInput: input } : {}) }),
+        signal: controller.signal,
       });
-      const d = await res.json() as {
-        ok?: boolean;
-        error?: string;
-        latencyMs?: number;
-        status?: number;
-        responseText?: string;
-      };
-      if (!res.ok || !d.ok) {
-        setTestState({
-          phase: "error",
-          message: d.error ?? `HTTP ${res.status}`,
-          latencyMs: d.latencyMs,
-          status: d.status,
-        });
-        return;
-      }
-      setTestState({
-        phase: "success",
-        latencyMs: d.latencyMs,
-        status: d.status,
-        responseText: d.responseText,
-      });
-    } catch (e) {
-      setTestState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
+      const d = await res.json() as { ok?: boolean; error?: string; latencyMs?: number; status?: number; responseText?: string };
+      if (testRequestRef.current !== controller) return;
+      setTestState(!res.ok || !d.ok
+        ? { phase: "error", message: d.error ?? t("models.testRequestFailed"), latencyMs: d.latencyMs, status: d.status }
+        : { phase: "success", latencyMs: d.latencyMs, status: d.status, responseText: d.responseText });
+    } catch {
+      if (testRequestRef.current === controller) setTestState({ phase: "error", message: t("models.testRequestFailed") });
+    } finally {
+      if (testRequestRef.current === controller) testRequestRef.current = null;
     }
-  }, [model, provider, providerName, testState.phase]);
+  }, [classifierInput, modelType, model, provider, providerName, testDisabled, testState.phase, t]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -604,7 +616,7 @@ function ModelDetail({
           )}
           <button
             onClick={handleTest}
-            disabled={!model.id.trim() || testState.phase === "testing"}
+            disabled={testState.phase !== "testing" && testDisabled}
             title="Test model connection"
             style={{
               height: 24,
@@ -612,8 +624,8 @@ function ModelDetail({
               background: testState.phase === "success" ? "#16a34a" : "none",
               border: `1px solid ${testState.phase === "success" ? "#16a34a" : "var(--border)"}`,
               borderRadius: 4,
-              color: testState.phase === "success" ? "#fff" : (!model.id.trim() || testState.phase === "testing") ? "var(--text-dim)" : "var(--text-muted)",
-              cursor: (!model.id.trim() || testState.phase === "testing") ? "not-allowed" : "pointer",
+              color: testState.phase === "success" ? "#fff" : testDisabled ? "var(--text-dim)" : "var(--text-muted)",
+              cursor: testState.phase !== "testing" && testDisabled ? "not-allowed" : "pointer",
               fontSize: 11,
               display: "inline-flex",
               alignItems: "center",
@@ -625,7 +637,7 @@ function ModelDetail({
             {testState.phase === "success" && (
               <CheckIcon size={11} strokeWidth={3} aria-hidden="true" />
             )}
-            {testState.phase === "testing" ? "Testing…" : testState.phase === "success" ? "OK" : "Test"}
+            {testState.phase === "testing" ? t("general.cancel") : testState.phase === "success" ? "OK" : "Test"}
           </button>
           <button onClick={onDelete}
             style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
@@ -639,17 +651,37 @@ function ModelDetail({
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 
+      <Field label={t("models.modelType")}>
+        <Select value={modelType} onChange={(value) => changeType(value as CatalogModelType)} options={["chat", "classifier", "image"]} required />
+      </Field>
+      {modelType !== "chat" && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("models.typedConfigNotice")}</div>}
+      {modelType === "image" && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("models.imageTestUnsupported")}</div>}
+      {modelType === "classifier" && <Field label={t("models.classifierInput")}>
+        <textarea value={classifierInput} onChange={(event) => setClassifierInput(event.target.value)}
+          maxLength={65536} rows={8} style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
+          placeholder={'{"state":{},"questions":{"ok":{"type":"bool","instructions":"Is this OK?","criteria":{"true":"Yes","false":"No"}}}}'} />
+        <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("models.classifierTestNotice")}</span>
+      </Field>}
       <Field label="API override">
-        <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+        <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={MODEL_APIS[modelType] ?? API_OPTIONS} />
       </Field>
 
+      {modelType !== "chat" && <Field label={t("models.modelBaseUrl")}>
+        <TextInput value={model.baseUrl ?? ""} onChange={(value) => set("baseUrl", value || undefined)}
+          placeholder={provider.baseUrl ?? "https://api.example.com/v1"} mono />
+      </Field>}
+      {modelType === "image" && <Field label={t("models.imageOutput")}>
+        <span style={{ fontSize: 12 }}>image</span>
+        <Check label={t("models.imageTextOutput")} checked={model.output?.includes("text") ?? false}
+          onChange={(enabled) => set("output", enabled ? ["image", "text"] : ["image"])} />
+      </Field>}
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <Check label="Reasoning / thinking" checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
+        {modelType === "chat" && <Check label="Reasoning / thinking" checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />}
         <Check label="Image input" checked={model.input?.includes("image") ?? false}
-          onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
+          onChange={(v) => set("input", v ? [...new Set([...(model.input ?? ["text"]), "image"])] : (model.input ?? ["text"]).filter((input) => input !== "image"))} />
       </div>
 
-      {model.reasoning && (
+      {modelType === "chat" && model.reasoning && (
         <>
           <Check
             label="DeepSeek thinking compat"
@@ -676,16 +708,16 @@ function ModelDetail({
         </>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      {modelType !== "image" && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Context window (tokens)">
           <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
             onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
         </Field>
-        <Field label="Max output tokens">
+        {modelType === "chat" && <Field label="Max output tokens">
           <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
             onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
-        </Field>
-      </div>
+        </Field>}
+      </div>}
 
       <div>
         <SectionTitle>Cost (per million tokens)</SectionTitle>
@@ -715,6 +747,38 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const eventSourceRef = useRef<EventSource | null>(null);
   const submissionRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const refreshRequestRef = useRef<AbortController | null>(null);
+  const [refreshingModels, setRefreshingModels] = useState(false);
+  const [refreshModelsError, setRefreshModelsError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    refreshRequestRef.current?.abort(); refreshRequestRef.current = null;
+  }, [provider.id]);
+
+  const handleRefreshModels = useCallback(async () => {
+    if (refreshRequestRef.current) return;
+    const controller = new AbortController();
+    refreshRequestRef.current = controller;
+    setRefreshingModels(true); setRefreshModelsError(null);
+    try {
+      const response = await fetch("/api/models/refresh", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider.id }), signal: controller.signal,
+      });
+      const data = await response.json() as { ok?: boolean; error?: string };
+      if (refreshRequestRef.current !== controller) return;
+      if (!response.ok || !data.ok) {
+        const codes = ["refreshInvalidProvider", "refreshUnsupported", "refreshNeedsAuth", "refreshFailed", "refreshCancelled"].map((code) => `models.${code}`);
+        setRefreshModelsError(t(codes.includes(data.error ?? "") ? data.error! : "models.refreshFailed"));
+      } else onRefresh();
+    } catch {
+      if (refreshRequestRef.current === controller) setRefreshModelsError(t("models.refreshFailed"));
+    } finally {
+      if (refreshRequestRef.current === controller) {
+        refreshRequestRef.current = null; setRefreshingModels(false);
+      }
+    }
+  }, [provider.id, onRefresh, t]);
 
   useEffect(() => {
     if (loginState.phase === "auth" || loginState.phase === "prompt") {
@@ -738,6 +802,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   useEffect(() => () => stopLogin(), [stopLogin]);
 
   const handleLogin = useCallback(() => {
+    if (refreshRequestRef.current) return;
     if (provider.storedType === "api_key" && !window.confirm(t("auth.confirmReplaceApiKey", { provider: provider.name }))) return;
     stopLogin(); setLoginLink(null); setProgress(""); setInfo([]);
     setLoginState({ phase: "connecting" });
@@ -801,6 +866,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   }, [provider.id, provider.name, provider.storedType, onRefresh, stopLogin, t]);
 
   const handleLogout = useCallback(async () => {
+    if (refreshRequestRef.current) return;
     try {
       const response = await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
       if (!response.ok) throw new Error("auth.disconnectFailed");
@@ -951,8 +1017,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       {info.map((item, index) => <div key={index} style={{ fontSize: 12, color: "var(--text-muted)" }}>
         {t(item.message)} {item.links?.map(link => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", marginLeft: 6 }}>{link.label ?? t("auth.moreInfo")}</a>)}
       </div>)}
+      {refreshModelsError && <p role="alert" style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{refreshModelsError}</p>}
       {/* Actions */}
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {isWorking ? (
           <button
             onClick={() => { stopLogin(); setInputValue(""); setLoginLink(null); setProgress(""); setInfo([]); setLoginState({ phase: "idle" }); }}
@@ -962,16 +1029,26 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </button>
         ) : (
           <>
+            {provider.loggedIn && <button
+              onClick={handleRefreshModels}
+              disabled={refreshingModels}
+              aria-busy={refreshingModels}
+              style={{ padding: "5px 14px", background: "var(--accent)", border: "1px solid var(--accent)", borderRadius: 5, color: "#fff", cursor: refreshingModels ? "wait" : "pointer", fontSize: 12, fontWeight: 600, opacity: refreshingModels ? 0.65 : 1 }}
+            >
+              {t(refreshingModels ? "models.refreshingModels" : "models.refreshModels")}
+            </button>}
             <button
               onClick={handleLogin}
-              style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: 5, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+              disabled={refreshingModels}
+              style={{ padding: "5px 14px", background: provider.loggedIn ? "none" : "var(--accent)", border: `1px solid ${provider.loggedIn ? "var(--border)" : "var(--accent)"}`, borderRadius: 5, color: provider.loggedIn ? "var(--text-muted)" : "#fff", cursor: refreshingModels ? "not-allowed" : "pointer", fontSize: 12, fontWeight: provider.loggedIn ? 400 : 600, opacity: refreshingModels ? 0.65 : 1 }}
             >
               {provider.loggedIn ? t("auth.reauthenticate") : provider.loginLabel}
             </button>
             {provider.loggedIn && (
               <button
                 onClick={handleLogout}
-                style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 12 }}
+                disabled={refreshingModels}
+                style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: refreshingModels ? "not-allowed" : "pointer", fontSize: 12, opacity: refreshingModels ? 0.65 : 1 }}
               >
                 Disconnect
               </button>
@@ -1273,7 +1350,7 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCounts ? `${p.modelCounts.chat} chat · ${p.modelCounts.classifier} classifier · ${p.modelCounts.image} image` : `${p.modelCount} models`}</div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
@@ -1302,6 +1379,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [catalogRevision, setCatalogRevision] = useState(0);
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1319,14 +1397,14 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
 
   useEffect(() => {
     fetch("/api/models-config")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error("Unable to read model configuration"); return r.json(); })
       .then((d: ModelsJson) => {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
         const keys = Object.keys(normalized.providers ?? {});
         if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
       })
-      .catch(() => setConfig({ providers: {} }))
+      .catch(() => setSaveError(t("models.configReadFailed")))
       .finally(() => setLoading(false));
     loadOAuthProviders();
     loadApiKeyProviders();
@@ -1345,6 +1423,9 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
   }, []);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
+    if (oldName !== newName && config.providers?.[newName]) {
+      setSaveError(t("models.duplicateProvider")); return;
+    }
     setConfig((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
@@ -1358,7 +1439,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
       if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName };
       return prev;
     });
-  }, []);
+  }, [config.providers, t]);
 
   const deleteProvider = useCallback((name: string) => {
     setConfig((prev) => {
@@ -1417,13 +1498,17 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      else {
+        setSavedOk(true); setCatalogRevision((revision) => revision + 1);
+        loadOAuthProviders(); loadApiKeyProviders();
+        setTimeout(() => setSavedOk(false), 2000);
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, loadOAuthProviders, loadApiKeyProviders]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1435,25 +1520,25 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} />;
+      return <div><OAuthDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); setCatalogRevision((revision) => revision + 1); }} /><ProviderModelCatalog key={`${p.id}:${p.loggedIn}:${p.storedType}:${catalogRevision}`} providerId={p.id} /></div>;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} />;
+      return <div><ApiKeyDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} /><ProviderModelCatalog key={`${p.id}:${p.configured}:${p.storedType}:${catalogRevision}`} providerId={p.id} /></div>;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
       if (!provider) return null;
       return (
-        <ProviderDetail
+        <div><ProviderDetail
           key={selection.name}
           name={selection.name}
           provider={provider}
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
-        />
+        /><ProviderModelCatalog key={`${selection.name}:${catalogRevision}`} providerId={selection.name} /></div>
       );
     }
     const provider = config.providers?.[selection.providerName];
@@ -1570,9 +1655,9 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
                           <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.id || t("models.newModel")}
+                            {m.id || t("models.newModel")} · {m.type ?? "chat"}
                           </span>
-                          {m.reasoning && (
+                          {(m.type ?? "chat") === "chat" && m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}
                         </div>

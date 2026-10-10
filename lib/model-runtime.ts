@@ -3,6 +3,8 @@ import { azureProvider } from "@earendil-works/pi-ai/providers/azure";
 import { join } from "node:path";
 import { nativeMcpExtensions, nativeProjectTrusted, publishMcpLoad } from "./native-mcp-runtime";
 import { workspaceToolExtension } from "./workspace-tool-extension";
+import { assertSdkChatConfiguration, readModelConfigUnlocked, withModelConfigLock } from "./model-config-store";
+import { installPivotTypedModels, loadPivotTypedModels, pivotTypedModelsExtension } from "./typed-model-runtime";
 
 export const LEGACY_AZURE_PROVIDER = "azure-openai-responses";
 
@@ -29,9 +31,21 @@ export async function enableLegacyAzure(runtime: ModelRuntime, requested = false
 export async function createPivotModelRuntime(
   options: Parameters<typeof ModelRuntime.create>[0] = {}, legacyAzure = false,
 ) {
-  const runtime = await ModelRuntime.create(options);
-  await enableLegacyAzure(runtime, legacyAzure);
-  return runtime;
+  if (options.modelsPath === null) {
+    const runtime = await ModelRuntime.create(options);
+    await enableLegacyAzure(runtime, legacyAzure);
+    return runtime;
+  }
+  const path = options.modelsPath ?? join(getAgentDir(), "models.json");
+  return withModelConfigLock(path, async () => {
+    options.signal?.throwIfAborted();
+    await assertSdkChatConfiguration(path);
+    const config = await readModelConfigUnlocked(path);
+    const runtime = await ModelRuntime.create(options);
+    await enableLegacyAzure(runtime, legacyAzure);
+    await installPivotTypedModels(runtime, config);
+    return runtime;
+  });
 }
 
 // ============================================================================
@@ -60,13 +74,22 @@ async function buildPivotAgentSessionServices(
   if (options.modelRuntime) await enableLegacyAzure(modelRuntime, requested);
   const services = await createAgentSessionServices({ ...options, agentDir, settingsManager, modelRuntime,
     resourceLoaderOptions: { ...options.resourceLoaderOptions,
-      extensionFactories: [...nativeMcpExtensions(), workspaceToolExtension(), ...(options.resourceLoaderOptions?.extensionFactories ?? [])],
+      extensionFactories: [...nativeMcpExtensions(), workspaceToolExtension(),
+        pivotTypedModelsExtension(modelRuntime, join(agentDir, "models.json")),
+        { name: "pivot-resource-diagnostics", factory: (pi) => {
+          // Also cover reloads initiated by an extension rather than the wrapper.
+          pi.on("session_start", () => {
+            publishMcpLoad(options.cwd, agentDir, services.resourceLoader.getExtensions(), true);
+          });
+        } },
+        ...(options.resourceLoaderOptions?.extensionFactories ?? [])],
     },
     resourceLoaderReloadOptions: { ...options.resourceLoaderReloadOptions,
       resolveProjectTrust: options.resourceLoaderReloadOptions?.resolveProjectTrust ?? (async () =>
         nativeProjectTrusted(options.cwd, agentDir, settingsManager)),
     },
   });
+  await loadPivotTypedModels(modelRuntime, join(agentDir, "models.json"));
   publishMcpLoad(options.cwd, agentDir, services.resourceLoader.getExtensions(), true);
   return services;
 }

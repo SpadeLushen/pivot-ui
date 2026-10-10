@@ -10,6 +10,7 @@ import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionCon
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { getLastThinkingLine } from "./message-display";
 import { normalizeToolCalls } from "./normalize";
+import { branchModelSelection } from "./session-models";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -257,7 +258,8 @@ export function buildSessionContext(
     entryIds,
     entryTimestamps,
     thinkingLevel: piCtx.thinkingLevel,
-    model: piCtx.model,
+    model: piCtx.model, // Legacy context API: actual response or last model_change.
+    ...branchModelSelection(entries, leafId),
   };
 }
 

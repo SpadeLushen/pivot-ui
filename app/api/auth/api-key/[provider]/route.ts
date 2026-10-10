@@ -4,6 +4,7 @@ import { getAuthStore, deleteStoredCredential } from "@/lib/auth-store";
 import { cancelProviderLogin } from "@/lib/provider-login";
 import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { modelTypeCounts } from "@/lib/model-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,10 @@ export async function GET(_req: Request, { params }: Params) {
   const runtime = await createPivotModelRuntime({}, provider === LEGACY_AZURE_PROVIDER);
   const status = runtime.getProviderAuthStatus(provider);
   const displayName = runtime.getProvider(provider)?.name ?? provider;
-  const models = runtime.getModels(provider).length;
-  const credential = await getAuthStore().read(provider);
-  return NextResponse.json({ provider, displayName, configured: status.configured && !runtime.isUsingOAuth(provider), source: status.source, models, storedType: credential?.type });
+  const modelCounts = modelTypeCounts(runtime, provider);
+  const models = Object.values(modelCounts).reduce((sum, count) => sum + count, 0);
+  const storedType = (await runtime.listCredentials()).find((credential) => credential.providerId === provider)?.type;
+  return NextResponse.json({ provider, displayName, configured: status.configured && !runtime.isUsingOAuth(provider), source: status.source, models, modelCounts, storedType });
 }
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }

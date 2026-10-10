@@ -1259,6 +1259,13 @@ export function AppShell() {
                         {section(t("session.messages"), messageRows)}
                         {section(t("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
+                      {Boolean(coverage?.models?.length) && <div style={{ marginTop: 16 }}>
+                        {section(t("session.modelCosts"), coverage!.models.map(group => [
+                          group.provider && group.model ? `${group.provider}/${group.model}` : t("session.costUnallocated"),
+                          `${group.costRecords ? `$${group.cost.toFixed(4)}` : t("session.unrecorded")}${group.missingCostRecords ? " *" : ""}`,
+                        ]), "right")}
+                        <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>{t("session.costAllocationNotice")}</div>
+                      </div>}
                       <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)" }}>
                         {t("session.costNotice")}
                         {Boolean(coverage?.missingCostRecords) && <div>{t("session.costIncomplete")}</div>}

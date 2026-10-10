@@ -1,41 +1,39 @@
 import { createPivotModelRuntime } from "@/lib/model-runtime";
-import { getAuthStore } from "@/lib/auth-store";
+import { modelTypeCounts, type ModelTypeCounts } from "@/lib/model-catalog";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const runtime = await createPivotModelRuntime();
-  const all = runtime.getModels();
+  const credentials = new Map((await runtime.listCredentials()).map((c) => [c.providerId, c.type]));
 
   // Deduplicate by provider, skip OAuth-only providers and custom providers (source=models_json_key)
-  const seen = new Set<string>();
   const result: {
     id: string;
     displayName: string;
     configured: boolean;
     source?: string;
     modelCount: number;
+    modelCounts: ModelTypeCounts;
     storedType?: "api_key" | "oauth";
   }[] = [];
 
-  for (const m of all) {
-    if (seen.has(m.provider)) continue;
-    seen.add(m.provider);
-    const provider = runtime.getProvider(m.provider);
-    if (!provider?.auth.apiKey?.login) continue;
-    const status = runtime.getProviderAuthStatus(m.provider);
+  for (const provider of runtime.getProviders()) {
+    if (!provider.auth.apiKey?.login) continue;
+    const status = runtime.getProviderAuthStatus(provider.id);
     // Skip providers whose key comes from models.json (those are custom providers)
     if (status.source === "models_json_key") continue;
     const displayName = provider.name;
-    const credential = await getAuthStore().read(m.provider);
-    const modelCount = all.filter((x) => x.provider === m.provider).length;
+    const modelCounts = modelTypeCounts(runtime, provider.id);
+    const modelCount = Object.values(modelCounts).reduce((sum, count) => sum + count, 0);
     result.push({
-      id: m.provider,
+      id: provider.id,
       displayName,
-      configured: status.configured && !runtime.isUsingOAuth(m.provider),
+      configured: status.configured && !runtime.isUsingOAuth(provider.id),
       source: status.source,
       modelCount,
-      storedType: credential?.type,
+      modelCounts,
+      storedType: credentials.get(provider.id),
     });
   }
 

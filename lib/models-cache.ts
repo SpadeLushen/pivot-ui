@@ -1,6 +1,12 @@
+import type { TypedModelEntry } from "./model-catalog";
+import type { ModelPickerEntry } from "./session-models";
+
 export interface ModelsData {
+  typedCatalog: TypedModelEntry[];
+  catalogUnavailable?: boolean;
+  catalogError?: string;
   models: Record<string, string>;
-  modelList: { id: string; name: string; provider: string }[];
+  modelList: ModelPickerEntry[];
   defaultModel: { provider: string; modelId: string } | null;
   defaultThinkingLevel: string | null;
   thinkingLevels: Record<string, string[]>;
@@ -42,7 +48,7 @@ export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsDat
   const state = getModelsCacheState();
   const cached = state.entries.get(cwd);
   if (cached) {
-    if (cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
+    if (cached.expiresAt > Date.now() && Array.isArray(cached.data.typedCatalog)) return Promise.resolve(cached.data);
     state.entries.delete(cwd);
   }
 

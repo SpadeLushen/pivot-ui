@@ -1,4 +1,5 @@
 import type { RecordedUsage } from "./session-usage";
+import type { SessionModelSelection } from "./session-models";
 
 // Types mirrored from pi-mono coding-agent session-manager
 
@@ -119,6 +120,8 @@ export interface AssistantMessage {
   content: AssistantContentBlock[];
   model: string;
   provider: string;
+  api?: string;
+  thinkingLevel?: string;
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
@@ -300,6 +303,15 @@ export interface ModelChangeEntry extends SessionEntryBase {
   modelId: string;
 }
 
+export interface UsageEntry extends SessionEntryBase {
+  type: "usage";
+  kind: string;
+  provider: string;
+  model: string;
+  usage: RecordedUsage;
+  note?: string;
+}
+
 export interface CompactionEntry extends SessionEntryBase {
   type: "compaction";
   summary: string;
@@ -353,6 +365,7 @@ export type SessionEntry =
   | SessionMessageEntry
   | ThinkingLevelChangeEntry
   | ModelChangeEntry
+  | UsageEntry
   | CompactionEntry
   | BranchSummaryEntry
   | CustomEntry
@@ -390,7 +403,7 @@ export interface SessionInfo {
   worktreeBranch?: string;
 }
 
-export interface SessionContext {
+export interface SessionContext extends SessionModelSelection {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
   entryTimestamps: (number | null)[]; // parallel to messages — JSONL entry write times (ms)

@@ -1,43 +1,27 @@
 import { NextResponse } from "next/server";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { readModelConfiguration, saveModelConfiguration } from "@/lib/model-config-store";
+import { ModelConfigurationError } from "@/lib/typed-model-config";
+import { notifyResourceConfigurationChanged } from "@/lib/session-resource-events";
 
 export const dynamic = "force-dynamic";
-
-function getModelsPath(): string {
-  return join(getAgentDir(), "models.json");
-}
-
-function readModelsJson(): Record<string, unknown> {
-  const path = getModelsPath();
-  if (!existsSync(path)) return { providers: {} };
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-  } catch {
-    return { providers: {} };
-  }
-}
-
-function writeModelsJson(data: Record<string, unknown>): void {
-  const path = getModelsPath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
-}
+const modelsPath = () => join(getAgentDir(), "models.json");
 
 export async function GET() {
-  return NextResponse.json(readModelsJson());
+  try { return NextResponse.json(await readModelConfiguration(modelsPath())); }
+  catch { return NextResponse.json({ error: "Unable to read model configuration" }, { status: 500 }); }
 }
 
 export async function PUT(req: Request) {
   try {
-    const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(body);
+    await saveModelConfiguration(modelsPath(), await req.json());
     invalidateModelsCache();
+    notifyResourceConfigurationChanged();
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof ModelConfigurationError ? error.message : "Unable to save model configuration" },
+      { status: error instanceof ModelConfigurationError ? 400 : 500 });
   }
 }

@@ -17,6 +17,9 @@ export interface ContextUsage {
 export interface ModelLike {
   id: string;
   provider: string;
+  api?: string;
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 export interface ToolInfo {
@@ -132,6 +135,7 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
+  readonly routedModel?: { model: ModelLike; thinkingLevel?: string };
   readonly modelRuntime: ModelRuntime;
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
