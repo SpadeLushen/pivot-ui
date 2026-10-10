@@ -27,9 +27,11 @@
 **C2 已实施、构建通过，用户已确认浏览器验收通过**，不再列为待开发／待浏览器验收项目。采用父工具卡片摘要＋折叠调用树、实时有界预览与 SDK 历史摘要；实施与用户反馈见 [C2 记录](codemode-stage-c-plan.md#c2-实施记录)。1.1.0 自动化回归已补充计时／嵌套摘要证据；用户另补充确认此前 codemode＋MCP 可正常显示，视为该集成场景验收通过，C2 不再列为待验收项目。不将该确认扩大为全部 MCP 边界场景或最终发布验收。
 - [x] **C3：编排配置与能力模型（实现、构建及授权本地自动化通过）**。最新 UI 为全局／工作区暂存与单一 Save；继承、冲突、隔离、延后应用／失败重试、真实 SDK 声明／prompt／权限及 Chrome fixture 证据见 [补测记录](codemode-stage-c-plan.md#8-授权自动化补测记录)。信任提示用户验收保留，不据 fixture 扩大为生产整应用／真实外部账户验收。
 - [x] **C4：费用与统计（实现、构建及授权本地自动化通过）**。父工具 usage、完整会话／分支账本、SDK／历史一致性、缺失／零费用和快照 race／重连已覆盖；当前上下文占用独立，见同一补测记录。付费模型与生产整应用验收另记。
-- [ ] **D：剩余 runtime／配置能力**。完整 prompt／steer／follow-up disposition、virtual selected／routed model、typed catalog／classifier-only Provider 和非 chat 模型测试、完整 Theme bridge／内置扩展诊断及采样参数专用 UI；逐项确认现有基础与增量，不作为 C 的前置条件。见 3.2、第七、九至十一节及 16.2。
+- [ ] **D：发送状态、模型配置与后续界面增强**。D1／D2／D2b／D3／D4／D5a／D5b 已开发完成并构建通过，尚未全部完成使用验证：普通发送、服务商／目录、现有聊天模型测试及 D2b 界面已有人工确认；D1 其余自动化已安排但未执行，D2b 实际调用缺少 API 资源，D3／D4 行为验证待补。D5 的主题兼容与 Built-in 开关／加载诊断已按顺序实施，行为验收待补；D6–D8 的分类、图片生成和诊断界面尚待确认首版范围。面向使用者的用途、进度与待办见[阶段 D 易读计划](runtime-stage-d-plan.md)；源码细节、约束与证据见[技术附录](runtime-stage-d-technical.md)。开发完成不等于验证或交付完成。
 
 ### P2：阶段 D 产品增强
+
+首版建议及需要用户决定的事项见[阶段 D 易读计划](runtime-stage-d-plan.md) 的 D6–D8；技术边界见[技术附录](runtime-stage-d-technical.md)第八节。仍为待办，不因规划完成或暂缓而关闭。
 
 - [ ] Classifier 专用界面和图片生成产品界面（现有 codemode 图片输出展示归 C1，不在此重复）。见第十节。
 - [ ] 脱敏、有容量限制且默认关闭的 provider-stream 调试界面；评估 Web 隐藏消息开关。见 11.2、11.3，具体产品范围在 D 设计时确认，统一发布条件不变。
@@ -781,7 +783,7 @@ Pivot 自己的 autocomplete、浏览器 clipboard 和滚动逻辑不会因为�
 2. **已有 Anthropic OAuth：强制检查新 select 回调**。1.0.0 的 `anthropicOAuth.login()` 在启动浏览器登录前新增 `interaction.prompt({ type: "select", options: [...] })`，不能当成普通 manual_code 文本，否则已有浏览器登录会失败。检查登录 SSE／短期 callback token／取消／默认 browser 选择；必须保证现有浏览器流程。copy_code 的独立 UI 可留 P1，但新增选择回调对旧登录的影响必须在 P0 处理。已有 API key、Codex 登录与刷新也需回归；不得重写用户凭据来掩盖失败。
 3. **会话和全部工具策略**：以 1.0.2 重跑首次发送、失败、abort、空会话、Fork、父链、压缩、resume/reload、排队撤回和队列模式切换；验证旧预设不生效、正常 prompt 不被清空。增量未修改 SessionManager，但公开 API 落盘仍需回归。
 4. **defaultTools／动态注册工具**：源码新增 `usesDefaultTools` 与 `_pendingToolNames`。不维护旧预设优先级，统一启用已注册且非 hidden 的工具；检查 Pack reload、session_start 后注册、settings 的部分默认列表及 adapter 工具不会缩减可用集合。不访问新私有字段，不启用未加载的 native MCP/tool_search factories，不绕过权限 hooks。
-5. **模型配置／thinking**：1.0.2 的 `samplingParamsByThinkingLevel` 增加 model 定义及 `provider.modelOverrides` 中的配置和采样参数选择。ModelsConfig 读取、编辑、保存、测试和默认模型 API 必须保留该字段，不过滤未知键；测试 off 与已有 thinking 级别、继承和覆盖，验证 OpenAI-compatible completions/responses/Azure 的有效请求值。配置兼容属 P0，新增专用采样编辑 UI 属 P1。
+5. **模型配置／thinking**：1.0.2 的 `samplingParamsByThinkingLevel` 增加 model 定义及 `provider.modelOverrides` 中的配置和采样参数选择。ModelsConfig 读取、编辑、保存、测试和默认模型 API 必须保留该字段，不过滤未知键；测试 off 与已有 thinking 级别、继承和覆盖，验证 OpenAI-compatible completions/responses/Azure 的有效请求值。配置兼容属 P0；用户已明确不开发专用采样编辑 UI，D4 仅保证手写 JSON 参数在后续界面修改／保存时保留。
 6. **Provider runtime／重试／统计**：native extension Provider 注册新增 provisional configured 状态；检查扩展模型在初次选择、恢复与刷新前不会被误判为不可用。回归 SDK 对 capacity 错误和非有限 retry-after 的处理，避免 Web running 状态卡住；Bedrock 长上下文 pricing tiers、thinking 签名重放，以及 Anthropic mid-conversation inline tool definitions 更新要覆盖既有 token/cost、请求和会话恢复，不新增费用 UI。
 7. **扩展加载／运行兼容（非新增 Web renderer）**：1.0.1 增加 `pi.registerToolRenderer()`；升级 SDK 后检查使用该 API 的扩展能正常注册，其工具、命令、事件、权限 hooks 和 reload 仍可用。Pivot Chat 使用自己的 React renderer，不执行该 resolver；当前导出走 CLI `--export`／`exportFromFile()`，也不加载活跃会话的 renderer。P0 验证现有结果展示、文件导出和深树补丁不回归；TUI→Web 转换或改变导出加载路径属于 P1，详见 16.5。
 8. **完成门槛**：再次通过原生 typecheck、lint、全量测试、真实 SDK、生产 HTML／静态资源、npm/pnpm 发布包启动；在实际本地配置中验收已有 OAuth、adapter MCP server 调用、Packs、文件访问、Git 和 Terminal。重新校验生产 build/runtime 版本、备份与受控部署。仅此补差验收后才能把 P0 基线标为 1.0.2；仍不发布。
