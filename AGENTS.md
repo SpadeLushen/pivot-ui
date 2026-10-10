@@ -165,6 +165,13 @@ hooks/
 
 ## Key Design Decisions & Traps
 
+### Packaged runtime dependency aliases (`scripts/pivot-runtime-aliases.js`)
+- Turbopack creates `.next/node_modules/<pkg>-<hash>` symlinks for every `serverExternalPackages` entry and bakes the hashed specifier into the server output; the packaged app therefore needs those links at runtime.
+- `npm pack`/`pnpm pack` cannot ship symlinks, so `prepack` (`prepare-package-runtime.js`) records `{ alias, target }` pairs in `.next/pivot-runtime-deps.json`; `postinstall` and `bin/pivot-ui.js` recreate the links via the shared module.
+- Dependency resolution must follow Node's own algorithm (walk every `node_modules` from the package root upwards) — never assume `<package-root>/node_modules/<target>`. npm hoists dependencies to a sibling of the package; pnpm links them as siblings inside `node_modules/.pnpm/<name>@<version>/node_modules`.
+- pnpm runs a dependency's install scripts while building it inside its content-addressable store, where the dependencies are not linked yet, so `restore-package-runtime.js` only warns and skips. `bin/pivot-ui.js` restores the links again before starting `next`, which covers both pnpm's store context and any install where postinstall was ignored (`--ignore-scripts`, pnpm's `ignoredBuilds`).
+- The restore path must never fail an installation: no throwing on missing dependencies.
+
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not

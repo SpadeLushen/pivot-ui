@@ -9,8 +9,29 @@ const path = require("path");
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./pivot-ui-options");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { restoreRuntimeAliases } = require("../scripts/pivot-runtime-aliases");
 
 const pkgDir = path.join(__dirname, "..");
+
+// The packaged .next directory references its externalized dependencies
+// (serverExternalPackages) through hashed .next/node_modules aliases that
+// npm pack cannot ship. postinstall recreates them, but package managers such
+// as pnpm run dependency install scripts inside their own store, where the
+// dependencies are not linked yet. Restore them again here so the server never
+// starts with broken aliases, regardless of how the package was installed.
+try {
+  const { missing } = restoreRuntimeAliases(pkgDir);
+  if (missing.length > 0) {
+    console.warn(
+      `Could not restore Turbopack dependency aliases for: ${missing.join(", ")}. ` +
+        "Agent features may fail to load.",
+    );
+  }
+} catch (error) {
+  console.warn(`Could not restore Turbopack dependency aliases: ${error.message}`);
+}
+
 const nextDir = path.join(pkgDir, ".next");
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
