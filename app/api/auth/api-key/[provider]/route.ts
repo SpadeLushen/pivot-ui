@@ -1,6 +1,8 @@
 import { createPivotModelRuntime, LEGACY_AZURE_PROVIDER } from "@/lib/model-runtime";
 import { NextResponse } from "next/server";
-import { getAuthStore } from "@/lib/auth-store";
+import { getAuthStore, deleteStoredCredential } from "@/lib/auth-store";
+import { cancelProviderLogin } from "@/lib/provider-login";
+import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -14,25 +16,30 @@ export async function GET(_req: Request, { params }: Params) {
   const status = runtime.getProviderAuthStatus(provider);
   const displayName = runtime.getProvider(provider)?.name ?? provider;
   const models = runtime.getModels(provider).length;
-  return NextResponse.json({ provider, displayName, configured: status.configured, source: status.source, models });
+  const credential = await getAuthStore().read(provider);
+  return NextResponse.json({ provider, displayName, configured: status.configured && !runtime.isUsingOAuth(provider), source: status.source, models, storedType: credential?.type });
 }
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
 export async function POST(req: Request, { params }: Params) {
   const { provider } = await params;
   try {
-    const { apiKey } = await req.json() as { apiKey?: string };
+    const { apiKey, replaceOAuth } = await req.json() as { apiKey?: string; replaceOAuth?: boolean };
     if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
       return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
     }
     const authStore = getAuthStore();
-    await authStore.modify(provider, async (current) => current?.type === "api_key"
-      ? { ...current, key: apiKey.trim() }
-      : { type: "api_key", key: apiKey.trim() });
+    await authStore.modify(provider, async (current) => {
+      if (current?.type === "oauth" && replaceOAuth !== true) throw new Error("auth.replaceOAuth");
+      cancelProviderLogin(provider);
+      return current?.type === "api_key" ? { ...current, key: apiKey.trim() } : { type: "api_key", key: apiKey.trim() };
+    });
     invalidateModelsCache();
+    notifyMcpConfigurationChanged();
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    const conflict = error instanceof Error && error.message === "auth.replaceOAuth";
+    return NextResponse.json({ error: conflict ? "auth.replaceOAuth" : "auth.credentialsWriteFailed" }, { status: conflict ? 409 : 500 });
   }
 }
 
@@ -40,11 +47,12 @@ export async function POST(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
   const { provider } = await params;
   try {
-    const authStore = getAuthStore();
-    await authStore.delete(provider);
+    if ((await getAuthStore().read(provider))?.type === "api_key") cancelProviderLogin(provider);
+    await deleteStoredCredential(provider, "api_key");
     invalidateModelsCache();
+    notifyMcpConfigurationChanged();
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "auth.credentialsWriteFailed" }, { status: 500 });
   }
 }

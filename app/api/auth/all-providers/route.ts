@@ -1,9 +1,7 @@
 import { createPivotModelRuntime } from "@/lib/model-runtime";
+import { getAuthStore } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
-
-// Providers that use OAuth — handled separately via /api/auth/providers
-const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
 export async function GET() {
   const runtime = await createPivotModelRuntime();
@@ -17,23 +15,27 @@ export async function GET() {
     configured: boolean;
     source?: string;
     modelCount: number;
+    storedType?: "api_key" | "oauth";
   }[] = [];
 
   for (const m of all) {
     if (seen.has(m.provider)) continue;
     seen.add(m.provider);
-    if (OAUTH_PROVIDER_IDS.has(m.provider)) continue;
+    const provider = runtime.getProvider(m.provider);
+    if (!provider?.auth.apiKey?.login) continue;
     const status = runtime.getProviderAuthStatus(m.provider);
     // Skip providers whose key comes from models.json (those are custom providers)
     if (status.source === "models_json_key") continue;
-    const displayName = runtime.getProvider(m.provider)?.name ?? m.provider;
+    const displayName = provider.name;
+    const credential = await getAuthStore().read(m.provider);
     const modelCount = all.filter((x) => x.provider === m.provider).length;
     result.push({
       id: m.provider,
       displayName,
-      configured: status.configured,
+      configured: status.configured && !runtime.isUsingOAuth(m.provider),
       source: status.source,
       modelCount,
+      storedType: credential?.type,
     });
   }
 

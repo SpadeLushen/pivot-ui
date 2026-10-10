@@ -8,24 +8,20 @@ export async function GET() {
   const runtime = await ModelRuntime.create();
   const oauthProviders = getOAuthProviders(runtime);
 
-  const EXCLUDED = new Set(["anthropic"]);
-  const DISPLAY_NAMES: Record<string, string> = {
-    "openai-codex": "ChatGPT Plus/Pro",
-    "github-copilot": "GitHub Copilot",
-  };
-
   const authStore = getAuthStore();
   const result = await Promise.all(
-    oauthProviders
-      .filter((p) => !EXCLUDED.has(p.id))
-      .map(async (p) => {
-        const credential = await authStore.read(p.id);
-        return {
-          id: p.id,
-          name: DISPLAY_NAMES[p.id] ?? p.name,
-          loggedIn: credential !== undefined,
-        };
-      })
+    oauthProviders.map(async (p) => {
+      const credential = await authStore.read(p.id);
+      const method = p.auth.oauth!;
+      return {
+        id: p.id,
+        name: p.id === "openai-codex" ? p.name : method.name,
+        loginLabel: method.loginLabel ?? (p.id === "openai-codex" ? p.name : method.name),
+        loggedIn: credential?.type === "oauth",
+        storedType: credential?.type,
+        supportsApiKey: !!p.auth.apiKey,
+      };
+    })
   );
 
   return Response.json({ providers: result });

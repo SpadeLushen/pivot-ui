@@ -122,8 +122,13 @@ class FileCredentialStore implements CredentialStore {
   }
 
   delete(providerId: string, options?: AuthOperationOptions): Promise<void> {
+    return this.deleteIfType(providerId, undefined, options);
+  }
+
+  deleteIfType(providerId: string, type?: Credential["type"], options?: AuthOperationOptions): Promise<void> {
     return this.withLock(async (beforeWrite) => {
       const data = await readAuthData();
+      if (type && data[providerId]?.type !== type) return;
       delete data[providerId];
       beforeWrite();
       await writeAuthData(data);
@@ -137,4 +142,10 @@ let sharedStore: FileCredentialStore | undefined;
 export function getAuthStore(): CredentialStore {
   if (!sharedStore) sharedStore = new FileCredentialStore();
   return sharedStore;
+}
+
+/** Never let one authentication method disconnect the other method in its shared slot. */
+export function deleteStoredCredential(providerId: string, type: Credential["type"]): Promise<void> {
+  getAuthStore();
+  return sharedStore!.deleteIfType(providerId, type);
 }

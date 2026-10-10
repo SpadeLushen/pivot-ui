@@ -92,6 +92,9 @@ interface OAuthProvider {
   id: string;
   name: string;
   loggedIn: boolean;
+  loginLabel: string;
+  storedType?: "api_key" | "oauth";
+  supportsApiKey: boolean;
 }
 
 interface ApiKeyProvider {
@@ -100,6 +103,7 @@ interface ApiKeyProvider {
   configured: boolean;
   source?: string;
   modelCount: number;
+  storedType?: "api_key" | "oauth";
 }
 
 type OAuthLoginState =
@@ -107,7 +111,7 @@ type OAuthLoginState =
   | { phase: "connecting" }
   | { phase: "auth"; url: string; instructions: string | null; token: string }
   | { phase: "device_code"; userCode: string; verificationUri: string; intervalSeconds: number | null; expiresInSeconds: number | null }
-  | { phase: "prompt"; message: string; placeholder: string | null; token: string }
+  | { phase: "prompt"; message: string; placeholder: string | null; token: string; inputType?: string }
   | { phase: "select"; message: string; options: { id: string; label: string }[]; token: string }
   | { phase: "progress"; message: string }
   | { phase: "success" }
@@ -700,9 +704,16 @@ function ModelDetail({
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+  const { t } = useI18n();
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const [inputValue, setInputValue] = useState("");
+  const [loginLink, setLoginLink] = useState<{ url: string; instructions?: string } | null>(null);
+  const [progress, setProgress] = useState("");
+  const [info, setInfo] = useState<{ message: string; links?: { url: string; label?: string }[] }[]>([]);
+  const popupRef = useRef<Window | null>(null);
+  const popupOpened = useRef(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const submissionRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -711,36 +722,48 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     }
   }, [loginState.phase]);
 
+  const stopLogin = useCallback(() => {
+    eventSourceRef.current?.close(); eventSourceRef.current = null; submissionRef.current = null;
+    if (!popupOpened.current) popupRef.current?.close();
+    popupRef.current = null;
+  }, []);
+
   // Reset state when provider changes
   useEffect(() => {
     setLoginState({ phase: "idle" });
     setInputValue("");
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
-  }, [provider.id]);
+    setLoginLink(null); setProgress(""); setInfo([]); stopLogin();
+  }, [provider.id, stopLogin]);
 
-  useEffect(() => {
-    return () => { eventSourceRef.current?.close(); };
-  }, []);
+  useEffect(() => () => stopLogin(), [stopLogin]);
 
   const handleLogin = useCallback(() => {
-    eventSourceRef.current?.close();
+    if (provider.storedType === "api_key" && !window.confirm(t("auth.confirmReplaceApiKey", { provider: provider.name }))) return;
+    stopLogin(); setLoginLink(null); setProgress(""); setInfo([]);
     setLoginState({ phase: "connecting" });
     setInputValue("");
-
-    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
+    popupOpened.current = false;
+    try { popupRef.current = window.open("about:blank", "_blank"); if (popupRef.current) popupRef.current.opener = null; } catch { popupRef.current = null; }
+    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}${provider.storedType === "api_key" ? "?replace=api_key" : ""}`);
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
+      if (eventSourceRef.current !== es) return;
       const data = JSON.parse(e.data) as {
         type: string; url?: string; instructions?: string | null;
         token?: string; message?: string; placeholder?: string | null;
         userCode?: string; verificationUri?: string; intervalSeconds?: number | null; expiresInSeconds?: number | null;
         options?: { id: string; label: string }[];
+        inputType?: string; links?: { url: string; label?: string }[];
+      };
+      const open = (value: string) => {
+        const url = new URL(value); if (!["http:", "https:"].includes(url.protocol)) return;
+        try { if (popupRef.current && !popupRef.current.closed) { popupRef.current.location.replace(url.href); popupOpened.current = true; } } catch { /* A link is always shown. */ }
       };
       if (data.type === "auth") {
         setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
-        window.open(data.url!, "_blank", "noopener,noreferrer");
+        setLoginLink({ url: data.url!, instructions: data.instructions ?? undefined });
+        open(data.url!);
       } else if (data.type === "device_code") {
         setLoginState({
           phase: "device_code",
@@ -749,74 +772,65 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           intervalSeconds: data.intervalSeconds ?? null,
           expiresInSeconds: data.expiresInSeconds ?? null,
         });
-        window.open(data.verificationUri!, "_blank", "noopener,noreferrer");
+        open(data.verificationUri!);
       } else if (data.type === "prompt_request") {
-        setLoginState({ phase: "prompt", message: data.message!, placeholder: data.placeholder ?? null, token: data.token! });
+        setLoginState({ phase: "prompt", message: data.message!, placeholder: data.placeholder ?? null, token: data.token!, inputType: data.inputType });
       } else if (data.type === "select_request") {
         setLoginState({ phase: "select", message: data.message!, options: data.options ?? [], token: data.token! });
       } else if (data.type === "progress") {
-        setLoginState({ phase: "progress", message: data.message! });
+        setProgress(data.message!);
+      } else if (data.type === "info") {
+        setInfo(current => [...current, { message: data.message!, links: data.links }].slice(-10));
       } else if (data.type === "success") {
-        es.close();
+        stopLogin(); setInputValue(""); setLoginLink(null); setProgress("");
         setLoginState({ phase: "success" });
         onRefresh();
       } else if (data.type === "error") {
-        es.close();
-        setLoginState({ phase: "error", message: data.message! });
+        stopLogin(); setInputValue(""); setLoginLink(null); setProgress("");
+        setLoginState({ phase: "error", message: t(data.message!) });
       } else if (data.type === "cancelled") {
-        es.close();
+        stopLogin(); setInputValue(""); setLoginLink(null); setProgress("");
         setLoginState({ phase: "idle" });
       }
     };
     es.onerror = () => {
-      es.close();
-      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
+      if (eventSourceRef.current !== es) return;
+      stopLogin(); setInputValue(""); setLoginLink(null); setProgress("");
+      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: t("auth.connectionLost") });
     };
-  }, [provider.id, onRefresh]);
+  }, [provider.id, provider.name, provider.storedType, onRefresh, stopLogin, t]);
 
   const handleLogout = useCallback(async () => {
-    await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
-    setLoginState({ phase: "idle" });
-    onRefresh();
-  }, [provider.id, onRefresh]);
-
-  const submitCode = useCallback(async (token: string, code: string) => {
-    if (!code.trim()) return;
-    setLoginState({ phase: "progress", message: "Verifying…" });
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, code: code.trim() }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({})) as { error?: string };
-        setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
-        return;
-      }
-      setInputValue("");
-      // Success path: SSE stream will emit "success" and update state
-    } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
-    }
-  }, [provider.id]);
+      const response = await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
+      if (!response.ok) throw new Error("auth.disconnectFailed");
+      stopLogin(); setLoginState({ phase: "idle" }); onRefresh();
+    } catch { setLoginState({ phase: "error", message: t("auth.disconnectFailed") }); }
+  }, [provider.id, onRefresh, stopLogin, t]);
 
-  const submitSelection = useCallback(async (token: string, value: string) => {
-    setLoginState({ phase: "progress", message: "Continuing…" });
+  const submitCode = useCallback(async (token: string, value: string) => {
+    const es = eventSourceRef.current;
+    if (!es || submissionRef.current === es || !value.trim()) return;
+    submissionRef.current = es;
+    setLoginState({ phase: "progress", message: t("auth.verifying") }); setProgress("");
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, code: value }),
+      const response = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, code: value.trim() }),
       });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({})) as { error?: string };
-        setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
-      }
-    } catch (e) {
-      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
-    }
-  }, [provider.id]);
+      if (eventSourceRef.current !== es) return;
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        stopLogin(); setInputValue(""); setLoginLink(null);
+        setLoginState({ phase: "error", message: t(data.error ?? "auth.loginFailed") });
+      } else setInputValue("");
+    } catch {
+      if (eventSourceRef.current !== es) return;
+      stopLogin(); setInputValue(""); setLoginLink(null);
+      setLoginState({ phase: "error", message: t("auth.connectionLost") });
+    } finally { if (submissionRef.current === es) submissionRef.current = null; }
+  }, [provider.id, stopLogin, t]);
+  const submitSelection = submitCode;
 
   const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
     loginState.phase === "auth" || loginState.phase === "device_code" ||
@@ -825,7 +839,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Subscription</SectionTitle>
+        <SectionTitle>{t("auth.accountSignIn")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "#4ade80" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
@@ -834,6 +848,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         </div>
       </div>
 
+      <code style={{ fontSize: 11, color: "var(--text-dim)" }}>{provider.id}</code>
+      {["openai", "openai-codex"].includes(provider.id) && <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("auth.codexCoexist")}</p>}
+      {provider.supportsApiKey && <p style={{ margin: 0, fontSize: 12, color: "var(--text-dim)" }}>{t("auth.sharedCredentialSlot")}</p>}
       {/* Status */}
       <div style={{ minHeight: 48 }}>
         {loginState.phase === "idle" && (
@@ -869,7 +886,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
                 : loginState.message}
             </p>
-            {loginState.phase === "auth" && (
+            {loginState.phase === "auth" && !loginLink && (
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
                 If the browser window did not open,{" "}
                 <a href={loginState.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
@@ -881,10 +898,12 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             <div style={{ display: "flex", gap: 6 }}>
               <input
                 ref={inputRef}
+                type={loginState.phase === "prompt" && loginState.inputType === "secret" ? "password" : "text"}
+                autoComplete="off" spellCheck={false}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
-                placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+                placeholder={loginState.phase === "auth" ? t("auth.fullCallback") : (loginState.placeholder ?? "Enter value…")}
                 style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
               />
               <button
@@ -924,11 +943,19 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         )}
       </div>
 
+      {loginLink && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        <a href={loginLink.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{t("auth.openLogin")}</a>
+        {loginLink.instructions && <p style={{ margin: "6px 0 0" }}>{loginLink.instructions}</p>}
+      </div>}
+      {progress && isWorking && <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{progress}</p>}
+      {info.map((item, index) => <div key={index} style={{ fontSize: 12, color: "var(--text-muted)" }}>
+        {t(item.message)} {item.links?.map(link => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", marginLeft: 6 }}>{link.label ?? t("auth.moreInfo")}</a>)}
+      </div>)}
       {/* Actions */}
       <div style={{ display: "flex", gap: 8 }}>
         {isWorking ? (
           <button
-            onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
+            onClick={() => { stopLogin(); setInputValue(""); setLoginLink(null); setProgress(""); setInfo([]); setLoginState({ phase: "idle" }); }}
             style={{ padding: "5px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
           >
             Cancel
@@ -939,7 +966,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               onClick={handleLogin}
               style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: 5, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
             >
-              {provider.loggedIn ? "Re-login" : "Login"}
+              {provider.loggedIn ? t("auth.reauthenticate") : provider.loginLabel}
             </button>
             {provider.loggedIn && (
               <button
@@ -975,6 +1002,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
   const handleSave = useCallback(async () => {
     if (!apiKey.trim()) return;
+    if (provider.storedType === "oauth" && !window.confirm(t("auth.confirmReplaceOAuth", { provider: provider.displayName }))) return;
     setSaving(true);
     setError(null);
     setSavedOk(false);
@@ -982,11 +1010,11 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
+        body: JSON.stringify({ apiKey: apiKey.trim(), replaceOAuth: provider.storedType === "oauth" }),
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) {
-        setError(d.error ?? `HTTP ${res.status}`);
+        setError(t(d.error ?? "auth.credentialsWriteFailed"));
       } else {
         setApiKey("");
         setSavedOk(true);
@@ -998,7 +1026,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     } finally {
       setSaving(false);
     }
-  }, [apiKey, provider.id, onRefresh]);
+  }, [apiKey, provider.id, provider.displayName, provider.storedType, onRefresh, t]);
 
   const handleRemove = useCallback(async () => {
     setRemoving(true);
@@ -1218,7 +1246,7 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Subscriptions</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("auth.accountSignIn")}</div>
               )}
               {availableOAuth.map((p) => (
                 <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
@@ -1407,12 +1435,12 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -1470,7 +1498,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
             display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
-              {/* Active OAuth subscriptions */}
+              {/* Active OAuth accounts */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (

@@ -1,6 +1,9 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { deleteStoredCredential } from "@/lib/auth-store";
+import { cancelProviderLogin } from "@/lib/provider-login";
+import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +17,9 @@ export async function POST(
   if (!oauthProviders.some((p) => p.id === provider)) {
     return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
   }
-  await runtime.logout(provider);
+  cancelProviderLogin(provider);
+  await deleteStoredCredential(provider, "oauth");
   invalidateModelsCache();
+  notifyMcpConfigurationChanged();
   return Response.json({ ok: true });
 }

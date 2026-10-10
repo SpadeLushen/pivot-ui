@@ -1,9 +1,17 @@
-import { randomUUID } from "node:crypto";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createHash, randomUUID } from "node:crypto";
+import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { getAuthStore } from "@/lib/auth-store";
+import { beginProviderLogin, providerLoginDeviceId, providerLoginError } from "@/lib/provider-login";
+import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 
 export const dynamic = "force-dynamic";
+function authUrl(value: string): string {
+  const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Invalid authorization URL");
+  return url.href;
+}
 
 // Ephemeral registry: each provider-bound prompt owns a one-use token.
 declare global {
@@ -21,9 +29,9 @@ export async function POST(
   { params }: { params: Promise<{ provider: string }> }
 ) {
   const { provider } = await params;
-  const { token, code } = (await req.json()) as { token?: string; code?: string };
-
-  if (typeof token !== "string" || typeof code !== "string" || !token || !code) {
+  const body = await req.json().catch(() => null) as { token?: unknown; code?: unknown } | null;
+  const token = body?.token, code = body?.code;
+  if (typeof token !== "string" || typeof code !== "string" || !token || !code || code.length > 16384) {
     return Response.json({ error: "token and code required" }, { status: 400 });
   }
 
@@ -53,36 +61,32 @@ export async function GET(
   const { provider } = await params;
 
   const encoder = new TextEncoder();
-  let cancelled = false;
+  let cancelled = false, ended = false;
   const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    if (!cancelled && !abort.signal.aborted) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    if (!cancelled && !ended && !abort.signal.aborted) {
+      try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); }
+      catch { abort.abort(); }
     }
   };
   const close = (controller: ReadableStreamDefaultController) => {
-    if (!cancelled) controller.close();
+    if (!cancelled && !ended) { ended = true; try { controller.close(); } catch { /* Disconnected. */ } }
   };
 
   // AbortController propagates client disconnect into ModelRuntime.login()
   const abort = new AbortController();
+  const onAbort = () => abort.abort();
   if (req.signal.aborted) abort.abort();
-  else req.signal.addEventListener("abort", () => abort.abort(), { once: true });
+  else req.signal.addEventListener("abort", onAbort, { once: true });
 
   const stream = new ReadableStream({
     async start(controller) {
-      const runtime = await ModelRuntime.create();
-      if (abort.signal.aborted) {
-        close(controller);
-        return;
-      }
-      const providers = getOAuthProviders(runtime);
-      const providerInfo = providers.find((p) => p.id === provider);
-      if (!providerInfo) {
-        send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        close(controller);
-        return;
-      }
-
+      const release = beginProviderLogin(provider, abort);
+      if (!release) { send(controller, { type: "error", message: "auth.loginBusy" }); close(controller); req.signal.removeEventListener("abort", onAbort); return; }
+      let expired = false;
+      const timeout = setTimeout(() => { expired = true; send(controller, { type: "error", message: "auth.loginExpired" }); abort.abort(); }, 5 * 60_000);
+      timeout.unref();
+      const heartbeat = setInterval(() => send(controller, { type: "keepalive" }), 15_000);
+      heartbeat.unref();
       const registry = getCallbackRegistry();
       const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
@@ -124,6 +128,13 @@ export async function GET(
         return pendingManualRequest;
       };
 
+      const bindPromptSignal = (request: { token: string; promise: Promise<string> }, signal?: AbortSignal) => {
+        const cancel = () => registry.get(request.token)?.reject(new Error("Login cancelled"));
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener("abort", cancel, { once: true });
+        void request.promise.finally(() => signal?.removeEventListener("abort", cancel)).catch(() => {});
+      };
+
       // Cleanup: remove pending token and abort any waiting promise
       const cleanup = () => {
         for (const token of activeTokens) {
@@ -137,6 +148,22 @@ export async function GET(
       abort.signal.addEventListener("abort", cleanup);
 
       try {
+        abort.signal.throwIfAborted();
+        const store = getAuthStore(), previous = await store.read(provider);
+        if (previous?.type === "api_key" && new URL(req.url).searchParams.get("replace") !== "api_key") throw new Error("auth.replaceApiKey");
+        const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value ?? null)).digest("hex");
+        const expected = fingerprint(previous);
+        const runtime = await ModelRuntime.create({ signal: abort.signal, credentials: {
+          read: store.read.bind(store), list: store.list.bind(store), delete: store.delete.bind(store),
+          modify: (id, update, options) => store.modify(id, async current => {
+            abort.signal.throwIfAborted();
+            if (id === provider && fingerprint(current) !== expected) throw new Error("auth.credentialsChanged");
+            return update(current);
+          }, options),
+        } });
+        if (!getOAuthProviders(runtime).some(p => p.id === provider)) throw new Error("Unknown OAuth provider");
+        const deviceId = await providerLoginDeviceId();
+        abort.signal.throwIfAborted();
         await runtime.login(provider, "oauth", {
           signal: abort.signal,
           notify: (event) => {
@@ -145,7 +172,7 @@ export async function GET(
                 const request = getManualInputRequest();
                 send(controller, {
                   type: "auth",
-                  url: event.url,
+                  url: authUrl(event.url),
                   instructions: event.instructions ?? null,
                   token: request.token,
                 });
@@ -155,7 +182,7 @@ export async function GET(
                 send(controller, {
                   type: "device_code",
                   userCode: event.userCode,
-                  verificationUri: event.verificationUri,
+                  verificationUri: authUrl(event.verificationUri),
                   intervalSeconds: event.intervalSeconds ?? null,
                   expiresInSeconds: event.expiresInSeconds ?? null,
                 });
@@ -164,7 +191,8 @@ export async function GET(
                 send(controller, { type: "progress", message: event.message });
                 break;
               case "info":
-                // Informational only; no dedicated frontend handler.
+                send(controller, { type: "info", message: event.message,
+                  links: event.links?.map(link => ({ ...link, url: authUrl(link.url) })) });
                 break;
             }
           },
@@ -173,6 +201,7 @@ export async function GET(
               // Fresh token per select: a flow may emit auth_url then a select
               // prompt, and each prompt must resolve its own submission.
               const request = createClientInputRequest(new Set(prompt.options.map((option) => option.id)));
+              bindPromptSignal(request, prompt.signal);
               send(controller, {
                 type: "select_request",
                 message: prompt.message,
@@ -182,28 +211,41 @@ export async function GET(
               return request.promise;
             }
             const request = getManualInputRequest();
+            bindPromptSignal(request, prompt.signal);
             send(controller, {
               type: "prompt_request",
+              inputType: prompt.type,
               message: prompt.message,
               placeholder: prompt.placeholder ?? null,
               token: request.token,
             });
             return request.promise;
           },
-        });
+        }, { getDeviceId: () => deviceId });
 
+        // Refresh only the provider just authorized (e.g. Radius account catalogs).
+        // Catalog failure must not misreport an already saved login as failed.
+        try {
+          const refreshed = await runtime.refresh({ providers: [provider], allowNetwork: true,
+            signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)]) });
+          if (refreshed.errors.size || refreshed.aborted) send(controller, { type: "info", message: "auth.savedReloadFailed" });
+        } catch { send(controller, { type: "info", message: "auth.savedReloadFailed" }); }
         invalidateModelsCache();
+        notifyMcpConfigurationChanged();
         send(controller, { type: "success" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg !== "Login cancelled") {
-          send(controller, { type: "error", message: msg });
-        } else {
-          send(controller, { type: "cancelled" });
+        if (err instanceof CredentialSynchronizationError && err.operation === "login") {
+          invalidateModelsCache(); notifyMcpConfigurationChanged();
+          send(controller, { type: "info", message: "auth.savedReloadFailed" });
+          send(controller, { type: "success" });
+        } else if (!expired && !abort.signal.aborted) {
+          send(controller, { type: "error", message: providerLoginError(err) });
         }
       } finally {
-        cleanup();
-        close(controller);
+        cleanup(); clearTimeout(timeout); clearInterval(heartbeat);
+        abort.signal.removeEventListener("abort", cleanup);
+        req.signal.removeEventListener("abort", onAbort);
+        release(); close(controller);
       }
     },
     cancel() {
@@ -215,8 +257,9 @@ export async function GET(
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-store",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

@@ -1,18 +1,24 @@
 // Runs only SDK OAuth in an isolated worker: no global fetch changes in the Next server.
-// Each request is bounded. Cancellation stops new requests and the callback wait, but lets
-// a token exchange already answered finish persisting credentials (including rotated tokens).
+// Cancellation aborts discovery/registration and callback wait through the SDK signal.
+// Once a token grant starts, defer abort until its bounded request and credential commit finish.
 export const MCP_OAUTH_WORKER = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
 const originalFetch = globalThis.fetch;
-let cancelled = false, pending;
+const cancellation = new AbortController();
+let cancelled = false, grantStarted = false, pending;
 globalThis.fetch = (input, init = {}) => {
   if (cancelled) return Promise.reject(new Error("Sign-in cancelled"));
+  // Native token requests use URLSearchParams; do not interrupt a potentially rotated grant
+  // between response headers, body consumption, SDK saveTokens and the final locked commit.
+  const grant = init.body instanceof URLSearchParams ? init.body.get("grant_type") : undefined;
+  if (init.method?.toUpperCase() === "POST" && (grant === "authorization_code" || grant === "refresh_token")) grantStarted = true;
   const signal = AbortSignal.any([AbortSignal.timeout(30000), ...(init.signal ? [init.signal] : [])]);
   return originalFetch(input, { ...init, signal });
 };
 parentPort.on("message", (message) => {
   if (message.type === "cancel") {
     cancelled = true;
+    if (!grantStarted) cancellation.abort();
     pending?.reject(new Error("Sign-in cancelled"));
     pending = undefined;
   } else if (message.type === "callback" && pending && !cancelled) {
@@ -36,7 +42,7 @@ async function run() {
   const store = { load: () => state === undefined ? undefined : structuredClone(state), save: (next) => { state = structuredClone(next); } };
   await signInMcpServer({
     serverUrl: workerData.serverUrl, store,
-    settings, challenge: workerData.challenge,
+    settings, challenge: workerData.challenge, signal: cancellation.signal,
     prompt: {
       showAuthorizationUrl(url) {
         if (cancelled) throw new Error("Sign-in cancelled");
