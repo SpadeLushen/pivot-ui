@@ -3161,6 +3161,9 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 
 .chat-message-scroll {
+  /* Composer autosizing must not re-anchor a partially visible message.
+     History restoration and tail following are owned by useChatViewport. */
+  overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-dim) 45%, transparent) transparent;
 }
