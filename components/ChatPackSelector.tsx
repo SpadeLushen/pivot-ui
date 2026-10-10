@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Package, PackagePlus } from "lucide-react";
+import { Package, PackagePlus, TriangleAlert } from "lucide-react";
 import type { AppliedPackInfo, SkillPackInfo, WorkspaceSkillPacksResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
 import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
@@ -25,7 +25,8 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const loadGeneration = useRef(0);
   const workspaceRevision = useWorkspacePackRevision(cwd);
   const [open, setOpen] = useState(false);
-  const trust = useWorkspaceTrust(cwd, open && !disabled);
+  const trust = useWorkspaceTrust(cwd);
+  const untrusted = trust.trusted === false;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,15 +102,16 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
       if (e instanceof WorkspacePackRequestError && e.plan && requiresWorkspaceTrust(e.plan)) trust.refresh();
     } finally { setBusy(false); }
   };
+  const hasEnabledPacks = trust.trusted === true && applied.length > 0;
   return (
     <div ref={rootRef} style={{ position: "relative", marginLeft: 4, minWidth: 0, display: "flex", gap: 6 }}>
       <button type="button" onClick={() => {
         if (open) setOpen(false);
         else { trust.refresh(); setLoading(true); setOpen(true); }
       }} disabled={disabled || busy || trust.granting} aria-expanded={open && !disabled} title={t("packs.workspaceSwitches")}
-        style={{ display: "flex", alignItems: "center", gap: 4, border: applied.length ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: applied.length ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: applied.length ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
-        {applied.length ? <Package size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : <PackagePlus size={11} aria-hidden="true" style={{ flexShrink: 0 }} />}
-        <span>{applied.length}</span>
+        style={{ display: "flex", alignItems: "center", gap: 4, border: hasEnabledPacks ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: hasEnabledPacks ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: hasEnabledPacks ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
+        {hasEnabledPacks ? <Package size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : <PackagePlus size={11} aria-hidden="true" style={{ flexShrink: 0 }} />}
+        {untrusted ? <TriangleAlert size={11} aria-label={t("workspaceTrust.required")} style={{ flexShrink: 0 }} /> : <span>{applied.length}</span>}
       </button>
       {open && !disabled && (
         <div role="group" aria-label={t("packs.workspaceSwitches")} style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100, width: 290, maxWidth: "calc(100vw - 32px)", maxHeight: "min(380px, 60vh)", overflowY: "auto", background: "var(--overlay-bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.25)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
