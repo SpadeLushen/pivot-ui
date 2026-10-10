@@ -70,8 +70,13 @@ export function assistantTimingId(message: { timestamp?: number; provider?: stri
   return `${message.timestamp ?? "unknown"}:${(hash >>> 0).toString(36)}`;
 }
 
+/** Optional SDK timings: zero is valid; missing, negative and non-finite values are not. */
+export function recordedDuration(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 export function formatElapsed(ms: number): string {
-  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
   const seconds = Math.round(ms / 1000);
   return ms < 60_000 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }

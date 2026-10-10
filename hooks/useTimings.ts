@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantMessage } from "@/lib/types";
-import { assistantTimingId, MAX_TIMING_RECORDS, saveTimings } from "@/lib/timing-store";
+import { assistantTimingId, MAX_TIMING_RECORDS, recordedDuration, saveTimings } from "@/lib/timing-store";
 import { normalizeToolCalls } from "@/lib/normalize";
 
 interface TimingEvent {
@@ -102,7 +102,7 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
         refresh();
         break;
       }
-      case "agent_end":
+      case "agent_settled":
         stopActive();
         break;
       case "tool_execution_start":
@@ -114,8 +114,11 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
         if (typeof id !== "string") break;
         const start = tools.current.get(id);
         tools.current.delete(id);
-        if (start !== undefined) {
-          const ms = clock - start;
+        // Nested summaries time the whole invocation pipeline, unlike execute-only end events.
+        // Keep their browser fallback on that same start/end boundary until the summary arrives.
+        const ms = (event.parentToolCallId === undefined ? recordedDuration(event.durationMs) : undefined)
+          ?? (start !== undefined ? clock - start : undefined);
+        if (ms !== undefined) {
           stage(`tool:${sid}:${id}`, ms);
           finishedTools.current.set(id, ms);
         }

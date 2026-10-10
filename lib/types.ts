@@ -1,3 +1,5 @@
+import type { RecordedUsage } from "./session-usage";
+
 // Types mirrored from pi-mono coding-agent session-manager
 
 // ── Chat attachments ──────────────────────────────────────────────────────
@@ -77,7 +79,10 @@ export interface TextContent {
 
 export interface ImageContent {
   type: "image";
-  source: {
+  /** SDK images use flat base64 fields; older messages use source. */
+  data?: string;
+  mimeType?: string;
+  source?: {
     type: "base64" | "url";
     media_type?: string;
     data?: string;
@@ -117,6 +122,8 @@ export interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
+  /** SDK response duration, not the duration of the whole turn including tools. */
+  durationMs?: number;
   usage?: {
     input: number;
     output: number;
@@ -132,6 +139,21 @@ export interface AssistantMessage {
   };
 }
 
+export interface NestedToolCallRecord {
+  id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+  argumentsBytes?: number;
+  status: "ok" | "error" | "unfinished";
+  durationMs?: number;
+  error?: string;
+}
+
+export interface NestedToolCalls {
+  calls: NestedToolCallRecord[];
+  complete: boolean;
+}
+
 export interface ToolResultMessage {
   role: "toolResult";
   toolCallId: string;
@@ -139,8 +161,22 @@ export interface ToolResultMessage {
   content: (TextContent | ImageContent)[];
   isError?: boolean;
   details?: unknown;
+  nestedCalls?: NestedToolCalls;
+  /** Aggregate parent usage, including SDK-accounted nested model calls. */
+  usage?: RecordedUsage;
+  /** SDK execute-only duration; absent on legacy or unexecuted results. */
+  durationMs?: number;
+  /** UI-only history projection; image bytes remain in the session file. */
+  deferredImages?: {
+    entryId: string;
+    noticeIndex: number;
+    images: { blockIndex: number; mimeType?: string }[];
+  };
   timestamp?: number;
 }
+
+/** Shared view contract: transient child previews are not transcript messages. */
+export type ToolResultView = Pick<ToolResultMessage, "toolCallId" | "content" | "isError" | "details" | "deferredImages">;
 
 export interface CustomMessage {
   role: "custom";

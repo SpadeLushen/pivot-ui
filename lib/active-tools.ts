@@ -1,12 +1,15 @@
 import type { AgentSessionLike } from "./pi-types";
 import { readWorkspaceTools } from "./workspace-tools";
 import { applyToolExposure, isMcpTool } from "./session-tool-policy";
+import { recordAppliedToolRules, recordToolRuleFailure } from "./tool-application";
 
 /** Available tools by default, with explicit workspace enablement/exposure overrides. */
-export function activateAllSessionTools(
-  session: AgentSessionLike,
-): void {
-  const rules = readWorkspaceTools(session.sessionManager.getCwd(), session.settingsManager.isProjectTrusted()).rules;
+export function activateAllSessionTools(session: AgentSessionLike): void {
+  try { applySessionTools(session); }
+  catch (error) { recordToolRuleFailure(session); throw error; }
+}
+function applySessionTools(session: AgentSessionLike): void {
+  const { rules, revision } = readWorkspaceTools(session.sessionManager.getCwd(), session.settingsManager.isProjectTrusted());
   const active = new Set(session.getActiveToolNames());
   let exposureChanged = false;
   const names = session.getAllTools().filter((tool) => {
@@ -31,6 +34,8 @@ export function activateAllSessionTools(
     const orchestrator = updated.find((tool) => tool.name === helper);
     if (needed && orchestrator && (orchestrator.exposure === "direct" || orchestrator.exposure === "model-only") && !names.includes(helper)) names.push(helper);
   }
-  if (!exposureChanged && active.size === names.length && names.every((name) => active.has(name))) return;
-  session.setActiveToolsByName(names);
+  if (exposureChanged || active.size !== names.length || !names.every((name) => active.has(name))) {
+    session.setActiveToolsByName(names);
+  }
+  recordAppliedToolRules(session, revision);
 }

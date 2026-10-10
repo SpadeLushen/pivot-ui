@@ -4,9 +4,10 @@ import { createHash } from "node:crypto";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { NativeMcpEditorSnapshot, NativeMcpEditorServer, NativeMcpScope } from "./api-types";
 import { requirePackWorkspace } from "./workspace-pack-access";
-import { readPackFile, savePackFile, workspaceFile, type PackFile } from "./workspace-pack-files";
+import { readPackFile, savePackFile, workspaceFile, workspaceKey, type PackFile } from "./workspace-pack-files";
 import { withWorkspaceLock } from "./skill-pack-apply";
-import { readWorkspaceState } from "./workspace-packs";
+import { collectActiveNativeMcpServers, readWorkspaceState } from "./workspace-packs";
+import { getDefaultConfigPath, readConfig } from "./skill-packs-store";
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 import { validateNativeMcpDefinition } from "./native-mcp-config";
 import { isMcpObject, redactMcpDefinition, restoreMcpSecrets } from "./native-mcp-editor-secrets";
@@ -52,7 +53,12 @@ async function context(scope: NativeMcpScope, cwd?: string): Promise<EditorConte
       throw new NativeMcpEditorError("Trust this workspace in Pi before reading or editing its MCP configuration", 403);
     }
     target = readFile(workspaceFile(cwd, "mcp.json"));
-    for (const name of readWorkspaceState({ cwd }).managedNativeMcpServers ?? []) managed.add(name);
+    try {
+      // These readers otherwise treat malformed JSON as empty; ownership checks must fail closed.
+      readPackFile(workspaceFile(cwd, "skill-packs.json"));
+      readPackFile(getDefaultConfigPath());
+      for (const name of collectActiveNativeMcpServers(readWorkspaceState({ cwd }), readConfig())) managed.add(name);
+    } catch { throw new NativeMcpEditorError("mcp.packOwnershipReadFailed", 409); }
   }
   const revision = createHash("sha256").update(JSON.stringify([scope, target.path, global.before, target.before, [...managed].sort()])).digest("hex");
   return { scope, cwd, global, target, revision, managed };
@@ -125,7 +131,7 @@ export interface NativeMcpEdit {
 export async function editNativeMcpServer(action: "create" | "update" | "delete", edit: NativeMcpEdit): Promise<NativeMcpEditorSnapshot> {
   if (action !== "delete" && !/^[A-Za-z0-9_-]+$/.test(edit.serverKey)) throw new NativeMcpEditorError('Server names may contain only letters, digits, "_" and "-"');
   const initial = await context(edit.scope, edit.cwd);
-  const lock = initial.scope === "project" ? initial.cwd! : resolve(getAgentDir());
+  const lock = initial.scope === "project" ? workspaceKey(initial.cwd!) : resolve(getAgentDir());
   return withWorkspaceLock(lock, async () => {
     const ctx = await context(edit.scope, edit.cwd);
     if (!edit.revision || ctx.revision !== edit.revision) throw new NativeMcpEditorError("MCP configuration changed; reload the editor before saving", 409);

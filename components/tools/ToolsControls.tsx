@@ -43,5 +43,6 @@ export function ToolSwitch({ checked, disabled, label, onChange, variant, title 
   </label>;
 }
 export function ToolError({ error }: { error: string | null }) {
-  return error ? <div className="tools-error" role="alert">{error}</div> : null;
+  const { t } = useI18n();
+  return error ? <div className="tools-error" role="alert">{t(error)}</div> : null;
 }

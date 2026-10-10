@@ -202,7 +202,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
-    agentPhase, timings,
+    agentPhase, timings, nestedCalls,
     isNew,
     sessionIdRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -244,6 +244,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       sessionStats.tokens.cacheWrite,
       sessionStats.tokens.total,
       sessionStats.cost ?? 0,
+      JSON.stringify(sessionStats.accounting),
+      JSON.stringify(sessionStats.contextUsage),
+      sessionStats.statsUnavailable ?? false,
     ].join("|")
     : null;
   const sessionStatsRef = useRef(sessionStats);
@@ -512,6 +515,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     key={`${keyPrefix}-view-${idx}`}
                     message={msg}
                     toolResults={toolResultsMap}
+                    nestedCalls={nestedCalls}
                     modelNames={modelNames}
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}

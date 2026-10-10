@@ -1,19 +1,40 @@
-# Pivot UI 适配 pi 0.99 → 1.0.3 升级计划
+# Pivot UI 适配 pi 0.99 → 1.1.0 升级计划
 
-> 当前工作流程以 AGENTS.md 为准：仅在当前工作区执行 `npm run build`（包含其自带打包），不再自动建立隔离构建目录、备份或同步运行目录，不停止／重启现有服务。
-> 17.8–17.10 是历史实施记录，不再授权其中的隔离构建、备份、同步或 Pack 继承操作。最新实现与验证见 17.11；真实账户、第三方 MCP、Windows Terminal／ACL 的人工验收仍不能由本地自动化代替。
-> 项目 SDK 为 1.0.3，Pivot 保持 1.2.2；本次仅按明确要求分组提交，不发布或推送。
-> 已确认决策：Pivot UI 跟随 pi 升级到 TypeScript 7，纳入阶段 A 的 P0 范围。
-> P0 目标：在已实施的 1.0.2 基础上完成 1.0.3 必要现有功能兼容；代码与隔离自动化已完成，不等同完整实机验收，既有人工验收及部署门槛仍保留。
-> P0 边界：不新增功能；假设用户不使用原生 MCP、codemode 等新功能，原生 MCP 共存适配也不在 P0 范围内。
-> 发布策略：P0–P2 全部完成并通过验收前不发布；分阶段仅为方便开发、测试和定位问题。
-> P1 最新决策：切换原生 MCP 作为 breaking change，不提供任何迁移／导入／目录补全功能；旧方案撤销，见第四节。现已实现原生配置管理及工作区 Tools／Packs 开关，现有用户文件不自动迁移。
-> 当前工具策略：移除旧预设控件、忽略旧预设记录；默认使用可用工具并尊重工作区启用／Exposure、owner-hidden 及 SDK 原生 MCP 的激活规则。
-> 已实施项与验证结果以文末记录为准；其余仍为计划，不代表已实现或验收通过。
+> 当前工作流程以 AGENTS.md 为准：仅在当前工作区执行 `npm run build`（包含其自带打包）；不建立隔离构建目录、备份或同步运行目录，不停止／重启现有服务。测试与 lint 仅在用户明确要求时执行。
+> 正文早期调研及 16.x、17.1–17.10 保留为历史，不再授权隔离构建、备份、迁移或 Pack 继承。当前状态以本节及 17.11–17.18 为准，阶段 C 与 1.1.0 增量详细计划另见链接。
+> 项目 SDK 已同步到 1.1.0，必要兼容已实施且当前工作区构建通过；Pivot 保持 1.2.2，继续使用 TypeScript 7；用户现已授权全部待提交改动按主题提交，不推送或发布。最新授权阶段 C 补测及完整回归已通过：578 项，574 通过、4 跳过、0 失败，含既有无头浏览器用例；完整专项／真实账户验收未完成，详见 [1.1.0 测试记录](pi-1.1.0-upgrade-plan.md#8-用户授权后的自动化测试记录)。
+> B1、B2 已经用户验收；新登录接入也已确认完成。Business 的第三方委托访问策略拒绝是上游限制，不作为阶段 C 的前置开发任务。
+> 原生 MCP 是 breaking change，不提供迁移／导入／目录补全，不恢复 Library 定义部署或新工作区 Pack 继承；现有用户文件不自动处理。
+> 工具默认使用可用集合，尊重工作区启用／Exposure、owner-hidden、权限 hooks 及 SDK 原生 MCP 激活规则；历史预设保留但忽略。
+> P0–P2 是开发优先级，不是分批发布计划；最终统一交付仍需相应验收。计划不代表实现，本节不撤销真实账户、第三方服务器、Windows PTY／ACL 及部署的验收门槛。
 
-## 待处理的 P0 项目
+## 待处理的项目
 
-当前无待处理的 P0 开发项目。已完成的实施与验证记录见 17.8、17.9。
+这里只列当前未完成事项；已完成的 A、B1、B2、C1 及登录接入不再重复列入开发待办。阶段 C 的执行细节以 [阶段 C 计划](codemode-stage-c-plan.md) 为准。
+
+### P0：现有功能兼容与最终交付门槛
+
+1.1.0 依赖升级与必要兼容已实施、工作区构建通过，证据见 17.17 及 [增量实施记录](pi-1.1.0-upgrade-plan.md)；不再列为待开发项目。
+
+- [ ] **pi 1.1.0 剩余专项验收**：已有自动化回归及新增耗时／MCP grant 取消用例通过（538 项：534 通过、4 跳过）；完整 Output、终态／重连／完成音浏览器行为及真实账户等矩阵未全部完成，详见增量计划第六、八节。C3 后经用户独立授权实施，不重开 C2 已通过的 1.0.4 验收；这些剩余专项仍不视为已完成。
+
+- [ ] 最终发布前回归既有会话／认证／工具／Packs／扩展／导出／安装能力，并完成真实账户、第三方 MCP、Windows PTY／ACL 和匹配运行进程验收。测试、安装验证、部署或服务控制须另获明确授权；这些门槛不阻塞阶段 C 的规划和开发。
+
+### P1：阶段 C 优先，之后进入阶段 D
+
+**C1 已经用户验收通过**，不再列入待办；实施与混合图片输出验收证据见 [C1 记录](codemode-stage-c-plan.md#c1-实施记录)。
+
+**C2 已实施、构建通过，用户已确认浏览器验收通过**，不再列为待开发／待浏览器验收项目。采用父工具卡片摘要＋折叠调用树、实时有界预览与 SDK 历史摘要；实施与用户反馈见 [C2 记录](codemode-stage-c-plan.md#c2-实施记录)。1.1.0 自动化回归已补充计时／嵌套摘要证据；用户另补充确认此前 codemode＋MCP 可正常显示，视为该集成场景验收通过，C2 不再列为待验收项目。不将该确认扩大为全部 MCP 边界场景或最终发布验收。
+- [x] **C3：编排配置与能力模型（实现、构建及授权本地自动化通过）**。最新 UI 为全局／工作区暂存与单一 Save；继承、冲突、隔离、延后应用／失败重试、真实 SDK 声明／prompt／权限及 Chrome fixture 证据见 [补测记录](codemode-stage-c-plan.md#8-授权自动化补测记录)。信任提示用户验收保留，不据 fixture 扩大为生产整应用／真实外部账户验收。
+- [x] **C4：费用与统计（实现、构建及授权本地自动化通过）**。父工具 usage、完整会话／分支账本、SDK／历史一致性、缺失／零费用和快照 race／重连已覆盖；当前上下文占用独立，见同一补测记录。付费模型与生产整应用验收另记。
+- [ ] **D：剩余 runtime／配置能力**。完整 prompt／steer／follow-up disposition、virtual selected／routed model、typed catalog／classifier-only Provider 和非 chat 模型测试、完整 Theme bridge／内置扩展诊断及采样参数专用 UI；逐项确认现有基础与增量，不作为 C 的前置条件。见 3.2、第七、九至十一节及 16.2。
+
+### P2：阶段 D 产品增强
+
+- [ ] Classifier 专用界面和图片生成产品界面（现有 codemode 图片输出展示归 C1，不在此重复）。见第十节。
+- [ ] 脱敏、有容量限制且默认关闭的 provider-stream 调试界面；评估 Web 隐藏消息开关。见 11.2、11.3，具体产品范围在 D 设计时确认，统一发布条件不变。
+
+**当前进度**：C1／C2 既有用户验收保留，证据属于 1.0.4。1.1.0 必要兼容已实施、当前工作区构建通过；授权自动化回归已通过，含既有无头浏览器用例，剩余完整专项／真实账户验收见增量计划。C3／C4 实现及授权本地／真实 SDK＋假模型／Chrome fixture 自动化已通过，最新完整回归 578 项（574 通过、4 跳过），工作区构建通过；覆盖与局限见阶段 C 第八节。用户授权按主题提交全部待提交改动；1.1.0 剩余真实账户／外部专项仍保留。保持分批实现和验收，不分批发布；未控制现有服务或发布。
 
 ## 一、结论
 
@@ -65,7 +86,7 @@
 - pi 源码：`I:\pi_git`，初次调研为 `v0.99.1`；2026-10-04 补充调研为 `v1.0.2`。
 - 增量依据：官方 [releases](https://github.com/earendil-works/pi/releases) 的 v1.0.0、v1.0.1、v1.0.2，以及 `git diff v0.99.1..v1.0.2`；新增 v1.0.3 release、tag `d78dc83d633229d12f8b79631384c4c2717c399f` 与 `git diff v1.0.2..v1.0.3`，见第十七节。
 - 关键版本差异：`v0.87.1 → v0.99.0`。
-- Pivot UI 初始 SDK 基线为 `0.87.1`，曾完成 `0.99.1` 适配；当前三个直接 pi 包声明与锁文件均固定为 `1.0.3`；工作区运行依赖／产物也已同步 1.0.3，隔离验证见 17.8、工作区验证见 17.9。
+- Pivot UI 初始 SDK 基线为 `0.87.1`，曾完成 `0.99.1` 适配；当前三个直接 pi 包声明与锁文件均固定为 `1.1.0`；最新工作区安装／构建结果见 17.17，1.0.4 记录保留在 17.15。此前版本的自动化及浏览器验收不冒充 1.1.0 回归证据。
 - Pivot UI 的 SDK 会话、工具预设、MCP Library／Packs、认证、模型列表、聊天渲染、会话导出和打包实现。
 - pi 的 SDK、MCP、extensions、virtual models、themes、message/session format 等文档与示例。
 
@@ -99,7 +120,7 @@
 
 实施建议：
 
-1. `pi-ai`、`pi-coding-agent`、`pi-tui` 声明／锁文件已一起固定到 `1.0.3`，隔离安装中重跑现有回归；工作区运行依赖／产物已同步 1.0.3，进程运行状态与人工验收单独记录。
+1. `pi-ai`、`pi-coding-agent`、`pi-tui` 声明／锁文件现已一起固定到 `1.1.0`；本轮只在当前工作区安装／构建，结果见 17.17。旧版回归不充当本轮测试，进程运行状态与人工验收单独记录。
 2. 保持服务端 SDK externalization，确保现有服务端功能可在源码和发布包中运行。
 3. 检查新增传递依赖是否影响安装、模块加载及现有功能；按必要性修复依赖解析，不以此启用新 runtime。
 4. QuickJS WASM、codemode worker 的执行和资产路径验收移至 P1；P0 仅处理它们若导致现有启动／构建失败的兼容问题。
@@ -232,7 +253,7 @@ pi 0.99 已改为首条用户消息到达时落盘。P0 应接入这个机制，
 
 ### 5.1 重构工具能力模型
 
-**计划：P1 专项重构，启用编排前完成。按最新决定，P0 临时统一使用全部可用工具，并移除前端预设选项；不再维护 none/default/full 切换兼容，不新增 exposure-aware 配置。旧记录保留但忽略，不清空 system prompt，不注入新的原生扩展 factories。**
+**当前基础：工作区工具 enabled／exposure、owner-hidden 与原生扩展装配已实施，见 17.11、17.12。C3 独立配置与能力状态表达现已实施、构建通过，行为验收待授权，不是 C1／C2 的前置阻塞。保留正常 SDK prompt，旧 none/default/full 记录继续忽略；不恢复旧预设或重复部署原生 factories。**
 
 主要位置：
 
@@ -265,7 +286,7 @@ pi 0.99 已改为首条用户消息到达时落盘。P0 应接入这个机制，
 
 **当前 P0 不提供无工具模式**：新建、恢复、Fork、reload、旧客户端预设请求均不能将会话限制为 none/default；使用全部可用工具与正常 SDK prompt。旧预设元数据和偏好不删除、不应用。正在进行的模型请求不强制换 loadout，空闲后的下一次操作应用统一策略。
 
-**P1**：以下原生 MCP／codemode 异步激活、嵌套调用及编排入口控制，在启用新能力前完成，不属于 P0。
+**P1／C3**：原生 MCP／codemode 已启用，以下是后续新增禁用模式时的约束，不重新定义为 B1／B2 或 C1／C2 的前置任务，也不代表首轮必须增加“无工具”模式。
 
 原生 MCP 连接后可能自动启用 codemode／tool_search；codemode/deferred 工具也可能在未 active 时仍可被嵌套调用。
 
@@ -419,7 +440,7 @@ P1 完整接入方案：
 
 ## 八、ChatGPT 登录
 
-**计划：P1。新的 OpenAI ChatGPT 登录和 deviceId 接入不在 P0 范围内。**
+**状态：P1 登录入口及 deviceId 已接入，构建通过；用户已确认功能完成，见 17.13。Business workspace 的第三方委托访问策略拒绝不作为 Pivot 接入阻断。此能力不属于 P0。**
 
 P0 只确保现有 API key、OpenAI Codex 等认证的登录、注销、取消、凭据存储和刷新在新版 SDK 下可用；不新增登录入口或调整 Provider 分组来承接新能力。
 
@@ -663,11 +684,11 @@ Pivot 自己的 autocomplete、浏览器 clipboard 和滚动逻辑不会因为�
 
 | 阶段 | 范围 | 阶段验收目标 |
 |---|---|---|
-| **A：P0 本地现有功能兼容** | 1.0.3 源码／自动化／隔离构建已实施；Azure 旧身份只读别名、OAuth 轮换持久化及输出权限自动化回归已完成，人工验收／部署待完成；保留 TS7、构建匹配、既有会话／工具／认证／adapter MCP／Packs／扩展／渲染／统计／导出／打包验收 | 本地升级 pi 后现有功能全部可用，TS7 类型检查与 Next.js 构建通过；不依赖新功能适配，不发布 |
-| **B1：P1 原生 MCP 加载（breaking change）** | 原生扩展装配、SDK 替代诊断、trust、权限与加载／调用；不提供迁移功能 | 原生工具可加载调用，旧标记不影响发送，旧数据不自动处理；配置功能另行实现 |
+| **A：P0 本地现有功能兼容** | 必要兼容已实施，保留 Azure 旧身份、OAuth 轮换持久化、输出权限及 TS7；本轮 SDK／工作区更新为 1.1.0，见 17.17；旧自动化与最终人工／部署证据分开记录 | 当前工作区构建通过不等同实机／发布验收；不要求在 C 前重做已完成开发 |
+| **B1：P1 原生 MCP 加载（breaking change，用户验收完成）** | 原生扩展装配、SDK 替代诊断、trust、权限与加载／调用；不提供迁移功能 | 原生工具可加载调用，旧标记不影响发送，旧数据不自动处理；配置功能另行实现 |
 | **B2：P1 原生 MCP 配置（用户验收完成）** | 原生配置管理、Packs／trust、来源／连接管理、OAuth 及资源功能已实施；不恢复 adapter Library 定义部署 | 用户已确认专项验收完成，自动化结果见 17.12 |
-| **C：P1 codemode 优先增强与工具编排** | 紧随 MCP 完善 codemode 展示、执行状态、嵌套调用、图片结果及费用；随后开展工具能力选择专项重构、exposure-aware 模型和 tool_search 控制 | 权限管线覆盖子调用；若引入禁用模式，须验证不被异步激活绕过 |
-| **D：P1/P2 其他新能力** | 新 ChatGPT 登录／deviceId、完整 disposition、新 Theme API、virtual model、typed catalog、classifier、图片生成、debug | 按各节要求完成本地专项验收，不阻塞阶段 A 的兼容验收 |
+| **C：P1 codemode 优先增强与工具编排（进行中）** | 按 [C 计划](codemode-stage-c-plan.md) 分 C1 结果／图片、C2 嵌套执行、C3 配置／能力模型、C4 usage／统计；C1 已经用户验收通过，C2 已实施且用户浏览器／codemode＋MCP 显示集成验收通过，1.1.0 自动化证据见 17.18；其余最终交付边界独立记录；C3 已实施／构建通过，待授权验收，C4 待实施 | 权限管线覆盖子调用；显式禁用不被异步激活绕过；按批验收，不分批发布 |
+| **D：P1/P2 其他新能力** | 完整 disposition、新 Theme API、virtual model、typed catalog、classifier／图片生成专用 UI、debug；ChatGPT 登录／deviceId 已提前完成，不重复排入 D | 按各节要求完成本地专项验收，不作为 C 的前置任务 |
 
 阶段 A 单独测试和验收，假设用户不使用新能力；阶段 B/C/D 的设计、实现和验收不作为阶段 A 本地兼容目标的前置条件，但全部阶段都是最终统一发布的前置条件。
 
@@ -710,7 +731,7 @@ Pivot 自己的 autocomplete、浏览器 clipboard 和滚动逻辑不会因为�
 
 这些专项验收不作为 P0 本地兼容阶段的门槛，但必须在最终统一发布前完成。后续阶段完成后仍需回归全部既有功能，不能以 P0 曾经通过为由跳过最终集成验收。
 
-代码实施后按项目要求进行类型检查、相关测试、lint 和 `npm run build`；构建应在隔离环境中完成，避免污染正在运行的开发 `.next`。生成本地测试包不代表发布，P0–P2 全部完成前不执行发布操作。
+代码实施后按当前 AGENTS.md 在当前工作区执行 `npm run build`，包含其原有编译及打包；不拆分重复构建，不另建隔离目录、备份或同步目录。测试、lint、浏览器／安装验证仅在用户明确要求时执行；服务控制另需明确指示。生成本地包不代表发布，不执行自动发布。
 
 ### 回滚原则
 
@@ -849,7 +870,7 @@ Pivot 自己的 autocomplete、浏览器 clipboard 和滚动逻辑不会因为�
 - 备份到 `F:/MyWorkspace/Node_Workspace/pivot-ui-build-backups/browser-swc-fix-2026-10-05T13-28-12-676Z`，保留错误 compiler／旧 .next／旧 tarball；替换本地 native 包、已验证 .next 和同名本地 tarball，恢复 4 个 aliases。compiler 与 build/runtime checks 均通过。
 - 未停止／重启 WinSW，状态仍为 Started。验证针对新产物的独立进程；用户仍需重启服务刷新旧进程的 manifest／module cache，尚不宣称当前线上进程已恢复。日志：`tmp/ts7-tooling/browser-bad-bundle.log`、`browser-fixed-workspace.log`，隔离目录的 `browser-fix-{build,tests,full-tests,lint}.log`。没有发布、提交或改 Pivot 版本号。
 
-## 十七、pi 1.0.3 增量：调研计划与后续实施记录
+## 十七、pi 1.0.3／1.0.4 增量：调研计划与后续实施记录
 
 17.1–17.7 保留初始静态调研时的判断与验收设计；后续代码／测试结果以 17.8 为准。
 
@@ -1029,3 +1050,74 @@ SDK 1.0.3 的工厂在恢复会话时按默认配置初始化工具；发现记�
 **最终验证**：显式列出当前 **94 个 `*.test.mjs` 文件**，以 `--test-concurrency=4` 和 `PIVOT_TEST_PRODUCTION_DIR=.`、`PIVOT_TEST_BROWSER=1`、`PIVOT_TEST_NATIVE_MCP=1` 运行，**528 tests / 525 pass / 3 skipped / 0 fail**。三项 skip 仍仅为 Windows PTY 集成测试；生产页面、MCP 表单、Tools、Packs 与新 Chrome 用例实际执行。Node 24 无文件列表的默认发现会误将 `app/api/models-config/test/route.ts` 当作测试，因此本轮明确使用测试文件列表，没有修改路由或绕过真实测试。
 
 当前工作区 `npm run build`（包含原有编译、typecheck、Next build、npm pack）通过。日志：`/tmp/pivot-b2-full-tests.log`、`/tmp/pivot-b2-build.log`。用户验收与自动化证据分别记录；本轮自动化不证明真实第三方账户、Windows PTY／ACL 或生产部署。未改用户认证数据、推送、发布、修改版本或控制现有服务。
+
+### 17.13 新登录方式接入：ChatGPT 与旧 Codex 共存
+
+用户要求提前集成新增登录方式，方便比较新旧 Codex 通道。SDK 已原生区分 `openai`（Sign in with ChatGPT，OpenAI Responses API）与 `openai-codex`（OpenAI Codex legacy，ChatGPT Codex 后端）；保持独立凭据、模型选择及旧会话身份，不创建别名、不迁移或删除旧凭据。两种授权都使用 1455 回调端口，因此登录流程串行，保存后的账号可以共存。取消／注销按精确 Provider 处理，不连带操作另一条通道。
+
+接入 SDK 的 OAuth label、稳定全局 deviceId（SDK SettingsManager 创建并 flush，忽略项目设置）和完整回调 URL；取消 Anthropic 登录入口过滤，保留 SDK 浏览器／copy-code 选择；Radius 等选择式／设备码登录保留授权链接、设备码和 info 通知，不自动部署 MCP 定义。登录后仅刷新当前 Provider 的目录；通知已有会话在 idle 边界重载，不中断运行。
+
+同一 Provider 在 `auth.json` 仅有一个认证槽位：新 ChatGPT 与 OpenAI API key 不能同时保存在 `openai` 下。互换须客户端确认且服务端明确授权；失败或登录期间凭据变化时不覆盖现有值，按认证类型锁内删除，OAuth 不误报 API key 已连接。Provider 列表与 API-key 列表同时刷新，不变更默认模型。
+
+流程有五分钟期限、并发登录保护、一次性输入 token 和 prompt signal 清理；SDK 错误只返回安全诊断，不回传 token 响应或完整回调内容。脚本仍使用 SDK 原生授权、刷新和请求实现。
+
+当前工作区 `npm run build` 通过，日志 `/tmp/pivot-new-logins-build.log`；没有新增、修改或运行测试，也没有进行真实账户授权／刷新或浏览器实机验收。两条通道的实际模型权限、额度和服务端策略需用户分别登录后比较。未提交、推送、发布、改版本、修改用户凭据或控制现有服务。
+
+用户实际尝试新 ChatGPT 登录，在选择 Business workspace 后收到 `3p_delegated_access_policy_denied`。这是 OpenAI 上游授权策略拒绝的证据，不证明所有 Business workspace 均不支持，也不能通过修改客户端 ID／scope 绕过。用户已确认登录功能视为完成；该确认不等同真实账户授权成功或专项自动化通过。
+
+### 17.14 pi 1.0.4 增量评估（调研时未升级，后续实施见 17.15）
+
+依据官方 v1.0.4 release、发布包 changelog／文档，以及 `v1.0.3...v1.0.4` 源码差异（tag 对应 `7c10bd4337495ee613f2224843ecdf349b80d1df`）。Pivot 的三个直接 pi 依赖仍为 1.0.3；本轮未安装、构建或运行测试。
+
+**结论**：未发现需要额外迁移 Provider、凭据或会话格式的兼容阻断。建议同步升级三个直接 pi 包及锁文件，并确认传递依赖 pi-mcp／pi-codemode 更新；静态评估不能代替升级后的构建与用户授权的回归。
+
+- **阶段 C 适配**：`tools.read()` 读文本仍返回字符串，读图片改为 `{ type, data, mimeType, note }`，可交给 `image()`。SDK 原生调用自动支持；Pivot `MessageView.ToolCallBlock`／`PairedResult` 仅展示文本，需在既定 C 图片结果展示中覆盖直接 read 和 codemode 输出，保留图片说明、历史恢复及图片落盘路径，不扩大文件访问 allow-list。
+- **可选新增能力**：工具 allowlist／denylist 支持 `*`；非空 allowlist 未含 `mcp__` 时保留间接 MCP 工具。Pivot 当前不使用该启动过滤，历史 `toolNames` 仍忽略，不恢复旧预设。若后续新增单会话禁用 MCP，使用 `DefaultResourceLoader.disabledBuiltinExtensions: ["mcp"]`；仅排除工具不会停止连接，不修改持久配置，也不禁用替换原生 MCP 的第三方扩展。
+- **SDK 自动受益**：hidden declarations 从系统规则与 Skills 提示过滤，codemode 声明携带 prompt guidelines，`ToolLoadout.getPromptGuidelines()` 为新增 API。Pivot 使用原生 factories 与默认系统提示，未自建 ToolLoadout，无需复制上游实现；C 编排增强遵循新契约。
+- **MCP 自动受益**：OIDC 动态注册按回调 URI 推导 `application_type: native`，修复 loopback `invalid_redirect_uri`；关闭连接中 server 会取消连接／重试并等待 transport 清理。Pivot OAuth worker 委托原生 SDK、wrapper 已发 `session_shutdown`，无需新 UI 字段或重开 B2。
+- **其他自动受益**：codemode 冻结内置对象并校验 bridge，避免脚本修改 prototype 导致主进程崩溃／工具挂起；Bedrock HTTP/2 stalled-stream 错误进入重试。依赖升级生效，依赖内置对象 monkey-patch 的用户脚本需自行调整。
+- **无需 Web 适配**：多行代码块高亮修复在 pi CLI/TUI，Pivot Markdown 使用自身 Prism 渲染。
+
+1.0.4 没有变更新旧 OpenAI 登录实现，不解决 Business 的 `3p_delegated_access_policy_denied`。MCP OIDC 注册修复与 ChatGPT 的 workspace 策略拒绝是两件不同的事。
+
+### 17.15 当前工作区同步 pi 1.0.4 与阶段 C 启动条件
+
+用户明确要求将 pi 升至 1.0.4，并将文档开头重组为 P0／P1／P2 待处理项。三个直接 pi 包以精确版本安装到当前工作区，锁文件同步 chord、pi-agent-core、pi-codemode、pi-mcp、pi-telemetry 至 1.0.4；其余依赖版本未改，Pivot 保持 1.2.2。已有未提交登录改动保留，未改认证数据或会话。
+
+**本轮构建通过**：当前工作区 `npm run build` 完成 compiler guard、TS7 typecheck、Next build 及命令自带 npm pack，生成 1.2.2 本地包（926 文件）。首次安装受现有 `NODE_ENV=production` 影响省略开发依赖，构建提示缺少已声明的 `@types/proper-lockfile`／tailwindcss；随后 `npm install --include=dev` 补齐，再构建通过，未加类型豁免、改全局 npm 配置或升级无关依赖。日志：`/tmp/pivot-pi-104-install.log`、`/tmp/pivot-pi-104-install-dev.log`、`/tmp/pivot-pi-104-build.log`。
+
+未执行测试、lint、额外打包、安装冒烟、备份／同步目录或服务控制；不提交、推送或发布。工作区磁盘产物已更新，不等同仍在运行的旧进程已重载 SDK。
+
+**阶段 C 前置检查**：A 必要兼容已实施，B1／B2 和登录功能均已经用户确认，不因新 SDK 修复重新打开这些开发任务。真实账户、第三方服务器、Windows PTY／ACL 及最终部署／集成回归保留为发布门槛，而非 C 的规划阻塞；其他 P1/P2 新能力排在 C 后。
+
+阶段 C 已开始具体规划，详见 [阶段 C：codemode 增强与工具编排](codemode-stage-c-plan.md)。本轮不实现 C 功能。
+
+### 17.16 pi 1.1.0 增量分析（仅计划，未升级）
+
+对照官方 v1.1.0 release、v1.0.4...v1.1.0 的 53 个 commits、tag 文档／源码、npm 三包元数据和 Pivot 实际调用链，形成 [独立适配计划](pi-1.1.0-upgrade-plan.md)。三个直接包的 Node 最低要求仍为 >=22.19.0；未发现 Provider／认证文件／JSONL 版本强制迁移证据，不以静态分析宣称运行兼容。
+
+主要增量：assistant／toolResult／嵌套 end 的 durationMs，codemode 多文本标记／相邻文本合并／末尾 console，agent_settled.aborted，MCP 全程取消 signal／单请求 15 秒限制／关闭不刷新 token，Anthropic 空闲回调端口回退。GPT-6 Luna／图片分类、llama.cpp decision 模型和 +/- tools 纳入原 C3／D 的契约评估，不启动这些阶段。
+
+C2 的执行摘要识别静态仍兼容；blocks 继续按最终 content 分块，不反解析标记或承诺一块对应一次 text。Web 独立 OAuth worker 未接原生 signIn signal，须复核取消与安全提交，不能把 SDK TUI 修复当作 Web 已验收。OpenAI OAuth 与 API key 仍互换需确认，Luna 不授权自动注销或改凭据。
+
+本轮仅新增计划并同步总待办／阶段 C 顺序；package.json、锁文件、实现和用户数据保持本轮开始时状态，SDK 仍为 1.0.4。未安装、构建、测试、lint、浏览器验证、服务控制、提交或发布。既有 B1／B2／C1／C2 验收保留，不视为 1.1.0 验收。
+
+### 17.17 当前工作区 pi 1.1.0 升级与必要适配
+
+用户确认工具耗时建议并授权执行。三个直接包与 pi-agent-core／pi-mcp／pi-codemode／pi-telemetry／chord 安装实际版本均为 1.1.0；Pivot 仍为 1.2.2，保留 TS7、既有未提交功能和独立新旧 OpenAI 凭据。`npm install --include=dev` 成功，未升级无关依赖声明。
+
+顶层工具完成值优先持久化 ToolResultMessage.durationMs，再使用 SDK end／浏览器观察值与标签页旧缓存；运行中仍用本地时钟。嵌套保持 nestedCalls 保存摘要权威，未到达摘要时保留整条调用间隔，不以 execute-only 值覆盖管线口径。合法 0 显示 0ms，缺失／无效不造值；assistant 响应耗时仅补契约，不改整轮／thinking／TPS，不重写 JSONL。
+
+前端等待 agent_settled 完成，低层 agent_end 不再提前终止自动重试／恢复；明确 aborted 的 settled 不播放完成音。MCP worker 使用原生取消 signal，discovery／注册／回调等待可 abort；已开始 token grant 延迟 abort，保留有界请求、SDK saveTokens 和最终锁内提交。Output 与 Provider／renderer 核对沿用原生实现，不增加解析标记、classifier 界面或 C3／C4。
+
+**构建通过**：当前工作区 npm run build（compiler guard、TS7、Next、自带 pack），934 文件；日志 `/tmp/pivot-pi-110-install.log`、`/tmp/pivot-pi-110-build.log`，13 条既有追踪警告。详细取舍见增量计划第七节。首次差异／哈希检查被自动模式分类超时阻止，未执行或绕过，不能计为验证；auto mode 保持启用。
+
+未运行测试、lint、浏览器或真实账户验收，不控制服务、不备份／同步、不提交／发布。工作区构建更新 .next 不等于旧运行进程已加载 SDK；当时 1.1.0 专项验收待用户授权，C3／C4 尚未启动。
+
+### 17.18 pi 1.1.0 授权自动化回归
+
+用户另行要求执行测试；升级专项 68 项、Provider 登录 5 项全部通过。完整回归显式选择 94 个 `*.test.mjs`：538 项，534 通过、4 跳过、0 失败，包含既有 5 项 MCP 面板和 2 项聊天选择无头 Chrome 用例。跳过项为 Windows 的 3 项 PTY 和未配置启动条件的生产页面冒烟。
+
+按已确认契约更新 agent_settled／0ms 旧断言，新增 SDK／历史／缓存优先级、nested 管线 fallback、grant 期间断连仍保存凭据的覆盖；修正 Provider fake runtime 和异步创建等待，并补齐临时目录隔离。首轮旧 Provider fixture 会读取默认用户配置及 deviceId 设置，不把其算作全程隔离；未执行真实账户登录。裸 Node 自动发现误把模型测试 API 当测试入口，最终采用显式文件列表，不更改 API 来回避错误。
+
+本轮没有进一步修改产品实现或重建产物，未控制现有服务、提交／发布，未启动 C3／C4。测试命令、日志和未覆盖边界见 [增量计划第八节](pi-1.1.0-upgrade-plan.md#8-用户授权后的自动化测试记录)；源码契约断言和现有浏览器用例不等同完整 1.1.0 浏览器、第三方 MCP、真实账号或 consumer 安装验收。

@@ -168,6 +168,7 @@ const EMPTY_COMPACTION_STATE: CompactionDisplayState = {
 };
 
 export function AppShell() {
+  const [statsScope, setStatsScope] = useState<"full" | "branch">("full");
   const searchParams = useSearchParams();
   const { theme, toggleTheme } = useTheme();
   const { t } = useI18n();
@@ -1112,28 +1113,35 @@ export function AppShell() {
                       { label: t("session.file"), value: sessionStats.sessionFile ?? "In-memory", copyField: "file" as const },
                       { label: t("session.id"), value: sessionStats.sessionId, copyField: "id" as const },
                     ];
+                    const accounting = sessionStats.accounting;
+                    const totals = (statsScope === "branch" ? accounting?.branch : accounting?.full) ?? sessionStats;
+                    const coverage = statsScope === "branch" ? accounting?.branch : accounting?.full;
                     const messageRows = [
-                      [t("session.user"), sessionStats.userMessages.toLocaleString()],
-                      [t("session.assistant"), sessionStats.assistantMessages.toLocaleString()],
-                      [t("session.toolCalls"), sessionStats.toolCalls.toLocaleString()],
-                      [t("session.toolResults"), sessionStats.toolResults.toLocaleString()],
-                      [t("session.total"), sessionStats.totalMessages.toLocaleString()],
+                      [t("session.user"), totals.userMessages.toLocaleString()],
+                      [t("session.assistant"), totals.assistantMessages.toLocaleString()],
+                      [t("session.toolCalls"), totals.toolCalls.toLocaleString()],
+                      [t("session.toolResults"), totals.toolResults.toLocaleString()],
+                      [t("session.total"), totals.totalMessages.toLocaleString()],
                     ];
                     const tokenRows = [
-                      [t("session.input"), sessionStats.tokens.input.toLocaleString()],
-                      [t("session.output"), sessionStats.tokens.output.toLocaleString()],
-                      ...(sessionStats.tokens.cacheRead > 0 ? [[t("session.cacheRead"), sessionStats.tokens.cacheRead.toLocaleString()]] : []),
-                      ...(sessionStats.tokens.cacheWrite > 0 ? [[t("session.cacheWrite"), sessionStats.tokens.cacheWrite.toLocaleString()]] : []),
-                      [t("session.cacheHit"), sessionStats.tokens.input + sessionStats.tokens.cacheRead > 0
-                        ? `${(sessionStats.tokens.cacheRead / (sessionStats.tokens.input + sessionStats.tokens.cacheRead) * 100).toFixed(1)}%`
+                      [t("session.input"), totals.tokens.input.toLocaleString()],
+                      [t("session.output"), totals.tokens.output.toLocaleString()],
+                      ...(totals.tokens.cacheRead > 0 ? [[t("session.cacheRead"), totals.tokens.cacheRead.toLocaleString()]] : []),
+                      ...(totals.tokens.cacheWrite > 0 ? [[t("session.cacheWrite"), totals.tokens.cacheWrite.toLocaleString()]] : []),
+                      [t("session.cacheHit"), totals.tokens.input + totals.tokens.cacheRead > 0
+                        ? `${(totals.tokens.cacheRead / (totals.tokens.input + totals.tokens.cacheRead) * 100).toFixed(1)}%`
                         : "--"],
-                      [t("session.total"), sessionStats.tokens.total.toLocaleString()],
+                      [t("session.total"), totals.tokens.total.toLocaleString()],
                     ];
-                    const ctx = contextUsage ?? sessionStats.contextUsage;
+                    const ctx = sessionStats.contextUsage ?? contextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
-                      ...(sessionStats.cost > 0 ? [[t("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                      ...(ctx?.contextWindow ? [[t("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                      [t("session.recordedCost"), coverage?.costRecords ? `$${totals.cost.toFixed(4)}` : t("session.unrecorded")],
+                      ...(["chat", "tools", "other"] as const).flatMap(category => {
+                        const bucket = coverage?.categories[category];
+                        return bucket?.records ? [[t(`session.cost.${category}`), bucket.costRecords ? `$${bucket.cost.toFixed(4)}` : t("session.unrecorded")]] : [];
+                      }),
+                      [t("session.currentContext"), ctx?.contextWindow ? `${ctx.tokens !== null ? formatCompact(ctx.tokens) : "?"} / ${formatCompact(ctx.contextWindow)} (${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"})` : t("session.unrecorded")],
                     ];
                     const section = (
                       title: string,
@@ -1229,6 +1237,14 @@ export function AppShell() {
                     );
 
                     return (
+                      <div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        {t("session.scope")}
+                        <select value={statsScope} onChange={event => setStatsScope(event.target.value as "full" | "branch")} style={{ background: "var(--bg-panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 8px" }}>
+                          <option value="full">{t("session.scope.full")}</option>
+                          <option value="branch">{t("session.scope.branch")}</option>
+                        </select>
+                      </label>
                       <div style={{
                         display: "grid",
                         gridTemplateColumns: isMobile
@@ -1243,10 +1259,16 @@ export function AppShell() {
                         {section(t("session.messages"), messageRows)}
                         {section(t("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
+                      <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-dim)" }}>
+                        {t("session.costNotice")}
+                        {Boolean(coverage?.missingCostRecords) && <div>{t("session.costIncomplete")}</div>}
+                        {sessionStats.statsUnavailable && <div role="status">{t("session.statsUnavailable")}</div>}
+                      </div>
+                      </div>
                     );
                   })() : (
                     <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      {t("app.sessionInfoSendFirst")}
+                      {selectedSession ? t("session.statsLoading") : t("app.sessionInfoSendFirst")}
                     </div>
                   )}
                 </div>

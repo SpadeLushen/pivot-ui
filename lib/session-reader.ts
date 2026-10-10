@@ -288,16 +288,18 @@ function base64ImageInfo(block: unknown): { bytes: number; mime?: string } | nul
   return { bytes: Math.max(0, Math.floor(data.length * 3 / 4) - padding), mime };
 }
 
-function omitToolResultBase64Images(message: AgentMessage): AgentMessage {
+function omitToolResultBase64Images(message: AgentMessage, entryId: string): AgentMessage {
   if (message.role !== "toolResult") return message;
 
   let omitted = 0;
   let bytes = 0;
   const mimes = new Set<string>();
-  const content = message.content.filter((block) => {
+  const images: { blockIndex: number; mimeType?: string }[] = [];
+  const content = message.content.filter((block, blockIndex) => {
     const image = base64ImageInfo(block);
     if (!image) return true;
     omitted += 1;
+    images.push({ blockIndex, mimeType: image.mime });
     bytes += image.bytes;
     if (image.mime) mimes.add(image.mime);
     return false;
@@ -305,11 +307,12 @@ function omitToolResultBase64Images(message: AgentMessage): AgentMessage {
   if (omitted === 0) return message;
 
   const mimeText = mimes.size > 0 ? `: ${[...mimes].join(", ")}` : "";
+  const noticeIndex = content.length;
   content.push({
     type: "text",
     text: `[${omitted} tool result image${omitted === 1 ? "" : "s"} omitted from initial history payload${mimeText}, ~${bytes} bytes]`,
   });
-  return { ...message, content };
+  return { ...message, content, deferredImages: { entryId, noticeIndex, images } };
 }
 
 // Convert a session entry on the active branch into a UI message.
@@ -321,7 +324,7 @@ function entryToUiMessage(
   switch (entry.type) {
     case "message": {
       const message = options.deferToolResultImages
-        ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
+        ? omitToolResultBase64Images(normalizeToolCalls(entry.message), entry.id)
         : normalizeToolCalls(entry.message);
       if (!options.deferThinking || message.role !== "assistant") return message;
       return {

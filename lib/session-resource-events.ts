@@ -12,7 +12,7 @@ export function subscribeResourceChanges(cwd: string, listener: () => void) {
   value.listeners.set(key, set); set.add(listener);
   return () => { set.delete(listener); if (!set.size) value.listeners.delete(key); };
 }
-export function notifyMcpConfigurationChanged(cwd?: string): void {
+export function notifyResourceConfigurationChanged(cwd?: string): void {
   const value = state();
   if (cwd) { const key = workspaceKey(cwd); value.workspaces.set(key, (value.workspaces.get(key) ?? 0) + 1); }
   else value.global++;
@@ -21,3 +21,5 @@ export function notifyMcpConfigurationChanged(cwd?: string): void {
     try { listener(); } catch { /* Persisted config remains authoritative. */ }
   }
 }
+// Retain the MCP API name for existing callers; orchestration uses the same idle queue.
+export const notifyMcpConfigurationChanged = notifyResourceConfigurationChanged;

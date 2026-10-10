@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { NativeMcpEditorServer, NativeMcpEditorSnapshot, NativeMcpScope } from "@/lib/api-types";
 import { ToolError, ToolSwitch } from "./ToolsControls";
 import { McpEditorDialog } from "./McpEditorDialog";
 import { McpRuntimeDetails } from "./McpRuntimeDetails";
+import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
 
 export function McpPanel({ cwd }: { cwd: string }) {
   const { t } = useI18n();
@@ -13,27 +14,30 @@ export function McpPanel({ cwd }: { cwd: string }) {
   const [selected, setSelected] = useState(""), [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null), [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<{ scope: NativeMcpScope; serverKey?: string } | null>(null);
+  const packRevision = useWorkspacePackRevision(cwd), requestEpoch = useRef(0);
   useEffect(() => {
     let ignore = false; setError(null); setSnapshot(null);
-    void fetch(`/api/mcp/servers?scope=${cwd ? "project" : "global"}&cwd=${encodeURIComponent(cwd)}`)
+    const epoch = ++requestEpoch.current, controller = new AbortController();
+    void fetch(`/api/mcp/servers?scope=${cwd ? "project" : "global"}&cwd=${encodeURIComponent(cwd)}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`); return data as NativeMcpEditorSnapshot; })
-      .then((data) => { if (!ignore) setSnapshot(data); })
-      .catch((reason) => { if (!ignore) setError(reason instanceof Error ? reason.message : String(reason)); });
-    return () => { ignore = true; };
-  }, [cwd, refresh]);
+      .then((data) => { if (!ignore && epoch === requestEpoch.current) setSnapshot(data); })
+      .catch((reason) => { if (!ignore && epoch === requestEpoch.current) setError(reason instanceof Error ? reason.message : String(reason)); });
+    return () => { ignore = true; requestEpoch.current++; controller.abort(); };
+  }, [cwd, refresh, packRevision]);
   const active = snapshot?.servers.find((server) => server.serverKey === selected) ?? snapshot?.servers[0];
   const activeOverride = !!active?.overridesGlobal && !active.managedByPack;
   const change = async (server: NativeMcpEditorServer, method: "PATCH" | "DELETE", enabled?: boolean) => {
     if (!snapshot) return;
     if (method === "DELETE" && !confirm(t("mcp.removeProjectConfirm"))) return;
+    const epoch = ++requestEpoch.current;
     setSaving(true); setError(null);
     try {
       const response = await fetch("/api/mcp/servers", { method, headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope: "project", cwd, revision: snapshot.revision, serverKey: server.serverKey, ...(enabled !== undefined ? { enabled } : {}) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
-      setSnapshot(data);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      if (epoch === requestEpoch.current) setSnapshot(data);
+    } catch (reason) { if (epoch === requestEpoch.current) setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setSaving(false); }
   };
   return <div className="tools-layout">

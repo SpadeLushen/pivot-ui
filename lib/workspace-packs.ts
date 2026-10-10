@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { SkillRef, SkillPack } from "./skill-packs-store";
+import type { SkillRef, SkillPack, SkillPacksConfig } from "./skill-packs-store";
 import type { McpPackReference } from "./mcp-library";
 
 export type PackStatus = "full" | "partial";
@@ -256,4 +256,15 @@ export function collectRequiredSkillKeys(state: WorkspaceState, packsConfig: { p
     }
   }
   return required;
+}
+
+/** Current ownership, not the historical managed-name ledger. Never infer native names from Library references. */
+export function collectActiveNativeMcpServers(state: WorkspaceState, config: SkillPacksConfig): Set<string> {
+  const names = new Set<string>();
+  for (const applied of state.appliedPacks) {
+    // An applied snapshot (including []) wins; only older receipts need explicit native bindings from the definition.
+    const refs = applied.receipt.nativeMcpServers ?? config.packs.find(pack => pack.id === applied.packId)?.nativeMcpServers ?? [];
+    for (const name of refs) if (name) names.add(name);
+  }
+  return names;
 }

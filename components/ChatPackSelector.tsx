@@ -5,7 +5,9 @@ import { Package, PackagePlus } from "lucide-react";
 import type { AppliedPackInfo, SkillPackInfo, WorkspaceSkillPacksResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
 import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
-import { confirmWorkspaceTrust, requiresWorkspaceTrust, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
+import { requiresWorkspaceTrust, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
+import { useWorkspaceTrust } from "@/hooks/useWorkspaceTrust";
+import { WorkspaceTrustNotice } from "./WorkspaceTrustNotice";
 
 type JsonResponse = WorkspacePackErrorResponse;
 
@@ -23,10 +25,10 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const loadGeneration = useRef(0);
   const workspaceRevision = useWorkspacePackRevision(cwd);
   const [open, setOpen] = useState(false);
+  const trust = useWorkspaceTrust(cwd, open && !disabled);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [trustPackId, setTrustPackId] = useState<string | null>(null);
   const [packs, setPacks] = useState<SkillPackInfo[]>([]);
   const [applied, setApplied] = useState<AppliedPackInfo[]>([]);
   const [revision, setRevision] = useState(0);
@@ -38,22 +40,25 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
       fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`).then((r) => json<WorkspaceSkillPacksResponse & JsonResponse>(r, t)),
       fetch("/api/skill-packs").then((r) => json<{ packs: SkillPackInfo[] } & JsonResponse>(r, t)),
     ]);
-    if (generation !== loadGeneration.current) return;
+    if (generation !== loadGeneration.current) return false;
     setApplied(ws.appliedPacks);
     setRevision(ws.revision);
     setPacks(list.packs);
     setSelected(ws.appliedPacks.map((pack) => pack.packId));
+    return true;
   }, [cwd, t]);
 
+  const reload = useCallback(() => {
+    setLoading(true); setError(null);
+    const generation = loadGeneration.current + 1;
+    void load().catch(e => { if (generation === loadGeneration.current) setError(String(e)); })
+      .finally(() => { if (generation === loadGeneration.current) setLoading(false); });
+  }, [load]);
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError(null);
-    setTrustPackId(null);
+    reload();
     const generationRef = loadGeneration;
-    void load().catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; generationRef.current++; };
-  }, [load, refreshKey, workspaceRevision]);
+    return () => { generationRef.current++; };
+  }, [reload, refreshKey, workspaceRevision, open]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -69,13 +74,12 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
     if (disabled) setOpen(false);
   }, [disabled]);
 
-  const toggle = async (packId: string, checked: boolean, confirmTrust = false) => {
-    if (disabled || busy || loading) return;
+  const toggle = async (packId: string, checked: boolean) => {
+    if (disabled || busy || loading || trust.granting || trust.trusted !== true) return;
+    let generation = loadGeneration.current;
     setBusy(true);
     try {
-      if (confirmTrust && !await confirmWorkspaceTrust(cwd, t)) return;
       setError(null);
-      setTrustPackId(null);
       setSelected((current) => checked ? [...current, packId] : current.filter((id) => id !== packId));
       if (checked) {
         await json<JsonResponse>(await fetch("/api/workspace-skill-packs/apply", {
@@ -87,18 +91,22 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
         await json<JsonResponse>(await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}&packId=${encodeURIComponent(packId)}&workspaceRevision=${revision}`, { method: "DELETE" }), t);
       }
       announceWorkspacePackChange(cwd);
-      await load();
-      onChanged?.();
+      if (generation !== loadGeneration.current) return;
+      generation = loadGeneration.current + 1;
+      if (await load()) onChanged?.();
     } catch (e) {
+      if (generation !== loadGeneration.current) return;
       setSelected(applied.map((pack) => pack.packId));
       setError(e instanceof Error ? e.message : String(e));
-      const needsTrust = e instanceof WorkspacePackRequestError ? !!e.plan && requiresWorkspaceTrust(e.plan) : confirmTrust;
-      setTrustPackId(checked && needsTrust ? packId : null);
+      if (e instanceof WorkspacePackRequestError && e.plan && requiresWorkspaceTrust(e.plan)) trust.refresh();
     } finally { setBusy(false); }
   };
   return (
     <div ref={rootRef} style={{ position: "relative", marginLeft: 4, minWidth: 0, display: "flex", gap: 6 }}>
-      <button type="button" onClick={() => setOpen((value) => !value)} disabled={disabled} aria-expanded={open && !disabled} title={t("packs.workspaceSwitches")}
+      <button type="button" onClick={() => {
+        if (open) setOpen(false);
+        else { trust.refresh(); setLoading(true); setOpen(true); }
+      }} disabled={disabled || busy || trust.granting} aria-expanded={open && !disabled} title={t("packs.workspaceSwitches")}
         style={{ display: "flex", alignItems: "center", gap: 4, border: applied.length ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: applied.length ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: applied.length ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
         {applied.length ? <Package size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : <PackagePlus size={11} aria-hidden="true" style={{ flexShrink: 0 }} />}
         <span>{applied.length}</span>
@@ -110,18 +118,15 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
             {(loading || busy) && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("general.loading")}</span>}
           </div>
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("packs.workspaceScope")}</span>
+          <WorkspaceTrustNotice trust={trust} onTrusted={() => { reload(); onChanged?.(); }} />
           {!loading && packs.length === 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>No packs available</span>}
           {packs.map((pack) => (
-            <label key={pack.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 5, borderRadius: 6, cursor: busy ? "not-allowed" : "pointer", color: "var(--text)", fontSize: 12 }}>
-              <input type="checkbox" checked={selected.includes(pack.id)} disabled={busy || loading} onChange={(e) => void toggle(pack.id, e.target.checked)} />
+            <label key={pack.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 5, borderRadius: 6, cursor: busy || loading || trust.trusted !== true ? "not-allowed" : "pointer", color: "var(--text)", fontSize: 12 }}>
+              <input type="checkbox" checked={selected.includes(pack.id)} disabled={busy || loading || trust.granting || trust.trusted !== true} onChange={(e) => void toggle(pack.id, e.target.checked)} />
               <span>{pack.name}<small style={{ display: "block", color: "var(--text-dim)" }}>{pack.skillCount} skills{pack.mcpServerCount > 0 && ` · ${pack.mcpServerCount} MCP`}</small></span>
             </label>
           ))}
           {error && <div role="alert" style={{ fontSize: 11, color: "#f87171", whiteSpace: "pre-line" }}>{error}</div>}
-          {trustPackId && <button type="button" disabled={busy || loading} onClick={() => void toggle(trustPackId, true, true)}
-            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-panel)", color: "var(--text)", cursor: busy ? "not-allowed" : "pointer", fontSize: 12 }}>
-            {t("packs.trustWorkspace")}
-          </button>}
         </div>
       )}
     </div>

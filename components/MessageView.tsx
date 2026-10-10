@@ -3,10 +3,15 @@
 import { memo, useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFork } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
+import { ToolResultContent } from "./ToolResultContent";
+import { NestedCallSummary, NestedCallTrail, NestedToolCalls } from "./NestedToolCalls";
+import { displayedNestedGroup, type NestedCallGroup } from "@/lib/nested-tool-state";
+import { imageSource } from "@/lib/message-images";
+import { recordedCost, summarizeUsage } from "@/lib/session-usage";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock } from "@/lib/message-display";
-import { appendElapsedToUsage, formatDisplayedElapsed, readTiming } from "@/lib/timing-store";
+import { appendElapsedToUsage, formatDisplayedElapsed, readTiming, recordedDuration } from "@/lib/timing-store";
 import { useI18n } from "@/lib/i18n";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import {
@@ -16,6 +21,7 @@ import {
   type AssistantMessage,
   type CustomMessage,
   type ToolResultMessage,
+  type ToolResultView,
   type AssistantContentBlock,
   type TextContent,
   type ImageContent,
@@ -59,6 +65,7 @@ interface Props {
   message: AgentMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
+  nestedCalls?: Map<string, NestedCallGroup>;
   modelNames?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -111,12 +118,17 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string, NestedCallGroup> | undefined, next: Map<string, NestedCallGroup> | undefined): boolean {
+  if (previous === next || message.role !== "assistant") return true;
+  return message.content.every((block) => block.type !== "toolCall" || previous?.get(block.toolCallId) === next?.get(block.toolCallId));
+}
+
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -133,6 +145,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   return prev.message === next.message
     && prev.isStreaming === next.isStreaming
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
+    && haveSameRelevantNestedCalls(prev.message, prev.nestedCalls, next.nestedCalls)
     && prev.modelNames === next.modelNames
     && prev.cwd === next.cwd
     && prev.onOpenFile === next.onOpenFile
@@ -411,16 +424,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {imageBlocks.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
               {imageBlocks.map((img, i) => {
-                // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
-                // pi-ai on-disk format uses flat {data, mimeType} — handle both
-                const flat = img as unknown as { data?: string; mimeType?: string };
-                const src = img.source
-                  ? img.source.type === "base64"
-                    ? `data:${img.source.media_type};base64,${img.source.data}`
-                    : img.source.url ?? ""
-                  : flat.data
-                    ? `data:${flat.mimeType};base64,${flat.data}`
-                    : "";
+                const src = imageSource(img);
+                if (!src) return null;
                 return (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -550,6 +555,7 @@ function AssistantMessageView({
   message,
   isStreaming,
   toolResults,
+  nestedCalls,
   modelNames,
   cwd,
   onOpenFile,
@@ -572,6 +578,7 @@ function AssistantMessageView({
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
+  nestedCalls?: Map<string, NestedCallGroup>;
   modelNames?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -715,7 +722,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? liveThinking?.get(originalIndex) : (liveThinking?.get(timingBlockIndices?.[originalIndex] ?? originalIndex) ?? (timingRevision && sessionId && timingMessageId ? readTiming(`thinking:${sessionId}:${timingMessageId}:${timingBlockIndices?.[originalIndex] ?? originalIndex}`) : undefined))) : undefined} runningThinking={runningThinking?.has(timingBlockIndices?.[originalIndex] ?? originalIndex)} toolCallDurations={liveTools} runningTools={runningTools} sessionTimingId={timingRevision ? sessionId : undefined} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} nestedCalls={nestedCalls} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? liveThinking?.get(originalIndex) : (liveThinking?.get(timingBlockIndices?.[originalIndex] ?? originalIndex) ?? (timingRevision && sessionId && timingMessageId ? readTiming(`thinking:${sessionId}:${timingMessageId}:${timingBlockIndices?.[originalIndex] ?? originalIndex}`) : undefined))) : undefined} runningThinking={runningThinking?.has(timingBlockIndices?.[originalIndex] ?? originalIndex)} toolCallDurations={liveTools} runningTools={runningTools} sessionTimingId={timingRevision ? sessionId : undefined} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
@@ -761,7 +768,7 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, runningThinking, toolCallDurations, runningTools, sessionTimingId, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; runningThinking?: boolean; toolCallDurations?: Map<string, number>; runningTools?: Set<string>; sessionTimingId?: string; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, nestedCalls, isStreaming, streamingDuration, runningThinking, toolCallDurations, runningTools, sessionTimingId, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; nestedCalls?: Map<string, NestedCallGroup>; isStreaming?: boolean; streamingDuration?: number; runningThinking?: boolean; toolCallDurations?: Map<string, number>; runningTools?: Set<string>; sessionTimingId?: string; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
@@ -771,8 +778,9 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, running
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
-    const duration = toolCallDurations?.get(tc.toolCallId) ?? (sessionTimingId ? readTiming(`tool:${sessionTimingId}:${tc.toolCallId}`) : undefined);
-    return <ToolCallBlock block={tc} result={result} duration={duration} durationRunning={runningTools?.has(tc.toolCallId) ?? false} />;
+    const duration = recordedDuration(result?.durationMs) ?? toolCallDurations?.get(tc.toolCallId)
+      ?? (sessionTimingId ? readTiming(`tool:${sessionTimingId}:${tc.toolCallId}`) : undefined);
+    return <ToolCallBlock block={tc} result={result} nestedGroup={nestedCalls?.get(tc.toolCallId)} liveTools={toolCallDurations} sessionId={sessionId} duration={duration} durationRunning={runningTools?.has(tc.toolCallId) ?? false} />;
   }
   return null;
 }
@@ -916,7 +924,8 @@ function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, en
 }
 
 
-function ToolCallBlock({ block, result, duration, durationRunning }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; durationRunning: boolean }) {
+function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, duration, durationRunning }: { block: ToolCallContent; result?: ToolResultMessage; nestedGroup?: NestedCallGroup; liveTools?: Map<string, number>; sessionId?: string; duration?: number; durationRunning: boolean }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const durationLabel = formatDisplayedElapsed(duration, durationRunning);
   // JSON transport decoding already restored escapes in the code string.
@@ -926,13 +935,11 @@ function ToolCallBlock({ block, result, duration, durationRunning }: { block: To
     ? input.code
     : JSON.stringify(input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
-  const resultDiff = result && !result.isError ? getResultDiff(result) : null;
-
-  // Result display
-  const resultText = result
-    ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
-    : null;
-  const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
+  const isCodemode = block.toolName.split(".").at(-1) === "codemode";
+  const group = useMemo(() => displayedNestedGroup(block.toolCallId, result?.nestedCalls, nestedGroup), [block.toolCallId, result?.nestedCalls, nestedGroup]);
+  const hasNested = Boolean(group && (group.calls.length || !group.complete));
+  const usage = result?.usage ? summarizeUsage(result.usage) : null;
+  const cost = recordedCost(result?.usage);
   const isError = result?.isError ?? false;
   const isPending = !result;
 
@@ -953,6 +960,7 @@ function ToolCallBlock({ block, result, duration, durationRunning }: { block: To
           display: "flex",
           alignItems: "center",
           gap: 7,
+          flexWrap: "wrap",
           width: "100%",
           padding: "6px 10px",
           background: "none",
@@ -967,17 +975,25 @@ function ToolCallBlock({ block, result, duration, durationRunning }: { block: To
         <span style={{ color: isError ? "#f87171" : isPending ? "var(--text-muted)" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
-        </span>
+        {isCodemode ? <NestedCallTrail group={group} /> : (
+          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {getToolPreview(block)}
+          </span>
+        )}
         {durationLabel !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{durationLabel}</span>
         )}
         <ChevronDown size={10} strokeWidth={1.6} aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+        {hasNested && group && <span style={{ flexBasis: "100%" }}><NestedCallSummary group={group} /></span>}
+        {usage && <span style={{ flexBasis: "100%", color: "var(--text-dim)", fontSize: 11 }}>
+          {t("session.usage")} {usage.tokens.total.toLocaleString()} tokens · {t("session.recordedCost")} {cost === null ? t("session.unrecorded") : `$${cost.toFixed(4)}`}
+        </span>}
       </button>
 
       {/* ── Expanded: input args ── */}
       {expanded && !isEditTool && (
+        <details open={!hasNested}>
+        <summary style={{ display: hasNested ? undefined : "none", padding: "8px 10px", color: "var(--text-muted)", borderTop: "1px solid var(--border)", cursor: "pointer" }}>{t("nested.input")}</summary>
         <pre
           style={{
             margin: 0,
@@ -994,24 +1010,31 @@ function ToolCallBlock({ block, result, duration, durationRunning }: { block: To
         >
           {inputStr}
         </pre>
+        </details>
       )}
 
-      {/* ── Paired result — only shown when expanded ── */}
-      {expanded && result && (
-        resultDiff ? (
-          <PairedDiffResult
-            diff={resultDiff}
-          />
-        ) : (
-          <PairedResult
-            text={resultText ?? ""}
-            isEmpty={resultIsEmpty}
-            isError={isError}
-          />
-        )
-      )}
+      {expanded && hasNested && group && <NestedToolCalls key={`${sessionId}:${block.toolCallId}`} rootId={block.toolCallId} group={group} sessionId={sessionId} liveTools={liveTools} renderResult={(preview) => <ToolResultOutput result={preview} sessionId={sessionId} />} />}
+
+      {/* The parent output remains authoritative; children are never new messages. */}
+      {expanded && result && (hasNested || isCodemode ? (
+        <details open>
+          <summary style={{ padding: "8px 10px", borderTop: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" }}>{t("nested.output")}</summary>
+          <ToolResultOutput result={result} sessionId={sessionId} outputLayouts={isCodemode} />
+        </details>
+      ) : <ToolResultOutput result={result} sessionId={sessionId} />)}
     </div>
   );
+}
+
+function ToolResultOutput({ result, sessionId, outputLayouts = false }: { result: ToolResultView; sessionId?: string; outputLayouts?: boolean }) {
+  // Codemode renders its ordered parent content, not inferred per-child results.
+  if (outputLayouts) return <ToolResultContent result={result} sessionId={sessionId} outputLayouts />;
+  const diff = !result.isError ? getResultDiff(result) : null;
+  const hasImages = Boolean(result.deferredImages?.images.length) || result.content.some((block) => block.type === "image");
+  return <>
+    {(!diff || hasImages) && <ToolResultContent result={result} sessionId={sessionId} />}
+    {diff && <PairedDiffResult diff={diff} />}
+  </>;
 }
 
 interface ResultDiff {
@@ -1232,8 +1255,8 @@ function PatchTextView({ text }: { text: string }) {
   );
 }
 
-function getResultDiff(result: ToolResultMessage): ResultDiff | null {
-  const details = (result as ToolResultMessage & { details?: unknown }).details;
+function getResultDiff(result: ToolResultView): ResultDiff | null {
+  const details = result.details;
   if (!isRecord(details)) return null;
 
   const patch = typeof details.patch === "string" ? details.patch : null;
@@ -1257,40 +1280,6 @@ function isEditToolName(toolName: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function PairedResult({ text, isEmpty, isError }: {
-  text: string;
-  isEmpty: boolean;
-  isError: boolean;
-}) {
-  return (
-    <div
-      style={{
-        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
-        background: isError ? "rgba(248,113,113,0.04)" : "var(--bg-subtle)",
-      }}
-    >
-      <pre
-        style={{
-          margin: 0,
-          padding: "8px 10px",
-          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
-          fontSize: 12,
-          lineHeight: 1.5,
-          overflow: "auto",
-          maxHeight: 400,
-          background: "var(--bg)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          fontStyle: isEmpty ? "italic" : "normal",
-          opacity: isEmpty ? 0.6 : 1,
-        }}
-      >
-        {isEmpty ? "(no output)" : text}
-      </pre>
-    </div>
-  );
 }
 
 function CompactionMessageView({ message, hour12 }: { message: CustomMessage; hour12: boolean }) {
@@ -1547,16 +1536,6 @@ function getMessageText(content: CustomMessage["content"] | UserMessage["content
 function getMessageImages(content: CustomMessage["content"] | UserMessage["content"]): ImageContent[] {
   if (typeof content === "string") return [];
   return content.filter((b): b is ImageContent => b.type === "image");
-}
-
-function imageSource(img: ImageContent): string {
-  const flat = img as unknown as { data?: string; mimeType?: string };
-  if (img.source) {
-    return img.source.type === "base64"
-      ? `data:${img.source.media_type};base64,${img.source.data}`
-      : img.source.url ?? "";
-  }
-  return flat.data ? `data:${flat.mimeType};base64,${flat.data}` : "";
 }
 
 function safeJson(value: unknown): string {

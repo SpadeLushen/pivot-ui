@@ -4,7 +4,7 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 export type WorkspacePackErrorResponse = { error?: string; plan?: ApplyPreviewResponse };
 
 export function requiresWorkspaceTrust(plan: ApplyPreviewResponse): boolean {
-  return plan.mcp.blocked.some((entry) => entry.reason === "untrusted_project");
+  return [...plan.blocked, ...plan.mcp.blocked].some((entry) => entry.reason === "untrusted_project");
 }
 
 export function workspacePackBlockMessages(plan: ApplyPreviewResponse, t: Translate): string[] {
@@ -29,11 +29,20 @@ export class WorkspacePackRequestError extends Error {
   }
 }
 
-/** Trust is saved only after an explicit user confirmation, never on a Pack toggle. */
-export async function confirmWorkspaceTrust(cwd: string, t: Translate): Promise<boolean> {
-  if (!window.confirm(t("packs.trustConfirm", { cwd }))) return false;
+export async function readWorkspaceTrust(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  const response = await fetch(`/api/workspace-trust?cwd=${encodeURIComponent(cwd)}`, {
+    cache: "no-store", signal: signal ?? AbortSignal.timeout(15000),
+  });
+  const data = await response.json() as { error?: string; trusted?: boolean };
+  if (!response.ok || data.error) throw new Error(data.error ?? "workspaceTrust.readFailed");
+  if (typeof data.trusted !== "boolean") throw new Error("workspaceTrust.readFailed");
+  return data.trusted;
+}
+
+/** The explicit Trust button saves trust directly, never a Pack toggle. */
+export async function confirmWorkspaceTrust(cwd: string, _t: Translate): Promise<boolean> {
   const response = await fetch("/api/workspace-trust", {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(30000),
     body: JSON.stringify({ cwd, trusted: true }),
   });
   const data = await response.json() as { error?: string };

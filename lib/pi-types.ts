@@ -35,6 +35,8 @@ export interface NavigateTreeResult {
 }
 
 export interface SessionStatsInfo {
+  accounting?: import("./session-usage").SessionAccounting;
+  statsUnavailable?: boolean;
   sessionFile?: string;
   sessionId: string;
   sessionName?: string;
@@ -170,6 +172,7 @@ export interface AgentSessionLike {
   getAllTools(): ToolInfo[];
   getToolDefinition: AgentSession["getToolDefinition"];
   getActiveToolNames(): string[];
+  getCallableToolNames?: () => string[];
   setActiveToolsByName(names: string[]): void;
   abortCompaction(): void;
   getContextUsage(): ContextUsage | undefined;

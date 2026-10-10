@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { SkillPack, SkillPacksConfig } from "./skill-packs-store";
-import { readWorkspaceState, unionSkillRefs, type WorkspaceState, type AppliedPack } from "./workspace-packs";
+import { collectActiveNativeMcpServers, readWorkspaceState, unionSkillRefs, type WorkspaceState, type AppliedPack } from "./workspace-packs";
 import { preview, copyPlanSkills, withWorkspaceLock, WorkspaceRevisionConflict, WorkspacePlanBlocked, type WorkspacePackPlan } from "./skill-pack-apply";
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 import { loadNativeMcpConfig } from "./native-mcp-config";
@@ -31,7 +31,8 @@ async function buildPlan(cwd: string, libraryRoot: string, ids: string[], config
   const targetPackIds = [...new Set(ids)];
   const packs = resolvePacks(config, targetPackIds, state);
   const touched = resolvePacks(config, [...new Set([...targetPackIds, ...state.appliedPacks.map((p) => p.packId)])], state);
-  const names = [...new Set(touched.flatMap(nativeNames).concat(state.managedNativeMcpServers ?? []))];
+  for (const pack of touched) nativeNames(pack); // Preserve the explicit native-binding requirement for legacy Packs.
+  const names = [...new Set([...collectActiveNativeMcpServers(state, config), ...packs.flatMap(nativeNames)])];
   for (const pack of packs) for (const ref of pack.skills) validSkillKey(ref.skillKey);
   const newIds = targetPackIds.filter((id) => !state.appliedPacks.some((p) => p.packId === id));
   const effectiveConfig = { ...config, packs };
@@ -163,8 +164,7 @@ export async function applyWorkspacePackSwitch(cwd: string, libraryRoot: string,
     const packs = resolvePacks(config, plan.targetPackIds, state);
     const managed = [...new Set([...(state.managedSkillKeys ?? []), ...[...state.appliedPacks, ...(state.disabledPacks ?? [])].flatMap((p) => p.receipt.installed.map((s) => s.skillKey)),
       ...plan.toInstall.map((s) => s.skillKey)])];
-    const names = [...new Set([...(state.managedNativeMcpServers ?? []), ...packs.flatMap(nativeNames),
-      ...state.appliedPacks.flatMap((p) => p.receipt.nativeMcpServers ?? [])])];
+    const names = [...new Set([...collectActiveNativeMcpServers(state, config), ...packs.flatMap(nativeNames)])];
     const resources = resourceFiles(cwd, state, packs, managed, plan.mcp.toConfigure.map((s) => s.serverKey), nativeSnapshots.get(plan));
     const next = makeState(state, packs, plan, managed, names, resources.exclusions);
     const copied = copyPlanSkills(cwd, libraryRoot, plan, deps);

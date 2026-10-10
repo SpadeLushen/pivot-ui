@@ -11,6 +11,20 @@ Packs 是工作目录级的启停开关，不是 session 的工具预设。同�
 
 旧 Library MCP 定义、`configHash`、adapter 文件、OAuth 凭据、migration markers 和备份不自动导入、转换或清理。含旧 MCP 引用且未显式保存 `nativeMcpServers` 的 Pack 不能直接切换；在 Packs 编辑器中选择原生服务器或明确取消 MCP 引用后保存。旧数据仍保留。原生定义可通过 MCP 编辑器显式修改全局／受信任工作区配置；旧 Library/adapter 写接口继续返回 `501 NATIVE_MCP_CONFIGURATION_UNAVAILABLE`。编辑器不部署 Library 定义，工作区 Pack 管理的启用状态仍只能通过 Pack 开关修改。Tools 的 MCP 页仅保留工作区列表／详情，添加／编辑通过弹框进行，新增默认全局且禁用；工作区开关不复制全局凭据。定义保存后通知相关会话在空闲时重载 SDK 资源，运行中的任务延后；全局变更通知全部 wrapper，项目变更仅通知同目录。工具标签页的内建／扩展工具规则独立保存在受信任工作区 `.pi/pivot-tools.json`，不改变 Pack receipt 或旧预设。
 
+## Tools 中的 MCP 分类与管理权
+
+`Pack managed` 仅对应当前 `appliedPacks` 的原生 MCP 引用并集，而不是历史 `managedNativeMcpServers` 清单。优先使用启用 receipt 的 `nativeMcpServers` 快照（显式空数组也有效）；旧 receipt 缺少该字段时，回查对应 Pack 定义中已明确配置的原生绑定。不推测或转换旧 Library 引用，也不因信任工作区而改写 Packs 状态或 MCP 配置。
+
+未启用或已禁用的 Pack 不占用管理权；最后一个引用停用后，MCP 按实际配置来源归入 Global、Workspace override 或 Workspace，仍保留禁用覆盖和定义。其他启用 Pack 仍引用该 MCP 时，继续保持 Pack managed。分类和 MCP 编辑器的启停／删除保护使用同一管理关系，项目编辑与 Pack 切换共用 canonical cwd 锁。Tools 订阅 Pack revision，自动刷新分类并忽略迟到响应。
+
+Native MCP 切换只涉及切换前的启用引用与切换后的目标引用；历史但已解除管理的 MCP 不再被无关 Pack 切换重新禁用。历史记录保留，不自动删除配置或进行迁移。
+
+## 工作区信任提示
+
+Tools 窗口与聊天栏 Workspace Packs 选框共用工作区信任提示和显式「信任此工作区」按钮。`GET /api/workspace-trust?cwd=` 只读取 SDK 有效信任状态（已保存决定优先于全局策略），不加载项目资源、不创建会话，也不以 Packs 历史启用记录推断信任。聊天栏每次打开选框都会重新检查；检查中、读取失败或未信任时，Packs 开关禁用，仍保留历史勾选记录供查看。读取失败可刷新重试，旧工作区或已关闭选框的迟到响应不更新当前状态。
+
+只有明确点击信任按钮才 POST 保存决定；随后重新读取状态并刷新界面，Tools 的 MCP 配置也会重新加载。信任不会自动启用／停用或重试切换任何 Pack，不迁移旧配置。会话资源仍在空闲边界重载。Tools 的全局工具设置不要求工作区信任，工作区设置继续受信任检查保护。
+
 ## 启停语义
 
 1. 在 Skills 的 Library / Acquire 中管理库技能，在 Packs 中编辑复用组合。MCP 选择器只返回原生服务器名称、描述、范围和启用状态，不读取旧 Library 定义，也不暴露命令、环境变量或凭据。

@@ -1,5 +1,5 @@
 import type { AgentSessionLike, ToolInfo } from "./pi-types";
-import type { ToolExposure, WorkspaceToolRule } from "./tool-settings-types";
+import type { ToolExposure, ToolRuleOverrides } from "./tool-settings-types";
 
 type Definition = NonNullable<ReturnType<AgentSessionLike["getToolDefinition"]>>;
 type Ownership = { original: ToolExposure; applied?: ToolExposure };
@@ -22,7 +22,7 @@ export function originalToolExposure(session: AgentSessionLike, name: string): T
   const definition = session.getToolDefinition(name);
   return definition ? ownership(definition).original : "hidden";
 }
-export function applyToolExposure(session: AgentSessionLike, tool: ToolInfo, rule?: WorkspaceToolRule) {
+export function applyToolExposure(session: AgentSessionLike, tool: ToolInfo, rule?: ToolRuleOverrides) {
   const definition = session.getToolDefinition(tool.name);
   if (!definition) return { exposure: "hidden" as ToolExposure, changed: false };
   const state = ownership(definition);

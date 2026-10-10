@@ -3,13 +3,17 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { sessionStatistics } from "./session-statistics";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "./extension-statusline";
 import type { ToolPreset } from "./tool-presets";
 import { activateAllSessionTools } from "./active-tools";
-import { subscribeWorkspaceTools } from "./workspace-tools";
+import { readWorkspaceTools, subscribeWorkspaceTools } from "./workspace-tools";
+import { appliedToolRulesRevision, toolRulesFailed } from "./tool-application";
+import { codemodeValues, readOrchestration } from "./tool-orchestration";
+import type { OrchestrationSnapshot, ToolApplicationState } from "./tool-settings-types";
 import { workspaceKey } from "./workspace-pack-files";
 import { resourceRevision, subscribeResourceChanges } from "./session-resource-events";
 import { persistEmptySession } from "./session-persistence";
@@ -219,6 +223,7 @@ export class AgentSessionWrapper {
   private unsubscribeWorkspaceTools: (() => void) | null = null;
   private unsubscribeResourceChanges: (() => void) | null = null;
   private workspaceResourceRevision: string;
+  private resourceReloadFailed = false;
 
   constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0) {
     this.workspacePackRevision = initialPackRevision;
@@ -229,11 +234,44 @@ export class AgentSessionWrapper {
 
   private refreshWorkspacePacksInBackground(): void {
     if (!this._alive || this.isRunning()) return;
-    // The same idle boundary applies workspace tool settings after a run.
-    activateAllSessionTools(this.inner);
-    void this.ensureWorkspacePacksReloaded().catch((error) => {
+    // Keep persisted changes pending on failure; background notifications must not throw.
+    void this.refreshWorkspaceTools().catch((error) => {
       this.emit({ type: "workspace_packs_reload_error", errorMessage: String(error) });
     });
+  }
+
+  getToolApplicationState(desired: OrchestrationSnapshot): ToolApplicationState {
+    const cwd = this.workspaceCwd();
+    const current = codemodeValues(this.inner.settingsManager.getSettings());
+    const rules = cwd ? readWorkspaceTools(cwd, this.inner.settingsManager.isProjectTrusted()).revision : undefined;
+    const pending = appliedToolRulesRevision(this.inner) !== rules ||
+      current.mode !== desired.mode || current.inlineBudget !== desired.inlineBudget ||
+      this.inner.settingsManager.isProjectTrusted() !== desired.trusted ||
+      (cwd !== undefined && resourceRevision(cwd) !== this.workspaceResourceRevision);
+    const state = this.resourceReloadFailed || this.extensionBindingError || toolRulesFailed(this.inner) ? "failed"
+      : this.resourceReloadPromise || !this.extensionsBound ? "applying" : pending ? "pending" : "applied";
+    return { sessionId: this.sessionId, running: this.isRunning(), codemode: current, state };
+  }
+
+  async refreshWorkspaceTools(): Promise<void> {
+    if (!this._alive || this.isRunning()) return;
+    try {
+      if (this.resourceReloadPromise) await this.resourceReloadPromise;
+      await this.ensureWorkspacePacksReloaded();
+      if (!this._alive || this.isRunning()) return;
+      const cwd = this.workspaceCwd();
+      if (cwd) {
+        const desired = readOrchestration(cwd);
+        const current = codemodeValues(this.inner.settingsManager.getSettings());
+        if (this.resourceReloadFailed || this.extensionBindingError || desired.mode !== current.mode ||
+            desired.inlineBudget !== current.inlineBudget || desired.trusted !== this.inner.settingsManager.isProjectTrusted()) {
+          await this.reloadResources();
+        }
+      }
+      if (!this._alive || this.isRunning()) return;
+      activateAllSessionTools(this.inner);
+      this.resourceReloadFailed = false;
+    } catch (error) { this.resourceReloadFailed = true; throw error; }
   }
 
   async ensureWorkspacePacksReloaded(): Promise<void> {
@@ -256,7 +294,10 @@ export class AgentSessionWrapper {
   private async reloadResources(): Promise<void> {
     if (this.resourceReloadPromise) return this.resourceReloadPromise;
     const task = (async () => {
-      await this.waitForExtensionsBound();
+      if (this.isRunning()) throw new AgentBusyError();
+      // A failed binding must be recoverable through reload, not block every retry forever.
+      await this.extensionBindingPromise?.catch(() => undefined);
+      if (this.isRunning()) throw new AgentBusyError();
       const cwd = this.workspaceCwd();
       const revision = cwd ? readWorkspaceState({ cwd }).revision : this.workspacePackRevision;
       const resources = cwd ? resourceRevision(cwd) : this.workspaceResourceRevision;
@@ -270,6 +311,7 @@ export class AgentSessionWrapper {
         settings.setProjectTrusted(nativeProjectTrusted(cwd, getAgentDir(), settings));
       }
       await this.inner.reload();
+      if (settings.drainErrors().length) throw new Error("Unable to apply workspace settings");
       this.beginExtensionBinding();
       await this.waitForExtensionsBound();
       activateAllSessionTools(this.inner);
@@ -277,7 +319,9 @@ export class AgentSessionWrapper {
       this.workspaceResourceRevision = resources;
     })();
     this.resourceReloadPromise = task;
-    try { await task; } finally { this.resourceReloadPromise = null; }
+    try { await task; this.resourceReloadFailed = false; }
+    catch (error) { this.resourceReloadFailed = true; throw error; }
+    finally { this.resourceReloadPromise = null; }
   }
 
   get sessionId(): string {
@@ -300,7 +344,7 @@ export class AgentSessionWrapper {
     const cwd = this.workspaceCwd();
     if (cwd) this.unsubscribeResourceChanges = subscribeResourceChanges(cwd, () => this.refreshWorkspacePacksInBackground());
     if (cwd) this.unsubscribeWorkspaceTools = subscribeWorkspaceTools(cwd, () => {
-      if (!this.isRunning()) activateAllSessionTools(this.inner);
+      this.refreshWorkspacePacksInBackground();
     });
     if (cwd) this.unsubscribeWorkspacePacks = subscribeWorkspacePacks(cwd, () => {
       this.emit({ type: "workspace_packs_changed" });
@@ -542,7 +586,7 @@ export class AgentSessionWrapper {
     const type = command.type as string;
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
     if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools" || type === "reload_workspace_packs")) {
-      await this.ensureWorkspacePacksReloaded();
+      await this.refreshWorkspaceTools();
     }
     // Refresh dynamic registrations without changing an in-flight run's loadout.
     if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools")) {
@@ -717,10 +761,7 @@ export class AgentSessionWrapper {
       }
 
       case "get_session_stats": {
-        return {
-          ...this.inner.getSessionStats(),
-          sessionName: this.inner.sessionManager.getSessionName(),
-        };
+        return sessionStatistics(this.inner.sessionManager, this.inner);
       }
 
       case "get_last_assistant_text": {
@@ -1272,8 +1313,8 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
 export function getToolManagementSession(cwd: string, preferredId?: string): AgentSessionWrapper | undefined {
   const matches = (session: AgentSessionWrapper) => session.isAlive() && workspaceKey(session.inner.sessionManager.getCwd()) === workspaceKey(cwd);
   const preferred = preferredId ? globalThis.__piSessions?.get(preferredId) : undefined;
-  if (preferred && matches(preferred)) return preferred;
-  return [...globalThis.__piSessions?.values() ?? []].find(matches);
+  // Runtime facts must belong to the explicitly selected session, never a same-cwd sibling.
+  return preferred && matches(preferred) ? preferred : undefined;
 }
 
 export function getRunningRpcSessionIds(): string[] {

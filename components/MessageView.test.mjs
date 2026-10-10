@@ -10,12 +10,58 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MessageView } = await jiti.import("./MessageView.tsx");
+const { NestedToolCalls } = await jiti.import("./NestedToolCalls.tsx");
 const source = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
 const toolStart = source.indexOf("function ToolCallBlock(");
 const inputStart = source.indexOf("  const input = block.input;", toolStart);
 const inputEnd = source.indexOf("  const isEditTool", inputStart);
 assert.ok(inputStart > toolStart && inputEnd > inputStart);
 const expandedInput = new Function("block", `${source.slice(inputStart, inputEnd)}\nreturn inputStr;`);
+
+function timedTool(durationMs, liveDuration, storageDuration) {
+  const previous = globalThis.window;
+  const records = new Map([["pivot-timing:v1:tool:sdk:call-1", String(storageDuration)]]);
+  globalThis.window = { sessionStorage: { getItem: key => records.get(key) ?? null } };
+  try {
+    return renderToStaticMarkup(React.createElement(MessageView, {
+      sessionId: "sdk", timingRevision: 1,
+      message: { role: "assistant", content: [{ type: "toolCall", toolCallId: "call-1", toolName: "read", input: {} }] },
+      toolResults: new Map([["call-1", { role: "toolResult", toolCallId: "call-1", durationMs, content: [] }]]),
+      liveTools: liveDuration === undefined ? undefined : new Map([["call-1", liveDuration]]),
+    }));
+  } finally { globalThis.window = previous; }
+}
+
+test("completed tools prefer persisted SDK duration over live and cached timing", () => {
+  for (const duration of [0, 12]) {
+    const html = timedTool(duration, 42, 99);
+    assert.match(html, new RegExp(`>${duration}ms<`));
+    assert.doesNotMatch(html, />42ms<|>99ms</);
+  }
+});
+
+test("legacy tools fall back to live then cached timing and never invent a missing duration", () => {
+  assert.match(timedTool(undefined, 42, 99), />42ms</);
+  assert.match(timedTool(-1, 42, 99), />42ms</);
+  assert.match(timedTool(undefined, undefined, 99), />99ms</);
+  assert.doesNotMatch(timedTool(undefined, undefined, undefined), />\d+ms</);
+});
+
+test("nested saved pipeline duration stays authoritative over observed execute timing", () => {
+  for (const [durationMs, status, uncertain, expected] of [
+    [0, "ok", false, "0ms"], [88, "ok", false, "88ms"],
+    [undefined, "ok", false, "42ms"], [undefined, "unfinished", false, "—"],
+    [undefined, "running", true, "—"],
+  ]) {
+    const html = renderToStaticMarkup(React.createElement(NestedToolCalls, {
+      rootId: "root", group: { complete: true, uncertain, calls: [
+        { id: "child", parentId: "root", name: "read", status, durationMs },
+      ] }, liveTools: new Map([["child", 42]]), renderResult: () => null,
+    }));
+    assert.match(html, new RegExp(`>${expected}<`));
+    if (expected !== "42ms") assert.doesNotMatch(html, />42ms</);
+  }
+});
 
 test("expanded code-only calls preserve real newlines and literal backslashes without double decoding", () => {
   for (const code of ['console.log("first");\nconsole.log("second");', String.raw`const path = "C:\\workspace\\new";`, String.raw`const escaped = "\\n\\t";`, "\tindented\nnext", ""]) {
