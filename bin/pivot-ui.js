@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./pivot-ui-options");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { restoreRuntimeAliases } = require("../scripts/pivot-runtime-aliases");
+const { assertBuildRuntime } = require("../scripts/pivot-build-runtime");
 
 const pkgDir = path.join(__dirname, "..");
 
@@ -53,6 +49,13 @@ const { port, hostname, openBrowser } = parseLaunchOptions();
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
+  process.exit(1);
+}
+
+try {
+  assertBuildRuntime(pkgDir);
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 

@@ -7,9 +7,7 @@
 // script while the package is being built inside the package manager's own
 // store, where the dependencies are not linked yet. In that case the aliases
 // are restored later, when bin/pivot-ui.js launches the server.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("node:path");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { restoreRuntimeAliases } = require("./pivot-runtime-aliases");
 
 const projectRoot = path.resolve(__dirname, "..");

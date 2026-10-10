@@ -17,6 +17,8 @@
   "files": [
     "bin",
     "scripts",
+    "!scripts/*.test.mjs",
+    "!scripts/*-smoke.mjs",
     ".next",
     "!.next/cache",
     "!.next/dev",
@@ -27,17 +29,18 @@
   ],
   "scripts": {
     "dev": "next dev -p 30141",
-    "build": "next build && npm pack",
+    "build": "node scripts/pivot-build-compiler.js && npm run typecheck && next build && npm pack",
     "prepack": "node scripts/prepare-package-runtime.js",
     "postinstall": "node scripts/restore-package-runtime.js",
     "start": "next start -p 30141",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@earendil-works/pi-tui": "0.87.1",
+    "@earendil-works/pi-ai": "1.0.3",
+    "@earendil-works/pi-coding-agent": "1.0.3",
+    "@earendil-works/pi-tui": "1.0.3",
     "@lobehub/icons": "^5.6.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xterm/addon-fit": "^0.11.0",
@@ -46,8 +49,9 @@
     "lucide-react": "^1.26.0",
     "mammoth": "^1.12.0",
     "mermaid": "^11.14.0",
-    "next": "16.2.9",
+    "next": "16.3.8",
     "node-pty": "1.1.0",
+    "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
@@ -61,13 +65,21 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint": "9.39.4",
+    "@next/eslint-plugin-next": "16.3.8",
+    "eslint-parser-oxc": "0.1.1",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "globals": "17.12.0",
     "jiti": "^2.7.0",
     "postcss": "^8",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5"
+    "typescript": "7.0.2"
   }
 }

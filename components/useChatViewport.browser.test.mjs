@@ -17,10 +17,13 @@ const chrome = process.env.CHROME_PATH ?? (process.platform === "win32"
 
 async function bundleFixture(dir) {
   const loader = path.join(dir, "ts-loader.cjs");
-  await writeFile(loader, `const ts = require(${JSON.stringify(require.resolve("typescript"))});
-module.exports = function(source) { return ts.transpileModule(source, { compilerOptions: {
-  jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022
-}}).outputText; };`);
+  await writeFile(loader, `const swc = require(${JSON.stringify(require.resolve("next/dist/build/swc"))});
+module.exports = function(source) { return swc.transformSync(source, {
+  filename: this.resourcePath,
+  jsc: { parser: { syntax: "typescript", tsx: /\\.(tsx|jsx)$/.test(this.resourcePath) },
+    target: "es2022", transform: { react: { runtime: "automatic" } } },
+  module: { type: "es6" }
+}).code; };`);
   await writeFile(path.join(dir, "entry.jsx"), `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";

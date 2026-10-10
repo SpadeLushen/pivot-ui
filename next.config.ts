@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { PHASE_PRODUCTION_SERVER } from "next/constants";
+import { assertBuildRuntime } from "./scripts/pivot-build-runtime";
 
 const { version } = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")) as { version: string };
 let piVersion = "unknown";
@@ -30,6 +32,8 @@ const nextConfig: NextConfig = {
   // multipart overhead; the default 10 MB proxy body cap would truncate them.
   experimental: {
     proxyClientMaxBodySize: "25mb",
+    // TS7 has no classic JS compiler API; use Next's native CLI path.
+    useTypeScriptCli: true,
   },
   async headers() {
     return [
@@ -47,4 +51,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function configureNext(phase: string): NextConfig {
+  // Also protect direct `next start` users, including the WinSW service.
+  if (phase === PHASE_PRODUCTION_SERVER) assertBuildRuntime(__dirname);
+  return nextConfig;
+}

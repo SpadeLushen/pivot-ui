@@ -7,6 +7,7 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
+    "types": ["node", "react", "react-dom", "react-syntax-highlighter"],
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,

@@ -1,8 +1,6 @@
 "use strict";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("node:fs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("node:path");
 
 // Turbopack creates symlinks like
@@ -121,4 +119,4 @@ function restoreRuntimeAliases(packageRoot) {
   return { restored, missing };
 }
 
-module.exports = { restoreRuntimeAliases };
+module.exports = { restoreRuntimeAliases, resolveDependencyRoot };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { createJiti } from "jiti";
 
@@ -8,7 +9,7 @@ const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { GET, POST } = await jiti.import("./route.ts");
 
 test("creates a named workspace and rejects path traversal", async (t) => {
-  const parent = await mkdtemp("/tmp/pivot-ui-cwd-test-");
+  const parent = await mkdtemp(join(tmpdir(), "pivot-ui-cwd-test-"));
   t.after(() => rm(parent, { recursive: true, force: true }));
 
   const browse = await GET(new Request(`http://localhost/api/cwd/browse?path=${encodeURIComponent(parent)}`));

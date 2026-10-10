@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import ts from "typescript";
+import swc from "next/dist/build/swc/index.js";
 
 const source = await readFile(new URL("./useDragDrop.ts", import.meta.url), "utf8");
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS },
+await swc.loadBindings();
+const { code: outputText } = await swc.transform(source, {
+  jsc: { parser: { syntax: "typescript" }, target: "es2022" },
+  module: { type: "commonjs" },
 });
 
 // Exercise the real hook callbacks and effect cleanup without a browser/DOM dependency.
