@@ -1,4 +1,5 @@
-import { createAgentSessionServices, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { createPivotAgentSessionServices, LEGACY_AZURE_PROVIDER } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -10,7 +11,7 @@ export async function PATCH(req: Request) {
     if (!body.cwd || typeof body.cwd !== "string") {
       return Response.json({ error: "cwd is required" }, { status: 400 });
     }
-    const { settingsManager, modelRuntime } = await createAgentSessionServices({ cwd: body.cwd, agentDir: getAgentDir() });
+    const { settingsManager, modelRuntime } = await createPivotAgentSessionServices({ cwd: body.cwd, agentDir: getAgentDir() }, body.provider === LEGACY_AZURE_PROVIDER);
     if (body.provider !== undefined || body.modelId !== undefined) {
       if (!body.provider || !body.modelId || !modelRuntime.getModel(body.provider, body.modelId)) {
         return Response.json({ error: "Invalid model" }, { status: 400 });

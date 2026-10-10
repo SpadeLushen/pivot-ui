@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { deleteLibraryMcpServer, getLibraryMcpServer, updateLibraryMcpServer, type McpServerDefinition } from "@/lib/mcp-library";
-import { ensureLibraryRoot, findPacksReferencingMcpServerKey, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
+import { getLibraryMcpServer } from "@/lib/mcp-library";
+import { mcpConfigUnavailableResponse } from "@/lib/mcp-config-phase";
+import { ensureLibraryRoot, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,32 +32,5 @@ export async function GET(_req: Request, { params }: RouteParams) {
   return server ? NextResponse.json(toInfo(server)) : NextResponse.json({ error: "MCP server not found" }, { status: 404 });
 }
 
-export async function PATCH(req: Request, { params }: RouteParams) {
-  try {
-    const root = libraryRoot();
-    if (!root) return NextResponse.json({ error: "library not configured" }, { status: 400 });
-    const { serverKey } = await params;
-    const body = await req.json() as { serverKey?: string; name?: string; description?: string; source?: string; sourceRef?: string; definition?: unknown };
-    const server = updateLibraryMcpServer(root, serverKey, { ...body, definition: body.definition as McpServerDefinition | undefined });
-    return NextResponse.json({ server: toInfo(server) });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
-  }
-}
-
-export async function DELETE(_req: Request, { params }: RouteParams) {
-  try {
-    const config = ensureLibraryRoot(readConfig());
-    const root = resolveLibraryRoot(config);
-    if (!root) return NextResponse.json({ error: "library not configured" }, { status: 400 });
-    const { serverKey } = await params;
-    const result = deleteLibraryMcpServer(
-      root,
-      serverKey,
-      findPacksReferencingMcpServerKey(config, serverKey),
-    );
-    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-}
+export async function PATCH() { return mcpConfigUnavailableResponse(); }
+export async function DELETE() { return mcpConfigUnavailableResponse(); }

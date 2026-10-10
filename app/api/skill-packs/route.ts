@@ -5,7 +5,7 @@ import type { SkillPackInfo } from "@/lib/api-types";
 export const dynamic = "force-dynamic";
 
 function toInfo(pack: SkillPack): SkillPackInfo {
-  return { id: pack.id, name: pack.name, description: pack.description, skillCount: pack.skills.length, mcpServerCount: pack.mcpServers.length };
+  return { id: pack.id, name: pack.name, description: pack.description, skillCount: pack.skills.length, mcpServerCount: pack.nativeMcpServers?.length ?? 0, legacyMcpServerCount: pack.mcpServers.length };
 }
 
 // GET /api/skill-packs

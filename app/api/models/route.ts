@@ -1,8 +1,9 @@
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
+import { createPivotAgentSessionServices } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
 
   const agentDir = getAgentDir();
-  const services = await createAgentSessionServices({ cwd, agentDir });
+  const services = await createPivotAgentSessionServices({ cwd, agentDir });
   const runtime = services.modelRuntime;
   const available = runtime.getAvailableSnapshot();
   const settings: SettingsManager = services.settingsManager;

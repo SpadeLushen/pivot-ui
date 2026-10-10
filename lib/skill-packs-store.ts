@@ -19,6 +19,8 @@ export interface SkillPack {
   description: string;
   skills: SkillRef[];
   mcpServers: McpPackReference[];
+  /** Native server names only; legacy Library references remain untouched. */
+  nativeMcpServers?: string[];
 }
 
 export interface SkillPacksConfig {
@@ -108,6 +110,7 @@ function normalizePack(p: unknown): SkillPack {
     description: typeof raw.description === "string" ? raw.description : "",
     skills: Array.isArray(raw.skills) ? raw.skills.map(normalizeRef) : [],
     mcpServers: Array.isArray(raw.mcpServers) ? raw.mcpServers.map(normalizeMcpRef) : [],
+    ...(Array.isArray(raw.nativeMcpServers) ? { nativeMcpServers: [...new Set(raw.nativeMcpServers.filter((name) => typeof name === "string"))] } : {}),
   };
 }
 
@@ -173,6 +176,7 @@ export interface UpdatePackInput {
   description?: string;
   skills?: SkillRef[];
   mcpServers?: McpPackReference[];
+  nativeMcpServers?: string[];
 }
 
 /** Edit a pack by id (pure); packs not found are returned unchanged. */
@@ -188,6 +192,8 @@ export function updatePack(config: SkillPacksConfig, id: string, patch: UpdatePa
             description: patch.description ?? p.description,
             skills: patch.skills ?? p.skills,
             mcpServers: patch.mcpServers?.map(normalizeMcpRef) ?? p.mcpServers,
+            ...((patch.nativeMcpServers ?? p.nativeMcpServers) !== undefined
+              ? { nativeMcpServers: [...new Set(patch.nativeMcpServers ?? p.nativeMcpServers)] } : {}),
           }
         : p,
     ),

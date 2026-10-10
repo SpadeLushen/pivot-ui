@@ -8,11 +8,12 @@ export const dynamic = "force-dynamic";
 
 // GET /api/skill-library
 // Returns the configured library root and the skills currently stored in it.
-export async function GET() {
+export async function GET(req?: Request) {
   const config = ensureLibraryRoot(readConfig());
   const libraryRoot = resolveLibraryRoot(config);
   const skills = libraryRoot ? scanLibrary(libraryRoot) : [];
-  const mcpServers = libraryRoot ? scanLibraryMcpServers(libraryRoot).map((server) => ({
+  const skillsOnly = req && new URL(req.url).searchParams.get("skillsOnly") === "1";
+  const mcpServers = libraryRoot && !skillsOnly ? scanLibraryMcpServers(libraryRoot).map((server) => ({
     serverKey: server.serverKey,
     name: server.name,
     description: server.description,

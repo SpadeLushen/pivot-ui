@@ -103,7 +103,7 @@ function nowFn(): string {
   return new Date().toISOString();
 }
 
-function copyPlanSkills(
+export function copyPlanSkills(
   cwd: string,
   libraryRoot: string,
   plan: ApplyPlan,
@@ -427,7 +427,7 @@ function lower(value: string): string {
 
 const workspaceLocks = globalThis as typeof globalThis & { __piWorkspacePackLocks?: Map<string, Promise<void>> };
 
-async function withWorkspaceLock<T>(cwd: string, action: () => Promise<T>): Promise<T> {
+export async function withWorkspaceLock<T>(cwd: string, action: () => Promise<T>): Promise<T> {
   const locks = workspaceLocks.__piWorkspacePackLocks ??= new Map();
   const previous = locks.get(cwd) ?? Promise.resolve();
   let release!: () => void;
@@ -445,15 +445,24 @@ async function withWorkspaceLock<T>(cwd: string, action: () => Promise<T>): Prom
 }
 
 export class WorkspaceRevisionConflict extends Error {
+  readonly code = "WORKSPACE_PACK_REVISION_CONFLICT";
   constructor(readonly revision: number) {
     super("Workspace Pack state changed; preview again before applying");
   }
 }
 
 export class WorkspacePlanBlocked extends Error {
+  readonly code = "WORKSPACE_PACK_PLAN_BLOCKED";
   constructor(readonly plan: WorkspacePackPlan) {
     super("Workspace Pack plan cannot be applied");
   }
+}
+
+export function isWorkspaceRevisionConflict(error: unknown): error is WorkspaceRevisionConflict {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "WORKSPACE_PACK_REVISION_CONFLICT";
+}
+export function isWorkspacePlanBlocked(error: unknown): error is WorkspacePlanBlocked {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "WORKSPACE_PACK_PLAN_BLOCKED";
 }
 
 /**

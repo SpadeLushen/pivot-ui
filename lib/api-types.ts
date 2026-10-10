@@ -63,6 +63,7 @@ export interface SkillPackInfo {
   description: string;
   skillCount: number;
   mcpServerCount: number;
+  legacyMcpServerCount?: number;
 }
 
 export interface SkillPackDetail {
@@ -71,12 +72,45 @@ export interface SkillPackDetail {
   description: string;
   skills: LibrarySkillInfo[];
   mcpServers: LibraryMcpServerInfo[];
+  nativeMcpServers?: string[];
 }
 
 export interface SkillLibraryResponse {
   libraryRoot: string | null;
   skills: LibrarySkillInfo[];
   mcpServers: LibraryMcpServerInfo[];
+}
+
+export interface NativeMcpServerInfo {
+  serverKey: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  scope?: string;
+}
+
+export type NativeMcpScope = "global" | "project";
+
+export interface NativeMcpEditorServer {
+  serverKey: string;
+  name: string;
+  description: string;
+  source: NativeMcpScope;
+  definition: Record<string, unknown>;
+  enabled: boolean;
+  inherited: boolean;
+  managedByPack: boolean;
+  editScope: NativeMcpScope;
+  workspaceDefinition?: Record<string, unknown>;
+  overridesGlobal?: boolean;
+  validationError?: string;
+}
+
+export interface NativeMcpEditorSnapshot {
+  scope: NativeMcpScope;
+  filePath: string;
+  revision: string;
+  servers: NativeMcpEditorServer[];
 }
 
 export interface LibraryMcpServerInfo {
@@ -99,6 +133,7 @@ export interface AppliedPackInfo {
     appliedAt: string;
     installed: { skillKey: string; contentHash: string }[];
     mcpServers: { serverKey: string; configHash: string }[];
+    nativeMcpServers?: string[];
   };
 }
 
@@ -113,6 +148,7 @@ export interface WorkspaceSkillPacksResponse {
   revision: number;
   configured: boolean;
   appliedPacks: AppliedPackInfo[];
+  disabledPacks?: AppliedPackInfo[];
   skippedConflicts: SkippedConflictInfo[];
 }
 

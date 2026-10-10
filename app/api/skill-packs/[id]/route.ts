@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getLibrarySkill } from "@/lib/skill-library";
-import { getLibraryMcpServer } from "@/lib/mcp-library";
+import { mcpConfigUnavailableResponse } from "@/lib/mcp-config-phase";
 import {
   deletePack,
   ensureLibraryRoot,
@@ -21,7 +21,7 @@ interface RouteParams {
 }
 
 function toInfo(pack: SkillPack): SkillPackInfo {
-  return { id: pack.id, name: pack.name, description: pack.description, skillCount: pack.skills.length, mcpServerCount: pack.mcpServers.length };
+  return { id: pack.id, name: pack.name, description: pack.description, skillCount: pack.skills.length, mcpServerCount: pack.nativeMcpServers?.length ?? 0, legacyMcpServerCount: pack.mcpServers.length };
 }
 
 function buildDetail(packId: string): SkillPackDetail | null {
@@ -48,29 +48,11 @@ function buildDetail(packId: string): SkillPackDetail | null {
       }
     }
     for (const ref of pack.mcpServers) {
-      const server = getLibraryMcpServer(libraryRoot, ref.serverKey);
-      if (server) {
-        mcpServers.push({
-          serverKey: server.serverKey,
-          name: server.name,
-          description: server.description,
-          source: server.source,
-          sourceRef: server.sourceRef,
-          definition: server.definition as Record<string, unknown>,
-          configHash: server.configHash,
-        });
-      } else {
-        mcpServers.push({
-          serverKey: ref.serverKey,
-          name: ref.serverKey,
-          description: "",
-          definition: {},
-          configHash: ref.configHash,
-        });
-      }
+      // Retain only legacy reference metadata. Never load or import its definition.
+      mcpServers.push({ serverKey: ref.serverKey, name: ref.serverKey, description: "", definition: {}, configHash: ref.configHash });
     }
   }
-  return { id: pack.id, name: pack.name, description: pack.description, skills, mcpServers };
+  return { id: pack.id, name: pack.name, description: pack.description, skills, mcpServers, nativeMcpServers: pack.nativeMcpServers };
 }
 
 // GET /api/skill-packs/:id
@@ -93,17 +75,23 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       name?: string;
       description?: string;
       skills?: SkillRef[];
-      mcpServers?: { serverKey: string; configHash: string }[];
+      mcpServers?: unknown;
+      nativeMcpServers?: unknown;
     };
+    if (body.mcpServers !== undefined) return mcpConfigUnavailableResponse();
+    if (body.nativeMcpServers !== undefined && (!Array.isArray(body.nativeMcpServers)
+      || body.nativeMcpServers.some((name) => typeof name !== "string" || !/^[A-Za-z0-9_-]+$/.test(name)))) {
+      return NextResponse.json({ error: "nativeMcpServers must contain native server names" }, { status: 400 });
+    }
     const config = readConfig();
     if (!getPackById(config, id)) {
       return NextResponse.json({ error: "pack not found" }, { status: 404 });
     }
-    const patch: { name?: string; description?: string; skills?: SkillRef[]; mcpServers?: { serverKey: string; configHash: string }[] } = {};
+    const patch: { name?: string; description?: string; skills?: SkillRef[]; nativeMcpServers?: string[] } = {};
     if (typeof body.name === "string") patch.name = body.name.trim();
     if (typeof body.description === "string") patch.description = body.description.trim();
     if (Array.isArray(body.skills)) patch.skills = body.skills;
-    if (Array.isArray(body.mcpServers)) patch.mcpServers = body.mcpServers;
+    if (Array.isArray(body.nativeMcpServers)) patch.nativeMcpServers = body.nativeMcpServers as string[];
     const next = updatePack(config, id, patch);
     writeConfig(next);
     const updated = getPackById(next, id)!;

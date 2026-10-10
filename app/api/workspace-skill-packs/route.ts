@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { ensureLibraryRoot, getPackById, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 import { readWorkspaceState, workspacePackStateExists } from "@/lib/workspace-packs";
-import { applyWorkspacePackChange, previewWorkspacePackChange, WorkspacePlanBlocked, WorkspaceRevisionConflict } from "@/lib/skill-pack-apply";
-import { getMcpAdapterStatus, McpAdapterRequired, requireMcpAdapter } from "@/lib/mcp-adapter";
+import { isWorkspacePlanBlocked, isWorkspaceRevisionConflict } from "@/lib/skill-pack-apply";
+import { applyWorkspacePackSwitch } from "@/lib/workspace-pack-switch";
+import { requirePackWorkspace, PackWorkspaceAccessError } from "@/lib/workspace-pack-access";
+import { notifyWorkspacePacks } from "@/lib/workspace-pack-events";
+import { isMcpConfigUnavailable, mcpConfigUnavailableResponse } from "@/lib/mcp-config-phase";
 import type { WorkspaceSkillPacksResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 
 function readState(cwd: string): WorkspaceSkillPacksResponse {
-  const config = ensureLibraryRoot(readConfig());
+  const config = readConfig();
   const ws = readWorkspaceState({ cwd });
   return {
     configured: workspacePackStateExists(cwd),
@@ -17,6 +20,7 @@ function readState(cwd: string): WorkspaceSkillPacksResponse {
       ...p,
       packName: getPackById(config, p.packId)?.name ?? p.packId,
     })),
+    disabledPacks: ws.disabledPacks?.map((pack) => ({ ...pack, packName: getPackById(config, pack.packId)?.name ?? pack.packId })),
     skippedConflicts: ws.skippedConflicts,
   };
 }
@@ -27,43 +31,39 @@ export async function GET(req: Request) {
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
   try {
-    return NextResponse.json(readState(cwd));
+    return NextResponse.json(readState(await requirePackWorkspace(cwd)));
   } catch (e) {
+    if (e instanceof PackWorkspaceAccessError) return NextResponse.json({ error: e.message }, { status: 403 });
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
 
 // DELETE /api/workspace-skill-packs?cwd=<path>&packId=<id>
-// Removes the pack label and deletes skills it installed that are no longer
-// required by remaining applied packs.
+// Disables this Pack without deleting Skills or native server definitions.
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   const packId = searchParams.get("packId");
   const workspaceRevision = Number(searchParams.get("workspaceRevision"));
-  if (!cwd || !packId || !Number.isInteger(workspaceRevision)) {
+  if (!cwd || !packId || !searchParams.has("workspaceRevision") || !Number.isInteger(workspaceRevision) || workspaceRevision < 0) {
     return NextResponse.json({ error: "cwd, packId, and workspaceRevision required" }, { status: 400 });
   }
   try {
+    const workspace = await requirePackWorkspace(cwd);
     const config = ensureLibraryRoot(readConfig());
     const libraryRoot = resolveLibraryRoot(config);
     if (!libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
-    const state = readWorkspaceState({ cwd });
+    const state = readWorkspaceState({ cwd: workspace });
     if (!state.appliedPacks.some((pack) => pack.packId === packId)) return NextResponse.json({ error: "pack not applied" }, { status: 404 });
     const targetPackIds = state.appliedPacks.filter((pack) => pack.packId !== packId).map((pack) => pack.packId);
-    const preview = previewWorkspacePackChange(cwd, libraryRoot, targetPackIds, config);
-    if (preview.mcpRelevant) {
-      const adapter = getMcpAdapterStatus(cwd);
-      if (adapter.state !== "ready") return NextResponse.json({ error: "MCP_ADAPTER_REQUIRED", adapter }, { status: 412 });
-    }
-    await applyWorkspacePackChange(cwd, libraryRoot, targetPackIds, workspaceRevision, config, {
-      ensureMcpAdapter: () => requireMcpAdapter(cwd),
-    });
-    return NextResponse.json(readState(cwd));
+    await applyWorkspacePackSwitch(workspace, libraryRoot, targetPackIds, workspaceRevision, config);
+    notifyWorkspacePacks(workspace);
+    return NextResponse.json(readState(workspace));
   } catch (e) {
-    if (e instanceof McpAdapterRequired) return NextResponse.json({ error: "MCP_ADAPTER_REQUIRED", adapter: e.adapter }, { status: 412 });
-    if (e instanceof WorkspaceRevisionConflict) return NextResponse.json({ error: e.message, workspaceRevision: e.revision }, { status: 409 });
-    if (e instanceof WorkspacePlanBlocked) return NextResponse.json({ error: e.message, plan: e.plan }, { status: 409 });
+    if (isMcpConfigUnavailable(e)) return mcpConfigUnavailableResponse(e.message);
+    if (e instanceof PackWorkspaceAccessError) return NextResponse.json({ error: e.message }, { status: 403 });
+    if (isWorkspaceRevisionConflict(e)) return NextResponse.json({ error: e.message, workspaceRevision: e.revision }, { status: 409 });
+    if (isWorkspacePlanBlocked(e)) return NextResponse.json({ error: e.message, plan: e.plan }, { status: 409 });
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }

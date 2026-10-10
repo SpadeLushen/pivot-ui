@@ -67,6 +67,7 @@ const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }>
   "github-copilot":         { Icon: GithubCopilotIcon,    hasColor: false },
   "amazon-bedrock":         { Icon: AwsColorIcon,         hasColor: true },
   "azure-openai-responses": { Icon: AzureColorIcon,       hasColor: true },
+  "azure":                 { Icon: AzureColorIcon,       hasColor: true },
   "kimi-coding":            { Icon: KimiColorIcon,        hasColor: true },
   "nvidia":                 { Icon: NvidiaColorIcon,      hasColor: true },
   "opencode":               { Icon: OpenCodeIcon,         hasColor: false },
@@ -118,6 +119,8 @@ interface ModelEntry {
   api?: string;
   reasoning?: boolean;
   thinkingLevelMap?: Record<string, string | null>;
+  samplingParams?: Record<string, unknown>;
+  samplingParamsByThinkingLevel?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", Record<string, unknown>>>;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;

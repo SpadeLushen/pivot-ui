@@ -27,7 +27,11 @@ export async function POST(
 
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
 
-    const { session } = await startRpcSession(id, filePath, cwd);
+    // An explicit model change can recover an old Azure session whose saved identity
+    // is no longer configured; ordinary prompts must never silently pick a fallback.
+    const requestedModel = body.type === "set_model" && typeof body.provider === "string" && typeof body.modelId === "string"
+      ? { provider: body.provider, modelId: body.modelId } : undefined;
+    const { session } = await startRpcSession(id, filePath, cwd, undefined, undefined, requestedModel);
     const result = await session.send(body);
 
     return NextResponse.json({ success: true, data: result });

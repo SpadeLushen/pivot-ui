@@ -1,4 +1,4 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createPivotModelRuntime, LEGACY_AZURE_PROVIDER } from "@/lib/model-runtime";
 import { NextResponse } from "next/server";
 import { getAuthStore } from "@/lib/auth-store";
 import { invalidateModelsCache } from "@/lib/models-cache";
@@ -10,7 +10,7 @@ type Params = { params: Promise<{ provider: string }> };
 // GET /api/auth/api-key/[provider] — returns auth status (never returns the actual key)
 export async function GET(_req: Request, { params }: Params) {
   const { provider } = await params;
-  const runtime = await ModelRuntime.create();
+  const runtime = await createPivotModelRuntime({}, provider === LEGACY_AZURE_PROVIDER);
   const status = runtime.getProviderAuthStatus(provider);
   const displayName = runtime.getProvider(provider)?.name ?? provider;
   const models = runtime.getModels(provider).length;
@@ -26,7 +26,9 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
     }
     const authStore = getAuthStore();
-    await authStore.modify(provider, async () => ({ type: "api_key", key: apiKey.trim() }));
+    await authStore.modify(provider, async (current) => current?.type === "api_key"
+      ? { ...current, key: apiKey.trim() }
+      : { type: "api_key", key: apiKey.trim() });
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {

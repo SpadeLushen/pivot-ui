@@ -9,6 +9,7 @@ export interface Receipt {
   appliedAt: string;
   installed: SkillRef[];
   mcpServers: McpPackReference[];
+  nativeMcpServers?: string[];
 }
 
 export interface AppliedPack {
@@ -39,6 +40,10 @@ export interface WorkspaceState {
   appliedPacks: AppliedPack[];
   skippedConflicts: SkippedConflict[];
   mcp: WorkspaceMcpState;
+  disabledPacks?: AppliedPack[];
+  managedSkillKeys?: string[];
+  managedNativeMcpServers?: string[];
+  skillExclusions?: string[];
 }
 
 export interface SkillRefConflict {
@@ -86,6 +91,10 @@ export function readWorkspaceState(opts: PathOpts): WorkspaceState {
       appliedPacks: Array.isArray(parsed.appliedPacks) ? parsed.appliedPacks.map(normalizeApplied) : [],
       skippedConflicts: Array.isArray(parsed.skippedConflicts) ? parsed.skippedConflicts.map(normalizeSkipped) : [],
       mcp: normalizeMcp(parsed.mcp),
+      ...(Array.isArray(parsed.disabledPacks) ? { disabledPacks: parsed.disabledPacks.map(normalizeApplied) } : {}),
+      ...(Array.isArray(parsed.managedSkillKeys) ? { managedSkillKeys: parsed.managedSkillKeys.filter((key) => typeof key === "string") } : {}),
+      ...(Array.isArray(parsed.managedNativeMcpServers) ? { managedNativeMcpServers: parsed.managedNativeMcpServers.filter((key) => typeof key === "string") } : {}),
+      ...(Array.isArray(parsed.skillExclusions) ? { skillExclusions: parsed.skillExclusions.filter((key) => typeof key === "string") } : {}),
     };
   } catch {
     return emptyState();
@@ -102,6 +111,7 @@ function normalizeApplied(p: unknown): AppliedPack {
       appliedAt: typeof receipt.appliedAt === "string" ? receipt.appliedAt : "",
       installed: Array.isArray(receipt.installed) ? receipt.installed : [],
       mcpServers: Array.isArray(receipt.mcpServers) ? receipt.mcpServers.map(normalizeMcpRef) : [],
+      ...(Array.isArray(receipt.nativeMcpServers) ? { nativeMcpServers: receipt.nativeMcpServers.filter((name) => typeof name === "string") } : {}),
     },
   };
 }

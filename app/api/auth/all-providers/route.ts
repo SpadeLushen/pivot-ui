@@ -1,4 +1,4 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createPivotModelRuntime } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
 export async function GET() {
-  const runtime = await ModelRuntime.create();
+  const runtime = await createPivotModelRuntime();
   const all = runtime.getModels();
 
   // Deduplicate by provider, skip OAuth-only providers and custom providers (source=models_json_key)

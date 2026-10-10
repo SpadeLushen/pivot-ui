@@ -1,5 +1,7 @@
 import type {
   AgentSessionEvent,
+  AgentSession,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   SlashCommandInfo,
@@ -20,7 +22,10 @@ export interface ModelLike {
 export interface ToolInfo {
   name: string;
   description: string;
-  sourceInfo: { source: string };
+  sourceInfo: { source: string; path?: string };
+  parameters?: unknown;
+  namespace?: { name: string };
+  exposure?: "direct" | "model-only" | "codemode" | "deferred" | "hidden";
 }
 
 export interface NavigateTreeResult {
@@ -63,10 +68,12 @@ interface SkillLike {
 }
 
 interface ResourceLoaderLike {
+  getExtensions(): ReturnType<AgentSession["resourceLoader"]["getExtensions"]>;
   getSkills(): { skills: SkillLike[] };
 }
 
 interface ExtensionRunnerLike {
+  emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
   getRegisteredCommands(): Array<{
     invocationName: string;
     description?: string;
@@ -123,10 +130,14 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
-  readonly modelRuntime: { getModel: (provider: string, modelId: string) => ModelLike | undefined };
+  readonly modelRuntime: ModelRuntime;
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
-  readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };
+  readonly systemPrompt?: string;
+  readonly agent: {
+    state?: { readonly systemPrompt?: string; thinkingLevel?: string };
+    transformContext?: AgentSession["agent"]["transformContext"];
+  };
   readonly extensionRunner: ExtensionRunnerLike;
   readonly promptTemplates: readonly PromptTemplateLike[];
   readonly resourceLoader: ResourceLoaderLike;
@@ -139,7 +150,7 @@ export interface AgentSessionLike {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";
-  }): Promise<void>;
+  }): Promise<"handled" | "queued" | "started" | void>;
   abort(): Promise<void>;
   setModel(model: ModelLike, options?: { persist?: boolean }): Promise<void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
@@ -150,13 +161,14 @@ export interface AgentSessionLike {
   getLastAssistantText(): string | undefined;
   setAutoCompactionEnabled(enabled: boolean): void;
   setAutoRetryEnabled(enabled: boolean): void;
-  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
-  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
+  steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<"handled" | "queued" | void>;
+  followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<"handled" | "queued" | void>;
   readonly pendingMessageCount: number;
   getSteeringMessages(): readonly string[];
   getFollowUpMessages(): readonly string[];
   clearQueue(): { steering: string[]; followUp: string[] };
   getAllTools(): ToolInfo[];
+  getToolDefinition: AgentSession["getToolDefinition"];
   getActiveToolNames(): string[];
   setActiveToolsByName(names: string[]): void;
   abortCompaction(): void;

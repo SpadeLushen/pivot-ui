@@ -8,8 +8,14 @@ npm run dev   # port 30141
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
 Lint: `npm run lint`  
-完成代码开发任务后，使用 `npm run build` 进行编译。  
-**Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
+完成代码开发任务后，**直接在当前工作区执行 `npm run build`，不使用隔离构建目录**。该命令自带的编译和打包步骤正常执行，不额外拆分或重复执行。
+
+## 编译与运行工作区约定
+
+- **默认仅在当前工作区执行 `npm run build`，包含命令自带的打包步骤；不额外打包、创建备份或同步运行目录**。额外操作须用户明确要求。
+- 不再自动创建隔离安装／构建／验证目录，也不执行原有备份同步脚本。
+- **不自动停止或重启运行服务（包括 WinSW）**；服务控制仍须用户明确指示。工作区编译会更新 `.next`，可能影响正在使用该目录的开发／运行进程；遇到文件占用不得强杀服务。
+- 此约定不授权发布、提交或修改 Pivot 版本号。
 
 ## Git 操作
 
@@ -86,7 +92,7 @@ app/api/
   workspace-skill-packs/preview/route.ts POST compute apply plan
   workspace-skill-packs/apply/route.ts POST apply confirmed plan
   mcp/servers/route.ts            GET workspace MCP servers
-  mcp/status/route.ts             GET MCP adapter readiness
+  mcp/status/route.ts             GET native MCP load diagnostics
   worktrees/route.ts              GET/POST/DELETE git worktrees
   workspace-files/route.ts        POST workspace-scoped create/rename/delete operations
 
@@ -104,7 +110,7 @@ lib/
   content-hash.ts       deterministic hash for a library skill directory
   mcp-library.ts        library MCP validation and CRUD
   mcp-pack-apply.ts     protected MCP reconciliation for workspace pack changes
-  mcp-adapter.ts        MCP adapter discovery and readiness checks
+  native-mcp-runtime.ts native MCP factories, project trust and load diagnostics
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
@@ -117,7 +123,8 @@ lib/
   skill-library.ts     library scan/import/delete primitives
   skill-packs-store.ts global skill-pack config and pack CRUD
   skill-pack-apply.ts  preview, atomic apply/rollback, and unapply
-  tool-presets.ts     PRESET_NONE/DEFAULT/FULL + getPresetFromTools()
+  active-tools.ts     temporary all-available-tools policy (presets await redesign)
+  tool-presets.ts     legacy preset helpers; no longer used for runtime selection
   text-diff.ts        line diff and A/B row pairing for review diffs
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
@@ -137,7 +144,8 @@ components/
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
   WorkspacePacks.tsx  workspace Pack preview, apply, and unapply flow
-  McpConfig.tsx       modal for workspace, library, and editable MCP definitions
+  McpConfig.tsx       Tools modal: MCP workspace list + built-in/extension tools
+  tools/             MCP editor dialog, tool controls and metadata panels
   SkillPacksModal.tsx global skill-pack definition management
   WorkspaceFileTree.tsx reusable project file tree
   InlineDiff.tsx      unified and side-by-side review diff renderers
@@ -178,7 +186,7 @@ hooks/
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
-- The eight user preferences live in `~/.pivot-ui/preferences.json` with keys: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`).
+- The eight persisted preference keys live in `~/.pivot-ui/preferences.json`: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
 - The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs remains in `localStorage`.
 
 ### Shared workspace registry
@@ -207,8 +215,15 @@ hooks/
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
 
-### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
+### Workspace tool controls
+`Tools` lists built-in/extension tools separately from MCP servers. Explicit enablement/exposure rules live in trusted `<cwd>/.pi/pivot-tools.json`, shared by same-cwd sessions with no cross-workspace inheritance. `/api/tools` uses SDK metadata and revision-checked, canonical-workspace-locked writes. `lib/active-tools.ts` keeps available tools as defaults but respects these rules at startup, binding, reload, idle boundaries and before prompts. Disabled tools get hidden exposure (including indirect calls); the inline workspace tool guard enforces captured per-run rules for dynamic re-registration. Never change an in-flight run's loadout, bypass permission hooks or re-enable owner-withdrawn hidden tools. Native MCP tools retain SDK activation/exposure and are managed only by MCP configuration. Historical presets/shared `tool-preset`, `toolNames`, `toolPreset` and `set_tools` remain dormant; use the normal SDK system prompt.
+
+### Native MCP (breaking change, no migration)
+- Native MCP is supplied to every SDK session, independent of legacy state. Do not offer migration, import, catalog repair, yes/no prompts, provenance tracking, migration send gates or backup recovery.
+- Only SDK-native `<agentDir>/mcp.json` and trusted `<cwd>/.pi/mcp.json` are loaded. Do not convert adapter data, rewrite Library/Pack hashes, disable plugins, reuse adapter OAuth credentials or delete old markers/backups automatically. Existing user files remain untouched.
+- `Tools` → MCP retains the workspace list/details layout; add/edit uses a nested dialog, global scope and disabled by default. Global default enabled state belongs in the dialog; workspace switches write native overrides without copying global credentials. Pack-managed switches/entries remain protected. `/api/mcp/servers` provides revision-checked CRUD, pure SDK validation, atomic writes and masked credential round-tripping; it does not resolve credential commands or touch `mcp-auth.json`. Saved changes notify wrappers to reload SDK resources at idle boundaries (global changes notify all; project changes only that cwd); active runs defer reload. SDK lifecycle, not editor validation, starts enabled servers. When SDK diagnostics say a third-party extension replaced native MCP, this tab shows only a centered notice. Legacy Library/adapter writes remain 501 and Packs never deploy definitions.
+- `lib/native-mcp-runtime.ts` supplies named replaceable SDK built-ins and replacement diagnostics, not package-name guessing. Users disable extensions replacing `/mcp` themselves through Plugins.
+- `createPivotAgentSessionServices` respects saved project trust / global policy. Teardown emits `session_shutdown` before `dispose()` to close native processes. Never restart WinSW automatically.
 
 ### Model defaults for new sessions
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
@@ -261,11 +276,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### Skill packs
 - The global configuration is `~/.pi/agent/skill-packs.json`; its default `libraryRoot` is `~/.pivot-ui/lib/skills`. Library skills live under `<libraryRoot>/.pi/skills/<skillKey>`, while MCP metadata lives under `<libraryRoot>/.pi/mcp-servers/<serverKey>.mcp.json`. Workspace state is `<cwd>/.pi/skill-packs.json`; Pack-managed MCP entries live in `<cwd>/.pi/mcp.json`.
-- A Pack holds `{ skillKey, contentHash }` and `{ serverKey, configHash }` snapshots. `previewWorkspacePackChange()` computes the full Pack union, blocks missing/stale entries and same-key/different-hash conflicts, then `applyWorkspacePackChange()` atomically applies skills, MCP changes, and the receipt. Keep MCP reconciliation in `lib/mcp-pack-apply.ts`, combined transaction logic in `lib/skill-pack-apply.ts`, and state-only operations in `lib/workspace-packs.ts`.
-- MCP reconciliation never overwrites a team `.mcp.json`, unowned `.pi/mcp.json` entry, or a Pack-managed entry changed outside Pivot UI. Unapply removes only entries no remaining Pack needs and that Pivot UI still owns; skill removal retains the existing union-based behavior and can remove a pre-existing same-name skill that was skipped during apply.
-- Library MCP CRUD and Pack editing do not require the MCP adapter. Any workspace mutation with an MCP effect does; routes must enforce readiness, not only the UI.
-- Applying or removing a pack calls `SkillsConfig.onPacksChanged`, which increments `AppShell.packsRefreshKey`. `useAgentSession` owns the resulting reload: defer it while the agent runs, refresh `get_commands` after reload, and await the same Promise before the next prompt. Do not add competing reload effects in `ChatWindow`.
-- Tests: `lib/content-hash.test.mjs`, `lib/skill-library.test.mjs`, `lib/mcp-library.test.mjs`, `lib/skill-packs-store.test.mjs`, `lib/workspace-packs.test.mjs`, `lib/skill-pack-apply.test.mjs`, `lib/mcp-pack-apply.test.mjs`, and `components/ChatWindow.test.mjs`. See `docs/skill-packs.md` for the implementation-level behavior.
+- Current Packs hold Skills `{ skillKey, contentHash }` snapshots plus `nativeMcpServers: string[]` referencing already configured SDK-native names. Legacy `{ serverKey, configHash }` Library references remain untouched; a legacy MCP Pack requires an explicit native binding edit before switching. No automatic import, hash rewrite, or definition deployment.
+- `lib/workspace-pack-switch.ts` owns the current APIs: canonical-cwd lock, revision compare, skill hash/native/trust validation, union-based switches and rollback. Disable preserves Skills and native definitions; owned Skills use project `settings.json` exclusions and MCP uses project-local `enabled` fields. Preserve user settings and definition/credential fields. Never call historical deletion-based unapply from these APIs.
+- Native definitions are editable through the MCP editor; retired adapter Library writes remain blocked with 501. Pack reference selection and workspace-local on/off do not deploy definitions. Project editor writes use the same canonical workspace lock as Pack changes; Pack-managed enabled fields and entries cannot be changed/deleted there.
+- Packs are workspace-level switches shared by every session with the same actual cwd, not per-session presets. There is no new-session/workspace inheritance or prepare-on-send gate; ignore and retain old browser inheritance data. Different directories and worktrees stay independent.
+- Server `workspace-pack-events` notifies all same-cwd wrappers; `rpc-manager` deduplicates revision reload and defers running/compacting/pending sessions until the operation finishes. Await resource reload before new prompts. Client `useWorkspacePackRevision` synchronizes pages; `useAgentSession` owns commands refresh via `reload_workspace_packs`. Do not add competing reload effects in `ChatWindow`.
+- Tests: `lib/workspace-pack-switch.test.mjs`, `lib/native-mcp-breaking.test.mjs`, `lib/content-hash.test.mjs`, `lib/skill-library.test.mjs`, `lib/mcp-library.test.mjs`, `lib/skill-packs-store.test.mjs`, `lib/workspace-packs.test.mjs`, `lib/skill-pack-apply.test.mjs`, `lib/mcp-pack-apply.test.mjs`, and `components/ChatWindow.test.mjs`. See `docs/skill-packs.md` for the implementation-level behavior.
 
 ### Auth and model config
 - `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `ModelRuntime`.

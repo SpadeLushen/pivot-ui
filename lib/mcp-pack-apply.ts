@@ -14,7 +14,7 @@ export interface McpSkippedEntry {
 
 export interface McpBlockedEntry {
   serverKey: string;
-  reason: "missing_in_library" | "hash_mismatch_in_library" | "invalid_pi_project_config" | "invalid_team_project_config";
+  reason: "missing_in_library" | "hash_mismatch_in_library" | "invalid_pi_project_config" | "invalid_team_project_config" | "missing_native_server" | "untrusted_project";
 }
 
 export interface McpVersionConflict {

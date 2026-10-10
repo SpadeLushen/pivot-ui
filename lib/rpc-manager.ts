@@ -1,4 +1,4 @@
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
@@ -7,8 +7,15 @@ import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "./extension-statusline";
-import { getToolNamesForPreset, getPresetFromTools, isToolPreset, withExtensionTools, type ToolPreset } from "./tool-presets";
-import { restoreSessionToolPreset, saveSessionToolPreset } from "./session-tool-preset";
+import type { ToolPreset } from "./tool-presets";
+import { activateAllSessionTools } from "./active-tools";
+import { subscribeWorkspaceTools } from "./workspace-tools";
+import { workspaceKey } from "./workspace-pack-files";
+import { resourceRevision, subscribeResourceChanges } from "./session-resource-events";
+import { persistEmptySession } from "./session-persistence";
+import { readWorkspaceState } from "./workspace-packs";
+import { subscribeWorkspacePacks } from "./workspace-pack-events";
+import { createPivotAgentSessionServices, enableLegacyAzure, LEGACY_AZURE_PROVIDER } from "./model-runtime";
 
 // ============================================================================
 // Types
@@ -62,9 +69,6 @@ type ExtensionCommandContextActionsLike = {
   reload: () => Promise<void>;
 };
 
-type ExtensionBindingOptions = {
-  forceEmptySystemPrompt?: boolean;
-};
 
 type QueueStorageLike = {
   messages: unknown[];
@@ -182,14 +186,6 @@ function renderStatuslineWidget(content: unknown): string[] | null {
   }
 }
 
-function getSessionToolPreset(session: AgentSessionLike) {
-  const active = new Set(session.getActiveToolNames());
-  return getPresetFromTools(session.getAllTools().map((tool) => ({
-    name: tool.name, description: tool.description, sourceInfo: tool.sourceInfo,
-    active: active.has(tool.name),
-  })));
-}
-
 // ============================================================================
 // AgentSessionWrapper
 // Wraps AgentSession with the same interface the rest of the app expects
@@ -208,14 +204,75 @@ export class AgentSessionWrapper {
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
-  private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private modelStartTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
+  private shutdownPromise: Promise<void> | null = null;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  private workspacePackRevision: number;
+  private workspacePackReload: Promise<void> | null = null;
+  private resourceReloadPromise: Promise<void> | null = null;
+  private unsubscribeWorkspacePacks: (() => void) | null = null;
+  private unsubscribeWorkspaceTools: (() => void) | null = null;
+  private unsubscribeResourceChanges: (() => void) | null = null;
+  private workspaceResourceRevision: string;
+
+  constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0) {
+    this.workspacePackRevision = initialPackRevision;
+    this.workspaceResourceRevision = resourceRevision(inner.sessionManager.getCwd());
+  }
+
+  private workspaceCwd(): string | undefined { return this.inner.sessionManager?.getCwd?.(); }
+
+  private refreshWorkspacePacksInBackground(): void {
+    if (!this._alive || this.isRunning()) return;
+    // The same idle boundary applies workspace tool settings after a run.
+    activateAllSessionTools(this.inner);
+    void this.ensureWorkspacePacksReloaded().catch((error) => {
+      this.emit({ type: "workspace_packs_reload_error", errorMessage: String(error) });
+    });
+  }
+
+  async ensureWorkspacePacksReloaded(): Promise<void> {
+    if (this.workspacePackReload) return this.workspacePackReload;
+    const cwd = this.workspaceCwd();
+    if (!cwd || !this._alive || this.isRunning()) return;
+    if (readWorkspaceState({ cwd }).revision === this.workspacePackRevision && resourceRevision(cwd) === this.workspaceResourceRevision) return;
+    const task = (async () => {
+      while (this._alive && !this.isRunning()) {
+        const revision = readWorkspaceState({ cwd }).revision;
+        if (revision === this.workspacePackRevision && resourceRevision(cwd) === this.workspaceResourceRevision) return;
+        await this.reloadResources();
+        this.emit({ type: "workspace_packs_reloaded", revision: this.workspacePackRevision });
+      }
+    })();
+    this.workspacePackReload = task;
+    try { await task; } finally { this.workspacePackReload = null; }
+  }
+
+  private async reloadResources(): Promise<void> {
+    if (this.resourceReloadPromise) return this.resourceReloadPromise;
+    const task = (async () => {
+      await this.waitForExtensionsBound();
+      const cwd = this.workspaceCwd();
+      const revision = cwd ? readWorkspaceState({ cwd }).revision : this.workspacePackRevision;
+      const resources = cwd ? resourceRevision(cwd) : this.workspaceResourceRevision;
+      this.extensionStatuses.clear();
+      this.extensionWidgets.clear();
+      this.extensionsBound = false;
+      this.extensionBindingPromise = null;
+      await this.inner.reload();
+      this.beginExtensionBinding();
+      await this.waitForExtensionsBound();
+      activateAllSessionTools(this.inner);
+      this.workspacePackRevision = revision;
+      this.workspaceResourceRevision = resources;
+    })();
+    this.resourceReloadPromise = task;
+    try { await task; } finally { this.resourceReloadPromise = null; }
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -234,10 +291,20 @@ export class AgentSessionWrapper {
   }
 
   start(): void {
+    const cwd = this.workspaceCwd();
+    if (cwd) this.unsubscribeResourceChanges = subscribeResourceChanges(cwd, () => this.refreshWorkspacePacksInBackground());
+    if (cwd) this.unsubscribeWorkspaceTools = subscribeWorkspaceTools(cwd, () => {
+      if (!this.isRunning()) activateAllSessionTools(this.inner);
+    });
+    if (cwd) this.unsubscribeWorkspacePacks = subscribeWorkspacePacks(cwd, () => {
+      this.emit({ type: "workspace_packs_changed" });
+      this.refreshWorkspacePacksInBackground();
+    });
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       this.resetIdleTimer();
       if (this.isModelProgress(event)) this.clearModelStartTimer();
-      if (event.type === "agent_end" || event.type === "session_info_changed") {
+      if (event.type === "agent_end" || event.type === "session_info_changed" ||
+          (event.type === "message_end" && (event.message as { role?: string } | undefined)?.role === "user")) {
         invalidateSessionListCache();
       }
       this.emit(event);
@@ -249,21 +316,15 @@ export class AgentSessionWrapper {
     notifyRunningChange();
   }
 
-  setForceEmptySystemPrompt(force: boolean): void {
-    this.forceEmptySystemPrompt = force;
-    this.applyForcedEmptySystemPrompt();
-  }
-
-  beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
-    void this.ensureExtensionsBound(options).catch((err) => {
+  beginExtensionBinding(): void {
+    void this.ensureExtensionsBound().catch((err) => {
       console.error("[pivot-ui] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
     });
   }
 
-  private ensureExtensionsBound(options: ExtensionBindingOptions = {}): Promise<void> {
-    if (options.forceEmptySystemPrompt) this.forceEmptySystemPrompt = true;
+  private ensureExtensionsBound(): Promise<void> {
     if (this.extensionsBound) {
-      this.applyForcedEmptySystemPrompt();
+      if (!this.isRunning()) activateAllSessionTools(this.inner);
       return Promise.resolve();
     }
     if (this.extensionBindingPromise) return this.extensionBindingPromise;
@@ -302,7 +363,7 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(uiContext, EXTENSION_MODE);
       }
       this.extensionsBound = true;
-      this.applyForcedEmptySystemPrompt();
+      activateAllSessionTools(this.inner);
       console.log(`[pivot-ui] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
@@ -334,13 +395,7 @@ export class AgentSessionWrapper {
       return await operation();
     } finally {
       notifyRunningChange();
-    }
-  }
-
-  private applyForcedEmptySystemPrompt(): void {
-    if (this.forceEmptySystemPrompt && this.inner.agent.state) {
-      if (this.inner.getActiveToolNames().length > 0) this.inner.setActiveToolsByName([]);
-      this.inner.agent.state.systemPrompt = "";
+      this.refreshWorkspacePacksInBackground();
     }
   }
 
@@ -480,6 +535,13 @@ export class AgentSessionWrapper {
     this.resetIdleTimer();
     const type = command.type as string;
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
+    if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools" || type === "reload_workspace_packs")) {
+      await this.ensureWorkspacePacksReloaded();
+    }
+    // Refresh dynamic registrations without changing an in-flight run's loadout.
+    if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools")) {
+      activateAllSessionTools(this.inner);
+    }
 
     switch (type) {
       case "prompt": {
@@ -487,6 +549,9 @@ export class AgentSessionWrapper {
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         if (this.isRunning()) throw new AgentBusyError();
+        // Empty-session metadata changes are deferred by pi; retain them before
+        // its first user-message append. Never rewrite an active conversation.
+        if (this.inner.sessionManager) persistEmptySession(this.inner.sessionManager);
         this.promptRunning = true;
         clearRpcSessionError(this.sessionId);
         this.startModelStartTimer();
@@ -498,11 +563,13 @@ export class AgentSessionWrapper {
         }).then(() => {
           this.promptRunning = false;
           this.clearModelStartTimer();
+          this.refreshWorkspacePacksInBackground();
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
           notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
           this.clearModelStartTimer();
+          this.refreshWorkspacePacksInBackground();
           invalidateSessionListCache();
           this.emit({
             type: "prompt_error",
@@ -539,7 +606,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          systemPrompt: this.inner.systemPrompt ?? this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -549,6 +616,7 @@ export class AgentSessionWrapper {
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
         const registry = this.inner.modelRuntime;
+        if (provider === LEGACY_AZURE_PROVIDER) await enableLegacyAzure(registry, true);
         const model = registry.getModel(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model, { persist: command.persist === true });
@@ -580,12 +648,16 @@ export class AgentSessionWrapper {
           // Fork before the first message: create an empty session linked to this one
           const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
           newManager.newSession({ parentSession: currentSessionFile });
+          persistEmptySession(newManager);
           newSessionFile = newManager.getSessionFile() as string;
         } else {
           // Fork after some history: copy path up to (but not including) the fork point
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
           const forkedPath = sourceManager.createBranchedSession(entry.parentId);
           if (!forkedPath) throw new Error("Failed to create forked session");
+          // pi defers branches containing only setup entries until a user
+          // message; Pivot exposes these empty forks immediately as before.
+          persistEmptySession(sourceManager);
           newSessionFile = forkedPath;
         }
 
@@ -727,31 +799,18 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
-        const requestedPreset = isToolPreset(command.preset) ? command.preset : undefined;
-        const toolNames = requestedPreset
-          ? getToolNamesForPreset(requestedPreset, this.inner.getAllTools())
-          : command.toolNames as string[];
-        const disableTools = requestedPreset === "none" || (!requestedPreset && toolNames.length === 0);
-        this.setForceEmptySystemPrompt(disableTools);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner.getAllTools(), toolNames, !disableTools));
-        this.applyForcedEmptySystemPrompt();
-        const preset = requestedPreset ?? getSessionToolPreset(this.inner);
-        saveSessionToolPreset(this.inner.sessionManager, preset);
+        // Legacy clients may still submit a preset. Ignore it; do not persist
+        // replacement metadata or change a loadout in the middle of a run.
+        if (!this.isRunning()) activateAllSessionTools(this.inner);
         return null;
       }
 
+      case "reload_workspace_packs":
+        return { success: true, workspaceRevision: this.workspacePackRevision };
+
       case "reload": {
-        await this.waitForExtensionsBound();
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        // Force extension rebinding so resources (skills/prompts/themes) are
-        // re-discovered from the filesystem after reload.
-        this.extensionsBound = false;
-        this.extensionBindingPromise = null;
-        await this.inner.reload();
-        this.beginExtensionBinding({ forceEmptySystemPrompt: this.forceEmptySystemPrompt });
-        await this.waitForExtensionsBound();
-        this.applyForcedEmptySystemPrompt();
+        if (this.isRunning()) throw new AgentBusyError();
+        await this.reloadResources();
         return { success: true };
       }
 
@@ -786,13 +845,28 @@ export class AgentSessionWrapper {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.clearModelStartTimer();
     this.unsubscribe?.();
+    this.unsubscribeWorkspacePacks?.();
+    this.unsubscribeWorkspaceTools?.();
+    this.unsubscribeResourceChanges?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
-    try { this.inner.dispose(); } catch { /* cleanup must not strand the wrapper */ }
+    const dispose = () => { try { this.inner.dispose(); } catch { /* cleanup must not strand the wrapper */ } };
+    if (this.inner.extensionRunner?.emit) {
+      // dispose() alone does not emit session_shutdown; native MCP owns processes.
+      this.shutdownPromise = (this.extensionBindingPromise ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() => this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" }))
+        .catch(() => undefined).then(dispose);
+    } else dispose();
     this.onDestroyCallback?.();
     notifyRunningChange();
+  }
+
+  async destroyAndWait(): Promise<void> {
+    this.destroy();
+    await this.shutdownPromise;
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -1149,7 +1223,7 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), EXTENSION_MODE);
           },
         });
-        this.applyForcedEmptySystemPrompt();
+        activateAllSessionTools(this.inner);
       },
     };
   }
@@ -1186,6 +1260,14 @@ function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSes
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+/** Read existing registries only; opening Tools must not create a session or connect MCP. */
+export function getToolManagementSession(cwd: string, preferredId?: string): AgentSessionWrapper | undefined {
+  const matches = (session: AgentSessionWrapper) => session.isAlive() && workspaceKey(session.inner.sessionManager.getCwd()) === workspaceKey(cwd);
+  const preferred = preferredId ? globalThis.__piSessions?.get(preferredId) : undefined;
+  if (preferred && matches(preferred)) return preferred;
+  return [...globalThis.__piSessions?.values() ?? []].find(matches);
 }
 
 export function getRunningRpcSessionIds(): string[] {
@@ -1260,20 +1342,29 @@ export function notifyRunningChange(): void {
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
- * Pass a preset to select tools from the SDK registry, or toolNames for legacy callers.
+ * Legacy toolNames/preset arguments are accepted but ignored until presets are redesigned.
  */
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
   cwd: string,
   toolNames?: string[],
-  toolPreset?: ToolPreset
+  toolPreset?: ToolPreset,
+  requestedModel?: { provider: string; modelId: string },
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const registry = getRegistry();
   const locks = getLocks();
 
   const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+  if (existing?.isAlive()) {
+    if (!existing.isRunning()) {
+      // globalThis can retain pre-change wrappers across development hot reload.
+      const legacy = existing as AgentSessionWrapper & { setForceEmptySystemPrompt?: (force: boolean) => void };
+      legacy.setForceEmptySystemPrompt?.(false);
+      activateAllSessionTools(existing.inner);
+    }
+    return { session: existing, realSessionId: sessionId };
+  }
 
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
@@ -1287,59 +1378,39 @@ export async function startRpcSession(
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
 
-    // Keep the SDK registry intact even for none, so a later switch to full
-    // can activate all currently available built-ins and extension tools.
+    // Keep the full registry and ignore historical Pivot preset metadata.
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    const savedModel = sessionManager.buildSessionContext().model;
+    const legacyAzure = savedModel?.provider === LEGACY_AZURE_PROVIDER;
+    const initialPackRevision = readWorkspaceState({ cwd }).revision;
+    const services = await createPivotAgentSessionServices({ cwd, agentDir }, legacyAzure || requestedModel?.provider === LEGACY_AZURE_PROVIDER);
+    const desired = requestedModel ?? (legacyAzure ? savedModel : undefined);
+    const startupModel = desired ? services.modelRuntime.getModel(desired.provider, desired.modelId) : undefined;
+    if (desired && (!startupModel || !services.modelRuntime.getAvailableSnapshot().some(
+      (model) => model.provider === desired.provider && model.id === desired.modelId,
+    ))) {
+      if (requestedModel) throw new Error(`Model unavailable: ${desired.provider}/${desired.modelId}`);
+      throw new Error("Saved Azure model could not be restored. Configure its credentials/model before continuing.");
+    }
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
+      model: startupModel,
     });
-
-    // pi defers writing a new session's .jsonl file until the first assistant
-    // message arrives (SessionManager._persist), so a brand-new session stays
-    // invisible in the sidebar until the first reply completes. Force the
-    // header onto disk immediately so the new session shows up as soon as the
-    // user sends their first message. Marking the manager flushed makes later
-    // appends use appendFileSync instead of the deferred "wx" create path,
-    // which would fail with EEXIST on the now-existing file.
-    if (!sessionFile) {
-      const manager = inner.sessionManager as unknown as {
-        isPersisted: () => boolean;
-        getSessionFile: () => string | undefined;
-        _rewriteFile?: () => void;
-        flushed?: boolean;
-      };
-      if (manager.isPersisted() && manager.getSessionFile() && typeof manager._rewriteFile === "function") {
-        manager._rewriteFile();
-        manager.flushed = true;
-      }
+    // Never silently continue an old Azure conversation on a fallback provider/model.
+    if (legacyAzure && !requestedModel && (inner.model?.provider !== savedModel.provider || inner.model?.id !== savedModel.modelId)) {
+      inner.dispose();
+      throw new Error("Saved Azure model could not be restored. Configure its credentials/model before continuing.");
     }
 
-    // Apply the requested preset against the SDK registry, retaining extension
-    // tools for default/full while leaving the full registry available for none.
-    const requestedNames = toolPreset
-      ? getToolNamesForPreset(toolPreset, inner.getAllTools())
-      : toolNames;
-    if (requestedNames !== undefined) {
-      inner.setActiveToolsByName(withExtensionTools(inner.getAllTools(), requestedNames, toolPreset === "full" || requestedNames.length > 0));
-    }
-    const savedPreset = sessionFile ? restoreSessionToolPreset(sessionManager) : undefined;
-    if (savedPreset !== undefined) {
-      inner.setActiveToolsByName(withExtensionTools(inner.getAllTools(), getToolNamesForPreset(savedPreset, inner.getAllTools()), savedPreset !== "none"));
-    } else if (!sessionFile && requestedNames !== undefined) {
-      saveSessionToolPreset(sessionManager, toolPreset ?? getSessionToolPreset(inner));
-    }
+    activateAllSessionTools(inner);
 
-    const wrapper = new AgentSessionWrapper(inner);
-    // When all tools are disabled, clear the system prompt entirely.
-    // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
-    // keep this forced after extension resource discovery and reloads as well.
-    const disableTools = savedPreset === "none" || toolPreset === "none" || (toolPreset === undefined && requestedNames?.length === 0);
-    if (disableTools) {
-      wrapper.setForceEmptySystemPrompt(true);
-    }
+    // Keep existing empty-session visibility through the public manager API,
+    // without relying on pi's private _rewriteFile()/flushed implementation.
+    if (!sessionFile) persistEmptySession(sessionManager);
+
+    const wrapper = new AgentSessionWrapper(inner, initialPackRevision);
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;
@@ -1348,7 +1419,7 @@ export async function startRpcSession(
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: disableTools });
+    wrapper.beginExtensionBinding();
 
     return { session: wrapper, realSessionId };
   })().finally(() => locks.delete(sessionId));
