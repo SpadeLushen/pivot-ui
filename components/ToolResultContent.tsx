@@ -17,6 +17,22 @@ function displayBlocks(result: ToolResultView, sessionId?: string): DisplayBlock
   return blocks;
 }
 
+// The SDK joins adjacent text items before returning codemode content. Its
+// line markers retain the output boundaries; child calls are not output items.
+function splitCodemodeOutput(blocks: DisplayBlock[]): DisplayBlock[] {
+  return blocks.flatMap((block): DisplayBlock[] => {
+    if (block.type !== "text") return [block];
+    const markers = [...block.text.matchAll(/^==> text ([1-9]\d*)\/([1-9]\d*) <==\r?$/gm)]
+      .filter((match) => Number(match[2]) > 1 && Number(match[1]) <= Number(match[2]));
+    if (!markers.length) return [block];
+    const boundaries = [0, ...markers.map((match) => match.index).filter((index) => index > 0), block.text.length];
+    return boundaries.slice(0, -1).map((start, index) => ({
+      type: "text",
+      text: block.text.slice(start, boundaries[index + 1]).replace(/^==> text [1-9]\d*\/[1-9]\d* <==(?:\r?\n|$)/, ""),
+    }));
+  });
+}
+
 type OutputMode = "plain" | "blocks";
 
 function OutputControls({ mode, onChange }: { mode: OutputMode; onChange: (mode: OutputMode) => void }) {
@@ -137,13 +153,14 @@ export function ToolResultContent({ result, sessionId, outputLayouts = false }: 
   }, [result, sessionId, outputLayouts]);
   const flat = outputLayouts && mode === "plain";
   const blockMode = outputLayouts && mode === "blocks";
+  const renderedBlocks = useMemo(() => blockMode ? splitCodemodeOutput(blocks) : blocks, [blockMode, blocks]);
   const isEmpty = blocks.every((block) => block.type === "text" && (!block.text.trim() || block.text.trim() === "(no output)"));
   return (
     <div style={{ borderTop: `1px solid ${result.isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`, background: "var(--bg)", minWidth: 0 }}>
       {outputLayouts && <OutputControls mode={mode} onChange={setMode} />}
       {header && <ResultText text={header} isError={result.isError} flat />}
       <div style={{ maxHeight: 560, overflow: "auto", minWidth: 0, padding: flat ? "8px 10px" : undefined, whiteSpace: flat ? "pre-wrap" : undefined, overflowWrap: flat ? "anywhere" : undefined, fontFamily: flat ? "var(--font-mono)" : undefined, fontSize: flat ? 12 : undefined, lineHeight: flat ? 1.5 : undefined, color: result.isError ? "#f87171" : "var(--text-muted)" }}>
-        {isEmpty && (!blockMode || !blocks.length) ? <ResultText text={t("message.noToolOutput")} isEmpty isError={result.isError} flat={flat} /> : blocks.map((block, index) => blockMode ? (
+        {isEmpty && (!blockMode || !blocks.length) ? <ResultText text={t("message.noToolOutput")} isEmpty isError={result.isError} flat={flat} /> : renderedBlocks.map((block, index) => blockMode ? (
           <CollapsibleOutputBlock key={index} block={block} index={index} sessionId={sessionId} toolCallId={result.toolCallId} isError={result.isError} />
         ) : <ResultBlock key={index} block={block} sessionId={sessionId} toolCallId={result.toolCallId} isError={result.isError} flat={flat} />)}
         <StructuredResult key={flat ? "plain" : "blocks"} details={result.details} flat={flat} />

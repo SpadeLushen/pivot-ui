@@ -945,7 +945,7 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
   const usage = result?.usage ? summarizeUsage(result.usage) : null;
   const cost = recordedCost(result?.usage);
   const isError = result?.isError ?? false;
-  const isPending = !result;
+  const isPending = !result || result.isPartial === true;
 
   return (
     <div

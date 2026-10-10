@@ -203,7 +203,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
-    agentPhase, timings, nestedCalls,
+    agentPhase, timings, nestedCalls, partialToolResults,
     isNew,
     sessionIdRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -444,7 +444,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {(() => {
-              const toolResultsMap = new Map<string, ToolResultMessage>();
+              // Final transcript results below take precedence over live snapshots.
+              const toolResultsMap = new Map<string, ToolResultMessage>(partialToolResults);
               for (const msg of messages) {
                 if (msg.role === "toolResult") {
                   toolResultsMap.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);

@@ -169,6 +169,8 @@ export interface ToolResultMessage {
   usage?: RecordedUsage;
   /** SDK execute-only duration; absent on legacy or unexecuted results. */
   durationMs?: number;
+  /** UI-only live output snapshot; never added to the transcript. */
+  isPartial?: boolean;
   /** UI-only history projection; image bytes remain in the session file. */
   deferredImages?: {
     entryId: string;

@@ -10,6 +10,7 @@ import type {
   SessionInfo,
   SessionContext,
   SessionTreeNode,
+  ToolResultMessage,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session-models";
@@ -448,6 +449,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const inputPending = inputSending || (agentRunRef.current.running && !agentRunning);
   const nestedStateRef = useRef(new NestedToolState());
   const [nestedCalls, setNestedCalls] = useState(new Map<string, NestedCallGroup>());
+  const [partialToolResults, setPartialToolResults] = useState(new Map<string, ToolResultMessage>());
   const nestedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventConnectionEpochRef = useRef(0);
   const messagesRef = useRef(messages);
@@ -463,6 +465,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid || !nestedStateRef.current.begin(sid, runId)) return;
     setNestedCalls(new Map());
+    setPartialToolResults(new Map());
     if (restore) {
       const completed = new Set(messagesRef.current.filter((msg) => msg.role === "toolResult").map((msg) => msg.toolCallId));
       for (const msg of messagesRef.current) if (msg.role === "assistant") {
@@ -475,9 +478,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     nestedPublishTimerRef.current = null;
     nestedStateRef.current.clear();
     setNestedCalls(new Map());
+    setPartialToolResults(new Map());
   }, []);
   useEffect(() => {
-    if (!agentRunning) { nestedStateRef.current.finish(); publishNested(); }
+    if (!agentRunning) {
+      nestedStateRef.current.finish();
+      publishNested();
+      setPartialToolResults(previous => previous.size ? new Map() : previous);
+    }
   }, [agentRunning, publishNested]);
   useEffect(() => () => {
     eventConnectionEpochRef.current += 1;
@@ -1202,6 +1210,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (responseModel) setRoutedModel(responseModel);
           nestedStateRef.current.observeMessage(normalizeToolCalls(completed));
           publishNested();
+          if (completed.role === "toolResult") {
+            setPartialToolResults(previous => {
+              if (!previous.has(completed.toolCallId)) return previous;
+              const next = new Map(previous);
+              next.delete(completed.toolCallId);
+              return next;
+            });
+          }
         }
         if (completed?.role === "assistant" && completed.stopReason !== "error") {
           setRetryInfo(null);
@@ -1229,6 +1245,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!tools.some((t) => t.id === id)) tools.push({ id, name });
           return { kind: "running_tools", tools };
         });
+        break;
+      }
+      case "tool_execution_update": {
+        const id = event.toolCallId as string;
+        const partial = event.partialResult as { content?: ToolResultMessage["content"]; details?: unknown } | undefined;
+        if (!partial || !Array.isArray(partial.content)) break;
+        const content = partial.content;
+        // SDK updates are complete snapshots, not deltas. Keep them separate
+        // from transcript messages and never overwrite a completed result.
+        if (messagesRef.current.some(message => message.role === "toolResult" && message.toolCallId === id)) break;
+        setPartialToolResults(previous => new Map(previous).set(id, {
+          role: "toolResult",
+          toolCallId: id,
+          toolName: event.toolName as string,
+          content,
+          details: partial.details,
+          isPartial: true,
+        }));
         break;
       }
       case "tool_execution_end": {
@@ -1857,7 +1891,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
-    agentPhase, timings, nestedCalls,
+    agentPhase, timings, nestedCalls, partialToolResults,
     isNew,
     // Runtime refs
     sessionIdRef, eventSourceRef,
