@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
@@ -9,6 +10,24 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MessageView } = await jiti.import("./MessageView.tsx");
+const source = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
+const toolStart = source.indexOf("function ToolCallBlock(");
+const inputStart = source.indexOf("  const input = block.input;", toolStart);
+const inputEnd = source.indexOf("  const isEditTool", inputStart);
+assert.ok(inputStart > toolStart && inputEnd > inputStart);
+const expandedInput = new Function("block", `${source.slice(inputStart, inputEnd)}\nreturn inputStr;`);
+
+test("expanded code-only calls preserve real newlines and literal backslashes without double decoding", () => {
+  for (const code of ['console.log("first");\nconsole.log("second");', String.raw`const path = "C:\\workspace\\new";`, String.raw`const escaped = "\\n\\t";`, "\tindented\nnext", ""]) {
+    assert.equal(expandedInput({ input: { code } }), code);
+  }
+});
+
+test("other inputs retain their complete JSON representation", () => {
+  for (const input of [{ code: "script", limit: 1 }, { code: 1 }, { path: "C:\\file" }, {}, undefined]) {
+    assert.equal(expandedInput({ input }), JSON.stringify(input, null, 2));
+  }
+});
 
 function collapsedPreview(toolName, input, isStreaming = false) {
   const html = renderToStaticMarkup(React.createElement(MessageView, {

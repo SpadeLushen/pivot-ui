@@ -919,7 +919,12 @@ function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, en
 function ToolCallBlock({ block, result, duration, durationRunning }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; durationRunning: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const durationLabel = formatDisplayedElapsed(duration, durationRunning);
-  const inputStr = JSON.stringify(block.input, null, 2);
+  // JSON transport decoding already restored escapes in the code string.
+  // Render it directly; unescaping again would corrupt literal backslashes.
+  const input = block.input;
+  const inputStr = typeof input?.code === "string" && Object.keys(input).length === 1
+    ? input.code
+    : JSON.stringify(input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
