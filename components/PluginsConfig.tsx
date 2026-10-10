@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import { BuiltinExtensions } from "./BuiltinExtensions";
+import toolsStyles from "./tools/ToolsConfig.module.css";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -572,6 +574,8 @@ export function PluginsConfig({
   const backdrop = useBackdropDismiss(onClose);
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const tabId = useId();
+  const [activeTab, setActiveTab] = useState<"installed" | "builtin">("installed");
   const [data, setData] = useState<PluginsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -711,7 +715,7 @@ export function PluginsConfig({
       {...backdrop}
     >
       <div
-        className="modal-surface"
+        className={`modal-surface ${toolsStyles.modal}`}
         style={{
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
@@ -770,11 +774,40 @@ export function PluginsConfig({
           </button>
         </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div className="tools-tabs" role="tablist" aria-label={t("plugins.title")}>
+          {(["installed", "builtin"] as const).map(tab => (
+            <button key={tab} type="button" role="tab" id={`${tabId}-${tab}-tab`}
+              aria-controls={`${tabId}-${tab}-panel`} aria-selected={activeTab === tab}
+              tabIndex={activeTab === tab ? 0 : -1} onClick={() => setActiveTab(tab)}
+              onKeyDown={event => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const next = event.key === "Home" ? "installed" : event.key === "End" ? "builtin"
+                  : tab === "installed" ? "builtin" : "installed";
+                setActiveTab(next);
+                event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[id="${tabId}-${next}-tab"]`)?.focus();
+              }}>
+              {t(tab === "installed" ? "plugins.installedTab" : "plugins.builtins")}
+            </button>
+          ))}
+        </div>
+
+        <div role="tabpanel" id={`${tabId}-builtin-panel`} aria-labelledby={`${tabId}-builtin-tab`}
+          hidden={activeTab !== "builtin"}
+          className="tools-content"
+          style={{ display: activeTab === "builtin" ? "flex" : "none" }}>
+          <BuiltinExtensions key={`${cwd}:${sessionId ?? ""}`} cwd={cwd} sessionId={sessionId} active={activeTab === "builtin"} onClose={onClose} />
+        </div>
+
+        <div role="tabpanel" id={`${tabId}-installed-panel`} aria-labelledby={`${tabId}-installed-tab`}
+          hidden={activeTab !== "installed"} className="tools-layout"
+          style={{ display: activeTab === "installed" ? "flex" : "none", overflow: "hidden" }}>
           <div
             style={{
-              width: isMobile ? "100%" : 245,
-              maxHeight: isMobile ? "40vh" : undefined,
+              width: isMobile ? "100%" : 210,
+              maxHeight: isMobile ? "35vh" : undefined,
+              minHeight: 0,
+              borderRadius: 6,
               borderRight: isMobile ? "none" : "1px solid var(--border)",
               borderBottom: isMobile ? "1px solid var(--border)" : "none",
               display: "flex",
@@ -929,7 +962,7 @@ export function PluginsConfig({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto" }}>
             {addMode ? (
               <AddPluginPanel
                 cwd={cwd}
@@ -972,7 +1005,7 @@ export function PluginsConfig({
 
         <div
           style={{
-            display: "flex",
+            display: activeTab === "installed" ? "flex" : "none",
             alignItems: "center",
             justifyContent: "space-between",
             gap: 12,
@@ -981,7 +1014,7 @@ export function PluginsConfig({
             flexShrink: 0,
           }}
         >
-          <div style={{ minWidth: 0, flex: 1, fontSize: 11, color: "var(--text-dim)", overflow: "hidden" }}>
+          <div style={{ display: activeTab === "installed" ? "block" : "none", minWidth: 0, flex: 1, fontSize: 11, color: "var(--text-dim)", overflow: "hidden" }}>
             {data?.diagnostics.length ? (
               <span
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
@@ -995,10 +1028,10 @@ export function PluginsConfig({
               </span>
             )}
           </div>
-          <button onClick={() => void loadPlugins()} disabled={loading || busyKey !== null} style={buttonStyle(loading || busyKey !== null)}>
+          {activeTab === "installed" && <button onClick={() => void loadPlugins()} disabled={loading || busyKey !== null} style={buttonStyle(loading || busyKey !== null)}>
             {t("general.refresh")}
-          </button>
-          <button onClick={onClose} style={buttonStyle(false)}>
+          </button>}
+          <button onClick={onClose} style={{ ...buttonStyle(false), marginLeft: "auto" }}>
             {t("general.close")}
           </button>
         </div>

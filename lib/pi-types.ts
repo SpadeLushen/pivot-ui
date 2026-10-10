@@ -80,7 +80,9 @@ interface SkillLike {
 
 interface ResourceLoaderLike {
   getExtensions(): ReturnType<AgentSession["resourceLoader"]["getExtensions"]>;
-  getSkills(): { skills: SkillLike[] };
+  getSkills(): { skills: SkillLike[]; diagnostics?: ReturnType<AgentSession["resourceLoader"]["getSkills"]>["diagnostics"] };
+  getPrompts?(): ReturnType<AgentSession["resourceLoader"]["getPrompts"]>;
+  getThemes?(): ReturnType<AgentSession["resourceLoader"]["getThemes"]>;
 }
 
 interface ExtensionRunnerLike {

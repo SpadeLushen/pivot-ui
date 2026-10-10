@@ -212,6 +212,15 @@ export class AgentSessionWrapper {
     });
   }
 
+  getExtensionApplicationState() {
+    const cwd = this.workspaceCwd();
+    const pending = cwd !== undefined && resourceRevision(cwd) !== this.workspaceResourceRevision;
+    const state = this.resourceReloadFailed || this.extensionBindingError ? "failed" as const
+      : this.resourceReloadPromise || !this.extensionsBound ? "applying" as const
+      : pending ? "pending" as const : "applied" as const;
+    return { sessionId: this.sessionId, running: this.isRunning(), state };
+  }
+
   getToolApplicationState(desired: OrchestrationSnapshot): ToolApplicationState {
     const cwd = this.workspaceCwd();
     const current = codemodeValues(this.inner.settingsManager.getSettings());
