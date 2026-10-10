@@ -1,4 +1,5 @@
 import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { PlainTextTheme } from "./plain-text-theme";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
@@ -127,46 +128,7 @@ const MODEL_ABORT_GRACE_MS = 10_000;
 // can use the UI instead of incorrectly treating the browser as headless.
 const EXTENSION_MODE = "tui" as const;
 
-// Extensions require a complete Theme, while the web UI applies its own styling.
-class PlainTextTheme extends Theme {
-  constructor() {
-    super(
-      {
-        thinkingXhigh: "",
-        // Pi derives optional colors from muted/text and thinkingXhigh.
-        muted: "",
-        text: "",
-      } as ConstructorParameters<typeof Theme>[0],
-      {
-        // 0.84's ThemeBg requires every non-scrollbar key; empty strings keep
-        // the web UI's own styling (bgAnsi("") is the ANSI reset code).
-        selectedBg: "",
-        userMessageBg: "",
-        customMessageBg: "",
-        toolPendingBg: "",
-        toolSuccessBg: "",
-        toolErrorBg: "",
-      },
-      "truecolor",
-    );
-  }
-
-  override fg(...[, text]: Parameters<Theme["fg"]>): string { return text; }
-  override bg(...[, text]: Parameters<Theme["bg"]>): string { return text; }
-  override bold(text: string): string { return text; }
-  override italic(text: string): string { return text; }
-  override underline(text: string): string { return text; }
-  override inverse(text: string): string { return text; }
-  override strikethrough(text: string): string { return text; }
-  override getFgAnsi(): string { return ""; }
-  override getBgAnsi(): string { return ""; }
-  override getThinkingBorderColor(): (text: string) => string {
-    return (text) => text;
-  }
-  override getBashModeBorderColor(): (text: string) => string { return (text) => text; }
-}
-
-const PLAIN_TEXT_THEME = new PlainTextTheme();
+// Each wrapper owns a complete, stable bridge independent of browser theme.
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 const EXTENSION_STATUSLINE_RENDER_WIDTH = 120;
 
@@ -174,11 +136,11 @@ type ExtensionWidgetComponent = {
   render: (width: number) => unknown;
 };
 
-function renderStatuslineWidget(content: unknown): string[] | null {
+function renderStatuslineWidget(content: unknown, theme: Theme): string[] | null {
   if (typeof content !== "function") return null;
 
   try {
-    const component = (content as (tui: unknown, theme: Theme) => unknown)({}, PLAIN_TEXT_THEME);
+    const component = (content as (tui: unknown, theme: Theme) => unknown)({}, theme);
     if (!component || typeof component !== "object" || typeof (component as ExtensionWidgetComponent).render !== "function") {
       return null;
     }
@@ -224,6 +186,8 @@ export class AgentSessionWrapper {
   private unsubscribeResourceChanges: (() => void) | null = null;
   private workspaceResourceRevision: string;
   private resourceReloadFailed = false;
+
+  private readonly plainTextTheme = new PlainTextTheme();
 
   constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0) {
     this.workspacePackRevision = initialPackRevision;
@@ -1027,7 +991,7 @@ export class AgentSessionWrapper {
       };
 
       Promise.resolve()
-        .then(() => factory(tui, PLAIN_TEXT_THEME, CUSTOM_UI_KEYBINDINGS, done))
+        .then(() => factory(tui, this.plainTextTheme, CUSTOM_UI_KEYBINDINGS, done))
         .then((component) => {
           if (completed) {
             try {
@@ -1176,7 +1140,7 @@ export class AgentSessionWrapper {
           // The shared pi-plugins statusline is a TUI component factory. It
           // cannot cross SSE as a function, so render its text once using the
           // same plain theme used by the rest of the RPC UI bridge.
-          const rendered = renderStatuslineWidget(content);
+          const rendered = renderStatuslineWidget(content, this.plainTextTheme);
           if (!rendered) {
             this.extensionWidgets.delete(key);
             this.emit({
@@ -1240,7 +1204,7 @@ export class AgentSessionWrapper {
       addAutocompleteProvider: () => {},
       setEditorComponent: () => {},
       getEditorComponent: () => undefined,
-      get theme() { return PLAIN_TEXT_THEME; },
+      theme: this.plainTextTheme,
       getAllThemes: () => [],
       getTheme: () => undefined,
       setTheme: () => ({ success: false, error: "Theme switching is not supported in pivot-ui extension UI yet" }),
@@ -1417,8 +1381,12 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
-    // Some extensions access the SDK's global theme even outside the terminal UI.
-    initTheme();
+    // Initialize the legacy SDK singleton once, never from browser appearance.
+    const themeState = globalThis as typeof globalThis & { __pivotSdkThemeInitialized?: boolean };
+    if (!themeState.__pivotSdkThemeInitialized) {
+      initTheme(undefined, false);
+      themeState.__pivotSdkThemeInitialized = true;
+    }
     const agentDir = getAgentDir();
 
     const sessionManager = sessionFile
