@@ -6,6 +6,7 @@ import type { NativeMcpEditorSnapshot, NativeMcpScope } from "@/lib/api-types";
 import { ToolsModal, ToolSwitch, ToolError } from "./ToolsControls";
 import { McpFormFields } from "./McpFormFields";
 import { buildMcpFormDefinition, isMcpWorkspaceOverride, mcpFormValues } from "@/lib/mcp-editor-form";
+import { hasMcpSecretPlaceholder } from "@/lib/native-mcp-editor-secrets";
 
 const DEFAULT: Record<string, unknown> = { type: "stdio", enabled: false };
 export function McpEditorDialog({ cwd, scope: initialScope, serverKey: initialKey, onClose, onSaved }: {
@@ -21,6 +22,7 @@ export function McpEditorDialog({ cwd, scope: initialScope, serverKey: initialKe
   const [error, setError] = useState<string | null>(null), [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false), [packManaged, setPackManaged] = useState(false);
   const [overridesGlobal, setOverridesGlobal] = useState(false);
+  const [hiddenSettings, setHiddenSettings] = useState(false);
   const override = isMcpWorkspaceOverride(scope, definition);
   useEffect(() => {
     let ignore = false; setReady(false); setError(null); setRevision("");
@@ -32,7 +34,12 @@ export function McpEditorDialog({ cwd, scope: initialScope, serverKey: initialKe
         if (initialKey && !server) { setError(t("mcp.noServersAvailable")); return; }
         setRevision(data.revision); setFilePath(data.filePath);
         const baseline = server ? scope === "project" ? server.workspaceDefinition ?? server.definition : server.definition : DEFAULT;
-        const fields = mcpFormValues(server && isMcpWorkspaceOverride(scope, baseline) ? server.definition : baseline);
+        const fieldDefinition = server && isMcpWorkspaceOverride(scope, baseline) ? server.definition : baseline;
+        const fields = mcpFormValues(fieldDefinition);
+        // Editable connection fields are checked live in McpFormFields. Preserve the
+        // warning for masked settings (e.g. OAuth client secrets) not exposed as inputs.
+        const unexposed = Object.fromEntries(Object.entries(fieldDefinition).filter(([key]) => !["command", "args", "env", "cwd", "url", "headers"].includes(key)));
+        setHiddenSettings(hasMcpSecretPlaceholder(unexposed));
         setDefinition(baseline); setForm(fields); setInitialForm(fields);
         setEnabled(server ? server.enabled : false); setInitialEnabled(server ? server.enabled : false);
         setPackManaged(server?.managedByPack ?? false);
@@ -63,8 +70,8 @@ export function McpEditorDialog({ cwd, scope: initialScope, serverKey: initialKe
       {!ready && !error && <p className="tools-help">{t("general.loading")}</p>}
       <label className="tools-field">{t("mcp.serverName")}<input value={serverKey} required pattern={"[A-Za-z0-9_\\-]+"} disabled={!!initialKey || saving || !ready} onChange={(event) => setServerKey(event.target.value)} placeholder="chrome-devtools" autoFocus={!initialKey} /></label>
       <ToolSwitch variant="inline" label={t(scope === "global" ? "tools.globalDefaultEnabled" : "tools.workspaceEnabled")} checked={enabled} disabled={saving || !ready || packManaged} onChange={setEnabled} />
-      <McpFormFields value={form} onChange={setForm} disabled={!ready || saving} override={override} />
-      <p className="tools-help">{t(initialKey ? "mcp.secretHelp" : "mcp.credentialCommandsHelp")}</p>
+      <McpFormFields value={form} onChange={setForm} disabled={!ready || saving} override={override} hiddenSettings={hiddenSettings} />
+      {!initialKey && <p className="tools-help">{t("mcp.credentialCommandsHelp")}</p>}
       {override && <p className="tools-help">{t("mcp.projectOverrideHelp")}</p>}
       <ToolError error={error} />
       <div className="tools-editor-actions">

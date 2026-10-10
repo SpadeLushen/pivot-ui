@@ -2,10 +2,11 @@
 import { Plus, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { MappingRow, McpFormValues } from "@/lib/mcp-editor-form";
-import { MCP_SECRET_PLACEHOLDER } from "@/lib/native-mcp-editor-secrets";
+import { hasMcpSecretPlaceholder, MCP_SECRET_PLACEHOLDER } from "@/lib/native-mcp-editor-secrets";
+import { ToolSwitch } from "./ToolsControls";
 
-function MappingFields({ label, rows, onChange, disabled }: {
-  label: string; rows: MappingRow[]; onChange: (rows: MappingRow[]) => void; disabled: boolean;
+function MappingFields({ label, rows, onChange, disabled, secretHelp = false }: {
+  label: string; rows: MappingRow[]; onChange: (rows: MappingRow[]) => void; disabled: boolean; secretHelp?: boolean;
 }) {
   const { t } = useI18n();
   return <fieldset className="tools-form-rows" disabled={disabled}>
@@ -18,6 +19,7 @@ function MappingFields({ label, rows, onChange, disabled }: {
       <button type="button" aria-label={`${t("general.remove")} ${label} ${index + 1}`} onClick={() => onChange(rows.filter((item) => item.id !== row.id))}><X size={14} /></button>
     </div>)}
     <button type="button" className="tools-form-add" onClick={() => onChange([...rows, { id: rows.reduce((max, row) => Math.max(max, row.id), -1) + 1, key: "", value: "" }])}><Plus size={13} />{t("general.add")}</button>
+    {secretHelp && <p className="tools-help">{t("mcp.secretHelp")}</p>}
   </fieldset>;
 }
 
@@ -36,10 +38,13 @@ function ArgumentFields({ rows, onChange, disabled }: {
   </fieldset>;
 }
 
-export function McpFormFields({ value, onChange, disabled, override }: {
-  value: McpFormValues; onChange: (value: McpFormValues) => void; disabled: boolean; override: boolean;
+export function McpFormFields({ value, onChange, disabled, override, hiddenSettings = false }: {
+  value: McpFormValues; onChange: (value: McpFormValues) => void; disabled: boolean; override: boolean; hiddenSettings?: boolean;
 }) {
   const { t } = useI18n();
+  const secretHelp = hiddenSettings || hasMcpSecretPlaceholder(value.type === "http"
+    ? [value.url, ...value.headers.map((row) => row.value)]
+    : [value.command, value.cwd, ...value.args.map((row) => row.value), ...value.env.map((row) => row.value)]);
   function set<K extends keyof McpFormValues>(key: K, next: McpFormValues[K]) { onChange({ ...value, [key]: next }); }
   return <>
     <div className="tools-form-grid">
@@ -56,11 +61,15 @@ export function McpFormFields({ value, onChange, disabled, override }: {
     {value.type === "stdio" ? <>
       <label className="tools-field">{t("mcp.command")}<input required value={value.command} disabled={disabled || override} placeholder="npx" onChange={(event) => set("command", event.target.value)} /></label>
       <ArgumentFields rows={value.args} disabled={disabled || override} onChange={(rows) => set("args", rows)} />
-      <MappingFields label="env" rows={value.env} disabled={disabled || override} onChange={(rows) => set("env", rows)} />
+      <MappingFields label="env" rows={value.env} secretHelp={secretHelp} disabled={disabled || override} onChange={(rows) => set("env", rows)} />
       <label className="tools-field">cwd<input value={value.cwd} disabled={disabled || override} onChange={(event) => set("cwd", event.target.value)} /></label>
     </> : <>
       <label className="tools-field">url<input required type={value.url === MCP_SECRET_PLACEHOLDER ? "text" : "url"} value={value.url} disabled={disabled || override} placeholder="https://example.com/mcp" autoComplete="off" onChange={(event) => set("url", event.target.value)} /></label>
-      <MappingFields label="headers" rows={value.headers} disabled={disabled || override} onChange={(rows) => set("headers", rows)} />
+      <MappingFields label="headers" rows={value.headers} secretHelp={secretHelp} disabled={disabled || override} onChange={(rows) => set("headers", rows)} />
+      <ToolSwitch variant="inline" label={t("mcp.explicitOAuth")} checked={value.oauth}
+        disabled={disabled || override || value.oauthSettings || (!value.oauth && (value.providerAuth || value.headers.some((row) => row.key.toLowerCase() === "authorization")))}
+        onChange={(enabled) => set("oauth", enabled)} />
+      {value.oauth && <p className="tools-help">{t(value.oauthSettings ? "mcp.oauthSettingsPresent" : value.providerAuth || value.headers.some((row) => row.key.toLowerCase() === "authorization") ? "mcp.oauthAuthConflict" : "mcp.explicitOAuthHelp")}</p>}
     </>}
   </>;
 }

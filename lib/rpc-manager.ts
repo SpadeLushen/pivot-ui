@@ -16,6 +16,7 @@ import { persistEmptySession } from "./session-persistence";
 import { readWorkspaceState } from "./workspace-packs";
 import { subscribeWorkspacePacks } from "./workspace-pack-events";
 import { createPivotAgentSessionServices, enableLegacyAzure, LEGACY_AZURE_PROVIDER } from "./model-runtime";
+import { nativeProjectTrusted } from "./native-mcp-runtime";
 
 // ============================================================================
 // Types
@@ -263,6 +264,11 @@ export class AgentSessionWrapper {
       this.extensionWidgets.clear();
       this.extensionsBound = false;
       this.extensionBindingPromise = null;
+      // SDK reload preserves its initial trust flag; refresh saved trust only at this idle boundary.
+      const settings = this.inner.settingsManager;
+      if (cwd && typeof settings.setProjectTrusted === "function" && typeof settings.getDefaultProjectTrust === "function") {
+        settings.setProjectTrusted(nativeProjectTrusted(cwd, getAgentDir(), settings));
+      }
       await this.inner.reload();
       this.beginExtensionBinding();
       await this.waitForExtensionsBound();

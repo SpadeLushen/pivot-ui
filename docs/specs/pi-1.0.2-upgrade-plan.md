@@ -665,7 +665,7 @@ Pivot 自己的 autocomplete、浏览器 clipboard 和滚动逻辑不会因为�
 |---|---|---|
 | **A：P0 本地现有功能兼容** | 1.0.3 源码／自动化／隔离构建已实施；Azure 旧身份只读别名、OAuth 轮换持久化及输出权限自动化回归已完成，人工验收／部署待完成；保留 TS7、构建匹配、既有会话／工具／认证／adapter MCP／Packs／扩展／渲染／统计／导出／打包验收 | 本地升级 pi 后现有功能全部可用，TS7 类型检查与 Next.js 构建通过；不依赖新功能适配，不发布 |
 | **B1：P1 原生 MCP 加载（breaking change）** | 原生扩展装配、SDK 替代诊断、trust、权限与加载／调用；不提供迁移功能 | 原生工具可加载调用，旧标记不影响发送，旧数据不自动处理；配置功能另行实现 |
-| **B2：P1 原生 MCP 配置（后续）** | B1 完成后实现原生配置管理、Library／Packs 管理、来源／连接管理、OAuth 及资源功能 | 原生配置功能专项验收通过，不保留 adapter 配置功能 |
+| **B2：P1 原生 MCP 配置（用户验收完成）** | 原生配置管理、Packs／trust、来源／连接管理、OAuth 及资源功能已实施；不恢复 adapter Library 定义部署 | 用户已确认专项验收完成，自动化结果见 17.12 |
 | **C：P1 codemode 优先增强与工具编排** | 紧随 MCP 完善 codemode 展示、执行状态、嵌套调用、图片结果及费用；随后开展工具能力选择专项重构、exposure-aware 模型和 tool_search 控制 | 权限管线覆盖子调用；若引入禁用模式，须验证不被异步激活绕过 |
 | **D：P1/P2 其他新能力** | 新 ChatGPT 登录／deviceId、完整 disposition、新 Theme API、virtual model、typed catalog、classifier、图片生成、debug | 按各节要求完成本地专项验收，不阻塞阶段 A 的兼容验收 |
 
@@ -1013,3 +1013,19 @@ SDK 1.0.3 的工厂在恢复会话时按默认配置初始化工具；发现记�
 全量回归发现 Windows 删除锁目录期间 mkdir 短暂 EPERM；CredentialStore 仅对此锁目录竞争重试最多五次，持续权限失败和取消请求仍拒绝写入，并有故障注入测试。测试／browser smoke 脚本不进入 npm 包。
 
 最终验证：91 个测试文件，开启当前生产构建／真实 Chrome／native MCP 的全量运行 **494 tests / 491 pass / 3 skipped / 0 fail**。三项 skip 仅为测试已明确排除的 Windows PTY 集成用例；生产页面、MCP 表单、工具与 Packs 浏览器回归实际执行通过。当前工作区 `npm run build`（编译、typecheck、Next build、自带 npm pack）通过，Pivot 仍为 1.2.2。真实账户／第三方服务器及 Windows PTY／ACL 的人工验收仍待用户执行；不据此宣称生产部署完成。
+
+### 17.12 B2 用户验收完成与当前工作区回归
+
+用户已确认 B1、B2 验收完成，并要求编写、执行测试，通过后提交。本轮覆盖原生 MCP OAuth／资源管理、Force OAuth、工作区覆盖分组及移除、Pack 保护、敏感字段提示和显式 trust；SDK／Pivot 版本仍为 1.0.3／1.2.2。阶段 C codemode 增强尚未实施，不将它或 SDK deferred 工具重新发现的既有限制算作 B2 未完成。
+
+新增 **34 项行为回归**：
+- 本地 HTTP MCP／OAuth fixture 经真实 SDK 执行资源与模板独立分页、MCP Apps 过滤、可选方法、资源错误、401 challenge、显式 opt-in、过期凭据状态。
+- 实际 SDK 验证本机 loopback 和远程粘贴回调、PKCE；重新认证、取消、断连、超时、token 端点失败、state／issuer／redirect 不匹配保留旧凭据，令牌一次性、workspace／配置变更保护，不回传凭据。
+- Chrome 加载实际 MCP 组件验证分组／覆盖 X、Pack 禁用控制、资源显示与分页／过期响应抑制、Connection 按钮顺序、重新认证、本机／远程认证分支及条件表单提示；API 使用本地 fixture，不连接真实账户。
+- trust 确认前不写入，只保存对应 cwd，通知不扩散到父目录；运行会话仅在 idle reload 边界刷新 trust。Force OAuth 的空标记、隐藏 client 设置及稀疏覆盖无损保存另有表单测试。
+
+测试发现跨模块管理错误类型识别不稳定；采用不可通过 JSON 伪造的 Symbol 标记，避免全局注册表／热重载旧实例导致错误状态码退化。旧 MCP smoke 使用真实脱敏 env fixture 检查输入值和保存结果，不再仅检查通用提示文字。
+
+**最终验证**：显式列出当前 **94 个 `*.test.mjs` 文件**，以 `--test-concurrency=4` 和 `PIVOT_TEST_PRODUCTION_DIR=.`、`PIVOT_TEST_BROWSER=1`、`PIVOT_TEST_NATIVE_MCP=1` 运行，**528 tests / 525 pass / 3 skipped / 0 fail**。三项 skip 仍仅为 Windows PTY 集成测试；生产页面、MCP 表单、Tools、Packs 与新 Chrome 用例实际执行。Node 24 无文件列表的默认发现会误将 `app/api/models-config/test/route.ts` 当作测试，因此本轮明确使用测试文件列表，没有修改路由或绕过真实测试。
+
+当前工作区 `npm run build`（包含原有编译、typecheck、Next build、npm pack）通过。日志：`/tmp/pivot-b2-full-tests.log`、`/tmp/pivot-b2-build.log`。用户验收与自动化证据分别记录；本轮自动化不证明真实第三方账户、Windows PTY／ACL 或生产部署。未改用户认证数据、推送、发布、修改版本或控制现有服务。

@@ -43,7 +43,7 @@ export async function verifyNativeMcpEditor(client, cwd) {
   const overridden = (await snapshot("project")).servers.find(s => s.serverKey === "browser_form");
   assert.deepEqual(overridden.workspaceDefinition, { enabled: false });
   assert.equal(overridden.editScope, "global", "sparse overrides keep connection editing global");
-  await client.evaluate('window.confirm = () => true; document.querySelector(".tools-detail-heading button:last-of-type").click()');
+  await client.evaluate('window.confirm = () => true; document.querySelector(".tools-badge-remove").click()');
   await waitFor(async () => (await snapshot("project")).servers.find(s => s.serverKey === "browser_form").inherited);
   await client.evaluate('document.querySelector(".tools-list-footer button").click()');
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('input[pattern]').disabled`));
@@ -51,26 +51,30 @@ export async function verifyNativeMcpEditor(client, cwd) {
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('input[pattern]').disabled`));
   await input(`${editor}.querySelector('input[pattern]')`, "browser_form");
   await input(`Array.from(${editor}.querySelectorAll('label.tools-field')).find(l => l.textContent === 'Command').querySelector('input')`, "browser-workspace-never-run");
+  // Full workspace connections do not inherit global env; give this fixture its own masked value.
+  await client.evaluate(`(${env}).querySelector('button').click()`);
+  await input(field("env 1 Key"), "TOKEN"); await input(field("env 1 Value"), "browser-workspace-private-secret");
   await client.evaluate(`${editor}.querySelector('button[type=submit]').click()`);
   await waitFor(() => client.evaluate(`!${editor}`));
   await waitFor(() => client.evaluate(`!!(${row})`)); await client.evaluate(`(${row}).click()`);
-  await client.evaluate('document.querySelector(".tools-detail-heading button:first-of-type").click()');
+  await client.evaluate('document.querySelector(".tools-details button[aria-label^=Edit]").click()');
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('button[type=submit]').disabled`));
   assert.equal(await client.evaluate(`${editor}.querySelector('input[pattern]').disabled`), true);
   assert.equal(await client.evaluate(`${editor}.querySelector('.tools-form-grid select').disabled`), false);
-  assert.equal(await client.evaluate(`${editor}.textContent.includes('<redacted:unchanged>')`), true);
+  assert.equal(await client.evaluate(`Array.from(${editor}.querySelectorAll('input, textarea')).some(field => field.value === '<redacted:unchanged>')`), true,
+    JSON.stringify(await client.evaluate(`Array.from(${editor}.querySelectorAll('input')).map(field => ({ label: field.getAttribute('aria-label'), masked: field.value === '<redacted:unchanged>' }))`)));
   assert.equal(await client.evaluate(`${editor}.querySelector('button.danger').textContent`), "Remove override");
   await select(`${editor}.querySelectorAll('.tools-form-grid select')[1]`, "deferred");
   await client.evaluate(`${editor}.querySelector('button[type=submit]').click()`);
   await waitFor(() => client.evaluate(`!${editor}`));
   assert.deepEqual((await snapshot("project")).servers.find(s => s.serverKey === "browser_form").workspaceDefinition,
-    { type: "stdio", enabled: false, command: "browser-workspace-never-run", exposure: "deferred" });
-  await client.evaluate('document.querySelector(".tools-detail-heading button:first-of-type").click()');
+    { type: "stdio", enabled: false, command: "browser-workspace-never-run", env: { TOKEN: "<redacted:unchanged>" }, exposure: "deferred" });
+  await client.evaluate('document.querySelector(".tools-details button[aria-label^=Edit]").click()');
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('button.danger').disabled`));
   await client.evaluate(`window.confirm = () => true; ${editor}.querySelector('button.danger').click()`);
   await waitFor(() => client.evaluate(`!${editor}`));
   assert.equal((await snapshot("project")).servers.find(s => s.serverKey === "browser_form").inherited, true);
-  await client.evaluate('document.querySelector(".tools-detail-heading button:first-of-type").click()');
+  await client.evaluate('document.querySelector(".tools-details button[aria-label^=Edit]").click()');
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('button[type=submit]').disabled`));
   assert.equal(await client.evaluate(`${editor}.querySelector('button[type=submit]').textContent`), "Save");
   assert.equal(await client.evaluate(`${editor}.querySelector('button.danger').textContent`), "Delete");
@@ -80,7 +84,7 @@ export async function verifyNativeMcpEditor(client, cwd) {
   const edited = (await snapshot()).servers.find(s => s.serverKey === "browser_form");
   assert.equal(edited.definition.description, "Browser edited description");
   assert.equal(edited.definition.env.TOKEN, "<redacted:unchanged>");
-  await client.evaluate('document.querySelector(".tools-detail-heading button:first-of-type").click()');
+  await client.evaluate('document.querySelector(".tools-details button[aria-label^=Edit]").click()');
   await waitFor(() => client.evaluate(`${editor} && !${editor}.querySelector('button.danger').disabled`));
   await client.evaluate(`${editor}.querySelector('button.danger').click()`);
   await waitFor(() => client.evaluate(`!${editor}`));

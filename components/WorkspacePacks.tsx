@@ -10,6 +10,7 @@ import type {
 import { useI18n } from "@/lib/i18n";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
+import { confirmWorkspaceTrust, requiresWorkspaceTrust, workspacePackBlockMessages, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
 
 export function WorkspacePacks({
   cwd,
@@ -65,8 +66,8 @@ export function WorkspacePacks({
   const removeTag = async (packId: string) => {
     try {
       const res = await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}&packId=${encodeURIComponent(packId)}&workspaceRevision=${workspaceRevision}`, { method: "DELETE" });
-      const data = (await res.json()) as { error?: string };
-      if (data.error) throw new Error(data.error);
+      const data = (await res.json()) as WorkspacePackErrorResponse;
+      if (!res.ok || data.error) throw new WorkspacePackRequestError({ ...data, error: data.error ?? `HTTP ${res.status}` }, t);
       announceWorkspacePackChange(cwd);
       await load();
       onApplied();
@@ -82,7 +83,7 @@ export function WorkspacePacks({
       body: JSON.stringify({ cwd, packIds }),
     });
     const data = (await res.json()) as ApplyPreviewResponse & { error?: string };
-    if (data.error) throw new Error(data.error);
+    if (!res.ok || data.error) throw new WorkspacePackRequestError({ ...data, error: data.error ?? `HTTP ${res.status}` }, t);
     return data;
   };
 
@@ -92,8 +93,8 @@ export function WorkspacePacks({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd, packIds, workspaceRevision: confirmedPlan.workspaceRevision }),
     });
-    const data = (await res.json()) as { success?: boolean; error?: string };
-    if (data.error) throw new Error(data.error);
+    const data = (await res.json()) as WorkspacePackErrorResponse;
+    if (!res.ok || data.error) throw new WorkspacePackRequestError({ ...data, error: data.error ?? `HTTP ${res.status}` }, t);
   };
 
   const unusedPacks = packs.filter((pack) => !applied.some((item) => item.packId === pack.id));
@@ -132,7 +133,7 @@ export function WorkspacePacks({
         )}
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("packs.workspaceScope")}</span>
       </div>
-      {error && <div style={{ fontSize: 12, color: "#f87171", marginTop: 6 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 12, color: "#f87171", marginTop: 6, whiteSpace: "pre-line" }}>{error}</div>}
 
       {picking && (
         <PackPicker
@@ -145,6 +146,20 @@ export function WorkspacePacks({
             } catch (e) {
               setError(String(e));
               setPreview(null);
+            }
+          }}
+          onTrust={async (ids) => {
+            if (applying) return;
+            setApplying(true);
+            setError(null);
+            try {
+              if (await confirmWorkspaceTrust(cwd, t)) {
+                setPreview(await runPreview([...applied.map((pack) => pack.packId), ...ids]));
+              }
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setApplying(false);
             }
           }}
           onApply={async (ids) => {
@@ -168,11 +183,13 @@ export function WorkspacePacks({
             }
           }}
           onClose={() => {
+            if (applying) return;
             setPicking(false);
             setPreview(null);
           }}
           preview={preview}
           applying={applying}
+          error={error}
         />
       )}
     </div>
@@ -184,17 +201,21 @@ function PackPicker({
   onPreview,
   onSelectionChange,
   onApply,
+  onTrust,
   onClose,
   preview,
   applying,
+  error,
 }: {
   packs: SkillPackInfo[];
   onPreview: (ids: string[]) => void;
   onSelectionChange: () => void;
   onApply: (ids: string[]) => void;
+  onTrust: (ids: string[]) => void;
   onClose: () => void;
   preview: ApplyPreviewResponse | null;
   applying: boolean;
+  error: string | null;
 }) {
   const { t } = useI18n();
   const backdrop = useBackdropDismiss(onClose);
@@ -215,6 +236,7 @@ function PackPicker({
                 <input
                   type="checkbox"
                   checked={checked}
+                  disabled={applying}
                   onChange={(event) => {
                     const next = new Set(selected);
                     if (event.target.checked) next.add(pack.id);
@@ -237,12 +259,13 @@ function PackPicker({
 
         {preview && (
           <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", flexDirection: "column", gap: 6 }}>
-            {!preview.canApply && (
-              <div style={{ color: "#f87171" }}>
-                Cannot apply: {preview.blocked.length > 0 && `${preview.blocked.length} blocked`}{" "}
-                {preview.versionConflicts.length > 0 && `${preview.versionConflicts.length} version conflict(s)`}
-              </div>
-            )}
+            {!preview.canApply && workspacePackBlockMessages(preview, t).map((message) => (
+              <div key={message} style={{ color: "#f87171" }}>{message}</div>
+            ))}
+            {requiresWorkspaceTrust(preview) && <button type="button" disabled={applying} onClick={() => onTrust(Array.from(selected))}
+              style={{ alignSelf: "flex-start", padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", cursor: applying ? "not-allowed" : "pointer" }}>
+              {t("packs.trustWorkspace")}
+            </button>}
             {preview.toInstall.length > 0 && <div>Will install: {preview.toInstall.map((item) => item.skillKey).join(", ")}</div>}
             {preview.skipped.length > 0 && (
               <div style={{ color: "#d97706" }}>
@@ -255,23 +278,20 @@ function PackPicker({
                 {preview.mcp.skipped.length > 0 && ` Will skip MCP: ${preview.mcp.skipped.map((item) => item.serverKey).join(", ")}`}
               </div>
             )}
-            {(preview.mcp.blocked.length > 0 || preview.mcp.versionConflicts.length > 0) && (
-              <div style={{ color: "#f87171" }}>
-                Cannot switch native MCP: {preview.mcp.blocked.length + preview.mcp.versionConflicts.length} conflict(s)
-              </div>
-            )}
           </div>
         )}
+        {error && <div role="alert" style={{ fontSize: 12, color: "#f87171", whiteSpace: "pre-line" }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button
             onClick={onClose}
+            disabled={applying}
             style={{ padding: "6px 12px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}
           >
             {t("general.cancel")}
           </button>
           <button
             onClick={() => onPreview(Array.from(selected))}
-            disabled={selected.size === 0}
+            disabled={selected.size === 0 || applying}
             style={{ padding: "6px 12px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", color: "var(--text)", cursor: selected.size === 0 ? "not-allowed" : "pointer", opacity: selected.size === 0 ? 0.5 : 1, fontSize: 13 }}
           >
             {t("general.preview")}

@@ -4,6 +4,11 @@ type JsonObject = Record<string, unknown>;
 export function isMcpObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+export function hasMcpSecretPlaceholder(value: unknown): boolean {
+  if (value === MCP_SECRET_PLACEHOLDER) return true;
+  if (Array.isArray(value)) return value.some(hasMcpSecretPlaceholder);
+  return isMcpObject(value) && Object.values(value).some(hasMcpSecretPlaceholder);
+}
 function secret(path: string[], value: unknown, parent: unknown): boolean {
   if (typeof value !== "string") return false;
   const key = path.at(-1) ?? "";

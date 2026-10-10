@@ -5,12 +5,13 @@ import { Package, PackagePlus } from "lucide-react";
 import type { AppliedPackInfo, SkillPackInfo, WorkspaceSkillPacksResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
 import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
+import { confirmWorkspaceTrust, requiresWorkspaceTrust, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
 
-type JsonResponse = { error?: string };
+type JsonResponse = WorkspacePackErrorResponse;
 
-async function json<T extends JsonResponse>(response: Response): Promise<T> {
+async function json<T extends JsonResponse>(response: Response, t: ReturnType<typeof useI18n>["t"]): Promise<T> {
   const data = await response.json() as T;
-  if (!response.ok || data.error) throw new Error(data.error ?? `Request failed (${response.status})`);
+  if (!response.ok || data.error) throw new WorkspacePackRequestError({ ...data, error: data.error ?? `Request failed (${response.status})` }, t);
   return data;
 }
 
@@ -25,6 +26,7 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trustPackId, setTrustPackId] = useState<string | null>(null);
   const [packs, setPacks] = useState<SkillPackInfo[]>([]);
   const [applied, setApplied] = useState<AppliedPackInfo[]>([]);
   const [revision, setRevision] = useState(0);
@@ -33,20 +35,21 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     const [ws, list] = await Promise.all([
-      fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`).then((r) => json<WorkspaceSkillPacksResponse & JsonResponse>(r)),
-      fetch("/api/skill-packs").then((r) => json<{ packs: SkillPackInfo[] } & JsonResponse>(r)),
+      fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`).then((r) => json<WorkspaceSkillPacksResponse & JsonResponse>(r, t)),
+      fetch("/api/skill-packs").then((r) => json<{ packs: SkillPackInfo[] } & JsonResponse>(r, t)),
     ]);
     if (generation !== loadGeneration.current) return;
     setApplied(ws.appliedPacks);
     setRevision(ws.revision);
     setPacks(list.packs);
     setSelected(ws.appliedPacks.map((pack) => pack.packId));
-  }, [cwd]);
+  }, [cwd, t]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
+    setTrustPackId(null);
     const generationRef = loadGeneration;
     void load().catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; generationRef.current++; };
@@ -66,27 +69,31 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
     if (disabled) setOpen(false);
   }, [disabled]);
 
-  const toggle = async (packId: string, checked: boolean) => {
+  const toggle = async (packId: string, checked: boolean, confirmTrust = false) => {
     if (disabled || busy || loading) return;
-    setError(null);
-    setSelected((current) => checked ? [...current, packId] : current.filter((id) => id !== packId));
     setBusy(true);
     try {
+      if (confirmTrust && !await confirmWorkspaceTrust(cwd, t)) return;
+      setError(null);
+      setTrustPackId(null);
+      setSelected((current) => checked ? [...current, packId] : current.filter((id) => id !== packId));
       if (checked) {
         await json<JsonResponse>(await fetch("/api/workspace-skill-packs/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cwd, packIds: [...applied.map((item) => item.packId), packId], workspaceRevision: revision }),
-        }));
+        }), t);
       } else {
-        await json<JsonResponse>(await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}&packId=${encodeURIComponent(packId)}&workspaceRevision=${revision}`, { method: "DELETE" }));
+        await json<JsonResponse>(await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}&packId=${encodeURIComponent(packId)}&workspaceRevision=${revision}`, { method: "DELETE" }), t);
       }
       announceWorkspacePackChange(cwd);
       await load();
       onChanged?.();
     } catch (e) {
       setSelected(applied.map((pack) => pack.packId));
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
+      const needsTrust = e instanceof WorkspacePackRequestError ? !!e.plan && requiresWorkspaceTrust(e.plan) : confirmTrust;
+      setTrustPackId(checked && needsTrust ? packId : null);
     } finally { setBusy(false); }
   };
   return (
@@ -110,7 +117,11 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
               <span>{pack.name}<small style={{ display: "block", color: "var(--text-dim)" }}>{pack.skillCount} skills{pack.mcpServerCount > 0 && ` · ${pack.mcpServerCount} MCP`}</small></span>
             </label>
           ))}
-          {error && <div role="alert" style={{ fontSize: 11, color: "#f87171" }}>{error}</div>}
+          {error && <div role="alert" style={{ fontSize: 11, color: "#f87171", whiteSpace: "pre-line" }}>{error}</div>}
+          {trustPackId && <button type="button" disabled={busy || loading} onClick={() => void toggle(trustPackId, true, true)}
+            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-panel)", color: "var(--text)", cursor: busy ? "not-allowed" : "pointer", fontSize: 12 }}>
+            {t("packs.trustWorkspace")}
+          </button>}
         </div>
       )}
     </div>

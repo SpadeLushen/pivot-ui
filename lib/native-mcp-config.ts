@@ -7,16 +7,19 @@ import { nativeProjectTrusted } from "./native-mcp-runtime";
 type ConfigModule = { loadMcpConfig(options: { cwd: string; agentDir: string; projectTrusted: boolean }): LoadedMcpConfig };
 let configModule: ConfigModule | undefined;
 
-function nativeModule<T>(file: string): T {
+export function nativeMcpModulePath(file: string): string {
   const root = resolveDependencyRoot(process.cwd(), "@earendil-works/pi-coding-agent");
   if (!root) throw new Error("Installed pi SDK could not be located");
+  return join(root, "dist", file);
+}
+export function nativeMcpModule<T>(file: string): T {
   const nativeRequire = createRequire(join(process.cwd(), "package.json"));
-  return nativeRequire(join(root, "dist", file)) as T;
+  return nativeRequire(nativeMcpModulePath(file)) as T;
 }
 
 /** Pure SDK validation; never resolve env/credential commands or connect servers. */
 export function validateNativeMcpDefinition(name: string, value: unknown): Record<string, unknown> | string {
-  return nativeModule<{ validateMcpServerConfig(name: string, value: unknown): Record<string, unknown> | string }>("core/mcp-servers.js")
+  return nativeMcpModule<{ validateMcpServerConfig(name: string, value: unknown): Record<string, unknown> | string }>("core/mcp-servers.js")
     .validateMcpServerConfig(name, value);
 }
 /** pi 1.0.3's pure native validator/merge implementation (not exported at the root).
@@ -26,7 +29,7 @@ export function validateNativeMcpDefinition(name: string, value: unknown): Recor
 export async function loadNativeMcpConfig(cwd: string, project = true): Promise<LoadedMcpConfig> {
   if (!configModule) {
     // Native require(esm), not a Turbopack expression import/context lookup.
-    configModule = nativeModule<ConfigModule>("extensions/mcp/config.js");
+    configModule = nativeMcpModule<ConfigModule>("extensions/mcp/config.js");
   }
   const agentDir = getAgentDir();
   const settings = SettingsManager.create(cwd, agentDir);

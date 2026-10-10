@@ -13,6 +13,9 @@ export interface McpFormValues {
   cwd: string;
   url: string;
   headers: MappingRow[];
+  oauth: boolean;
+  oauthSettings: boolean;
+  providerAuth: boolean;
 }
 const string = (value: unknown) => typeof value === "string" ? value : "";
 export function isMcpWorkspaceOverride(scope: string, definition: Record<string, unknown>): boolean {
@@ -37,6 +40,9 @@ export function mcpFormValues(definition: Record<string, unknown>): McpFormValue
     command: string(definition.command), cwd: string(definition.cwd), url: string(definition.url),
     args: Array.isArray(definition.args) ? definition.args.map((value, id) => ({ id, value: string(value), originalIndex: id })) : [],
     env: mapping(definition.env), headers: mapping(definition.headers),
+    oauth: isMcpObject(definition.oauth),
+    oauthSettings: isMcpObject(definition.oauth) && Object.keys(definition.oauth).length > 0,
+    providerAuth: definition.auth !== undefined,
   };
 }
 
@@ -82,6 +88,14 @@ export function buildMcpFormDefinition(original: Record<string, unknown>, initia
   if (changed("type")) {
     next.type = form.type;
     for (const key of form.type === "http" ? ["command", "args", "env", "cwd"] : ["url", "headers"]) delete next[key];
+  }
+  if (form.type === "http" && changed("oauth")) {
+    if (form.oauth) next.oauth = isMcpObject(original.oauth) ? original.oauth : {};
+    else {
+      // This control removes only our empty opt-in marker, never existing client settings.
+      if (isMcpObject(original.oauth) && Object.keys(original.oauth).length) throw new Error("mcp.oauthSettingsPresent");
+      delete next.oauth;
+    }
   }
   return applyConnection(next, form, initial, changed("type"));
 }
