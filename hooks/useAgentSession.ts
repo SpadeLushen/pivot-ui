@@ -13,10 +13,8 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
-import type { ToolEntry } from "@/lib/tool-presets";
 import { clearDraft } from "@/lib/draft-store";
-import { usePreferences } from "@/lib/preferences-context";
-import { prepareWorkspacePacks } from "@/lib/pack-preferences";
+import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import { getSessionDocumentTitle } from "@/lib/background-title";
 import { useTimings } from "@/hooks/useTimings";
@@ -163,7 +161,6 @@ export interface UseAgentSessionOptions {
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsPanelOpen?: () => void;
-  setToolPreset?: (preset: "none" | "default" | "full") => void;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -372,11 +369,13 @@ type SlashCommandsResponse = {
 };
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
-  const { preferences, ready: preferencesReady, updatePreferences } = usePreferences();
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
-    modelsRefreshKey, packsRefreshKey, onPacksChanged, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, packsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
+  const workspaceCwd = session?.cwd ?? newSessionCwd;
+  const workspacePackRevision = useWorkspacePackRevision(workspaceCwd);
+  const previousWorkspacePacks = useRef({ cwd: workspaceCwd, revision: -1 });
 
   const isNew = session === null && newSessionCwd !== null;
 
@@ -401,8 +400,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
-  const [toolPresetReady, setToolPresetReady] = useState(isNew);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -450,16 +447,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionPromotedRef = useRef(false);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const prevPacksRefreshKeyRef = useRef(packsRefreshKey);
-
-  const setToolPresetState = opts.setToolPreset ?? setToolPreset;
-  const preferredToolPreset = preferences["tool-preset"];
-
-  // The tool preset is a Pivot UI preference for brand-new sessions. The
-  // reasoning level comes from Pi's defaultThinkingLevel, loaded with models.
-  useEffect(() => {
-    if (!isNew || !preferencesReady) return;
-    setToolPresetState(preferredToolPreset);
-  }, [isNew, preferredToolPreset, preferencesReady, setToolPresetState]);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -584,19 +571,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const loadTools = useCallback(async (sid: string) => {
-    try {
-      const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
-      if (tools) {
-        const { getPresetFromTools } = await import("@/lib/tool-presets");
-        setToolPresetState(getPresetFromTools(tools));
-        setToolPresetReady(true);
-      }
-    } catch (e) {
-      console.error("Failed to load tools:", e);
-    }
-  }, [setToolPresetState]);
-
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
     if (!isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
@@ -626,7 +600,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
     const promise = (async () => {
-      await prepareWorkspacePacks(newSessionCwd, { inherit: true });
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
       const res = await fetch("/api/agent/new", {
@@ -635,7 +608,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
-          toolPreset,
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
         }),
@@ -653,7 +625,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, toolPreset, thinkingLevel]);
+  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel]);
 
   const loadSlashCommands = useCallback(async () => {
     const sid = sessionIdRef.current ?? await ensureNewSession();
@@ -785,41 +757,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     dispatchNotice({ type: "remove_errors" });
   }, []);
 
-  // Prepare Packs as soon as a workspace's chat opens, including New Session.
-  // Record changes independently of runtime reload (which may be deferred).
-  useEffect(() => {
-    const cwd = session?.cwd ?? newSessionCwd;
-    if (!cwd) return;
-    let cancelled = false;
-    void prepareWorkspacePacks(cwd, { inherit: isNew }).then((result) => {
-      if (!cancelled && result.inherited) onPacksChanged?.();
-    }).catch((e) => {
-      if (!cancelled) addNotice({ type: "error", message: `Failed to prepare workspace Packs: ${String(e)}` });
-    });
-    return () => { cancelled = true; };
-  }, [session?.cwd, newSessionCwd, isNew, packsRefreshKey, onPacksChanged, addNotice]);
-
   const ensurePackSkillsReloaded = useCallback(() => {
     return agentRunRef.current.reloadPacks(async () => {
       const sid = sessionIdRef.current;
       // An unsaved chat without an AgentSession discovers Packs on first send.
       if (!sid) return;
-      await sendAgentCommand(sid, { type: "reload" });
+      await sendAgentCommand(sid, { type: "reload_workspace_packs" });
       await loadSlashCommands();
     });
   }, [loadSlashCommands]);
 
   useEffect(() => {
-    if (prevPacksRefreshKeyRef.current === packsRefreshKey) return;
+    const previous = previousWorkspacePacks.current;
+    const changed = previous.cwd === workspaceCwd && previous.revision >= 0 && workspacePackRevision >= 0
+      && previous.revision !== workspacePackRevision;
+    previousWorkspacePacks.current = { cwd: workspaceCwd, revision: workspacePackRevision };
+    if (prevPacksRefreshKeyRef.current === packsRefreshKey && !changed) return;
     prevPacksRefreshKeyRef.current = packsRefreshKey;
     if (agentRunRef.current.requestPackReload() === "deferred") {
-      addNotice({ type: "info", message: "Pack skills will be available after the current run ends." });
+      addNotice({ type: "info", message: "Workspace Pack changes will take effect after the current run ends." });
       return;
     }
     void ensurePackSkillsReloaded().catch((e) => {
       addNotice({ type: "error", message: `Failed to reload pack skills: ${String(e)}` });
     });
-  }, [packsRefreshKey, agentRunning, addNotice, ensurePackSkillsReloaded]);
+  }, [packsRefreshKey, workspaceCwd, workspacePackRevision, agentRunning, addNotice, ensurePackSkillsReloaded]);
 
   useEffect(() => {
     if (agentRunning || !agentRunRef.current.hasPendingPackReload) return;
@@ -1460,7 +1422,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           await sendAgentCommand(sid, { type: "reload" });
           await Promise.all([
             loadSession(sid, false, true),
-            loadTools(sid),
             loadSlashCommands(),
             loadModels(),
           ]);
@@ -1502,7 +1463,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, dismissErrorNotices, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, dismissErrorNotices, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, promoteNewSession, onSessionStatsPanelOpen]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1637,18 +1598,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, persistNewSessionDefault, addNotice]);
 
-  const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
-    void updatePreferences({ "tool-preset": preset }).catch(() => undefined);
-    setToolPresetState(preset);
-    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
-    try {
-      await sendAgentCommand(sid, { type: "set_tools", preset });
-    } catch (e) {
-      console.error("Failed to set tools:", e);
-    }
-  }, [setToolPresetState, updatePreferences]);
-
   // Load session on mount. Restore a deterministic browser title when
   // switching away from a session whose extension set a custom title. The
   // selected session's runtime may replace this shortly through the extension
@@ -1666,7 +1615,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // The state endpoint does not start idle sessions. Fetching tools does:
         // wait for the actual restored loadout rather than showing the initial
         // full placeholder until this session is opened a second time.
-        void loadTools(session.id);
         if (agentState?.running) {
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
             agentRunRef.current.ensureRunning();
@@ -1763,7 +1711,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, toolPresetReady, thinkingLevel,
+    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -1779,7 +1727,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleToggleQueuedMessage,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleThinkingLevelChange, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId, addNotice,
     // Subscriptions
     handleAgentEventRef,

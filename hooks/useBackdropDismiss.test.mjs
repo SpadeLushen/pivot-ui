@@ -13,7 +13,7 @@ test("backdrop hook records both endpoints in capture phase and closes only on c
   assert.equal(hook.match(/onClose\(\)/g)?.length, 1);
 });
 
-for (const name of ["WorkspaceDialog", "SessionSidebar", "SettingsModal", "SkillPacksModal", "WorkspacePacks", "SkillsConfig", "PluginsConfig", "ModelsConfig", "McpConfig", "ChatWindow"]) {
+for (const name of ["WorkspaceDialog", "SessionSidebar", "SettingsModal", "SkillPacksModal", "WorkspacePacks", "SkillsConfig", "PluginsConfig", "ModelsConfig", "tools/ToolsControls", "ChatWindow"]) {
   test(`${name} uses the shared two-endpoint backdrop handling`, async () => {
     const source = await readFile(new URL(`../components/${name}.tsx`, import.meta.url), "utf8");
     const count = name === "ModelsConfig" ? 2 : 1;

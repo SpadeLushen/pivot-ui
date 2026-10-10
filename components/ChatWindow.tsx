@@ -8,6 +8,7 @@ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { InteractionSurface, InteractionHeader, InteractionChoice } from "./InteractionSurface";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { useChatViewport } from "./useChatViewport";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -195,7 +196,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, toolPresetReady, thinkingLevel,
+    agentRunning, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -208,7 +209,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleToggleQueuedMessage, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onPacksChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -331,9 +332,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onModelChange={handleModelChange}
       isCompacting={isCompacting}
       compactResult={compactResult}
-      toolPreset={toolPreset}
-      toolPresetReady={toolPresetReady}
-      onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
@@ -981,23 +979,8 @@ export function ExtensionDialog({
         background: "rgba(0,0,0,0.18)",
       }}
     >
-      <div
-        className="modal-surface"
-        role="dialog"
-        aria-modal="true"
-        style={{
-          width: "min(560px, 100%)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>extension request</div>
-        </div>
+      <InteractionSurface>
+        <InteractionHeader title={request.title} subtitle="extension request" />
 
         <div style={{ padding: 14 }}>
           {request.method === "confirm" && (
@@ -1006,23 +989,9 @@ export function ExtensionDialog({
           {request.method === "select" && (
             <div style={{ display: "grid", gap: 8 }}>
               {request.options.map((option) => (
-                <button
-                  key={option}
-                  onClick={() => onRespond(request, { value: option })}
-                  style={{
-                    width: "100%",
-                    padding: "9px 10px",
-                    borderRadius: 7,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-panel)",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                  }}
-                >
+                <InteractionChoice key={option} onClick={() => onRespond(request, { value: option })}>
                   {option}
-                </button>
+                </InteractionChoice>
               ))}
             </div>
           )}
@@ -1119,7 +1088,7 @@ export function ExtensionDialog({
             </button>
           ) : null}
         </div>
-      </div>
+      </InteractionSurface>
     </div>
   );
 }
@@ -1195,9 +1164,9 @@ function ExtensionCustomPanel({
         background: "rgba(0,0,0,0.18)",
       }}
     >
-      <div
+      <InteractionSurface
         ref={panelRef}
-        className="modal-surface"
+        className="extension-custom-surface"
         tabIndex={0}
         role="dialog"
         aria-modal="true"
@@ -1257,7 +1226,7 @@ function ExtensionCustomPanel({
             </Fragment>
           ))}
         </pre>
-      </div>
+      </InteractionSurface>
     </div>
   );
 }

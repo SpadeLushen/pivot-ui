@@ -35,14 +35,14 @@ Pivot UI 是 [agegr/pi-web](https://github.com/agegr/pi-web) 的独立维护 For
 - **Worktree**：从工作区切换器创建、切换和删除 Git Worktree；关联 Worktree 的会话仍会归到同一个项目下。
 - **项目终端**：为当前项目打开可持续使用的终端标签，带命令历史和收藏，在工作区内切换时仍可继续使用。
 - **模型和认证**：选择已配置模型，在界面中管理 API key、OAuth/设备码登录，并测试模型连接。
-- **Skills、插件和 MCP**：搜索和安装 Skills，管理包插件，把可复用 Skill 与 MCP server 存入库，并在写入前预览带版本快照的 Skill Pack 变更。
+- **Skills、Plugins 和 Tools**：搜索和安装 Skills，管理包插件，通过 Tools 管理原生 MCP、内建／扩展工具的开关和 exposure，以及工作区 Packs。
 - **舒适阅读**：可在浅色、深色和护眼主题之间切换。
 
 ## 使用 Skill Packs 复用配置
 
-Skill Pack 将可复用的 Skill 快照与 MCP server 定义组合起来，让一套经过验证的 Agent 配置可以应用到另一个工作区。在共享库中创建 Pack，先预览工作区的准确变更，再确认应用。
+Packs 是工作空间级的启停开关，同一目录的所有会话共享状态。组合 Skill 快照与已配置的原生 MCP 服务器引用；停用保留文件和定义，新工作空间不继承其他目录的 Packs。
 
-每个 Pack 都会记录所引用 Skill 和 server 的版本。Pivot UI 会在修改工作区前阻止缺失、过期或冲突的引用，并保护不属于它管理的 MCP 条目。Pack 变更后，空闲会话会重新加载可用 Skills；正在运行的会话会在当前任务结束后重新加载。
+Skill 引用记录内容哈希；原生 MCP 引用使用已配置的服务器名称。Pivot UI 会在修改工作区前阻止缺失、过期或冲突的 Skill 引用及缺失的原生服务器，并保护不属于它管理的 MCP 条目。Pack 变更后，空闲会话会重新加载可用 Skills；正在运行的会话会在当前任务结束后重新加载。
 
 ![Skill Packs](./docs/image/skill_packs.png)
 
@@ -58,6 +58,14 @@ Pivot UI 在窄屏上会调整工作方式，而不只是缩小界面。
 <!-- 配图位置：在这里加入手机聊天或终端图，例如 `docs/images/mobile-terminal.png`，建议 9:16。 -->
 ![Pi Web mobile1 ](docs/image/mobile1.jpg)
 ![Pi Web mobile2 ](docs/image/mobile2.jpg)
+## Breaking change：仅支持原生 MCP
+
+MCP 改用 pi 原生支持，不再支持 `pi-mcp-adapter` 配置。**不提供自动或手动迁移、导入或 Library 补全功能。** 现有配置、凭据、Library 数据、旧迁移标记和备份保持不变。
+
+请自行按 pi 原生格式配置 `~/.pi/agent/mcp.json`（或 `<agentDir>/mcp.json`）及受信任项目的 `<cwd>/.pi/mcp.json`。不会导入旧 `.mcp.json` 或 adapter 专用文件。请自行在 Plugins 停用接管 `/mcp` 的扩展；仍保留 SDK 替代诊断。
+
+**Tools** 包含 MCP 和工具标签页。MCP 保留工作区列表／详情布局，添加／编辑改为弹框；新增默认全局且禁用，可设置全局默认状态及工作区开关。第三方扩展替代原生 MCP 时，仅显示提示。内建／扩展工具的开关及 exposure 保存在 `.pi/pivot-tools.json`，同目录会话共享，禁用也阻止 codemode 间接调用。保存后在会话空闲边界应用，不改变进行中的任务。MCP 写入仍检查配置版本并保留脱敏凭据；旧 Library/adapter 写操作仍不可用（501），Pack 管理的开关继续受保护，不导入或部署定义。此改动不自动修改版本或发布。
+
 ## 快速开始
 
 正常使用请启动生产服务。`npm run dev` 仅用于修改 Pivot UI；它会按需编译路由，重启后的首次访问较慢。

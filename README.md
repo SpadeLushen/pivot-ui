@@ -33,14 +33,14 @@ Pivot UI is an independently maintained fork of [agegr/pi-web](https://github.co
 - **Worktrees**: create, switch, and remove Git worktrees from the workspace switcher. Sessions from linked worktrees stay grouped with their parent project.
 - **Project terminals**: open persistent terminal tabs for the selected project, with command history and favorites. They remain available while you move through the workspace.
 - **Models and authentication**: choose configured models, manage API keys and OAuth/device-code login, and test model connections from the UI.
-- **Skills, plugins, and MCP**: search and install skills, manage package plugins, keep reusable skills and MCP server definitions in a library, and apply versioned Skill Packs to a workspace with a preview before changes are written.
+- **Skills, plugins, and MCP**: search and install skills, manage package plugins, edit global/trusted-workspace native MCP servers, and switch workspace Packs containing Skills and native MCP references.
 - **Comfortable viewing**: switch among light, dark, and eye-comfort themes.
 
 ## Reuse skills with Skill Packs
 
-A Skill Pack combines reusable skill snapshots with MCP server definitions, so a proven agent setup can be applied to another workspace. Build Packs from the shared library, preview the exact workspace changes, then confirm the apply.
+Packs are workspace-level on/off switches shared by all sessions in the same directory. They combine skill snapshots with references to already-configured native MCP servers. Disabling preserves files and definitions; new workspaces do not inherit Packs.
 
-Each Pack records the version of its referenced skills and servers. Pivot UI blocks missing, stale, or conflicting references before changing the workspace, and protects MCP entries it does not own. After a Pack change, idle sessions reload their available skills; active sessions reload when the current run finishes.
+Skill references carry content hashes; native MCP references use already-configured server names. Pivot UI blocks missing, stale, or conflicting skill references and missing native servers before changing the workspace, and protects MCP entries it does not own. After a Pack change, idle sessions reload their available skills; active sessions reload when the current run finishes.
 
 ![Skill Packs](./docs/image/skill_packs.png)
 
@@ -55,6 +55,14 @@ Pivot UI changes its layout rather than only shrinking it on a narrow screen.
 
 ![Pivot UI on mobile](./docs/image/mobile1.jpg)
 ![Pivot UI mobile terminal](./docs/image/mobile2.jpg)
+
+## Breaking change: native MCP only
+
+MCP now uses Pi's native support; `pi-mcp-adapter` configuration is no longer supported. **No automatic or manual migration, import, or Library repair is provided.** Existing configurations, credentials, Library data, old migration markers and backups are left untouched.
+
+Configure servers yourself in `~/.pi/agent/mcp.json` (or `<agentDir>/mcp.json`) and trusted projects' `<cwd>/.pi/mcp.json`, using Pi's native format. Legacy `.mcp.json` and adapter-specific files are not imported. Disable extensions replacing `/mcp` through Plugins yourself; Pi's replacement diagnostics still apply.
+
+**Tools** has MCP and built-in/extension tool tabs. MCP keeps the workspace list/details layout with add/edit dialogs, global scope and disabled state by default, global default controls, and workspace enabled overrides. A third-party replacement hides native MCP management behind a notice. Built-in/extension tool enablement and exposure are shared by same-workspace sessions in `.pi/pivot-tools.json`; disabled tools are also unreachable from codemode. Saved changes apply at idle boundaries without changing active runs. MCP writes remain revision-checked and preserve masked credentials; legacy Library/adapter writes remain unavailable (501). Pack-owned switches stay protected, and Packs never import or deploy definitions. No version change or release is implied.
 
 ## Quick start
 

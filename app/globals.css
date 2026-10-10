@@ -122,6 +122,15 @@ button, input, textarea, select {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* iOS zooms focused form controls below 16px. Cover touch tablets and
+   landscape phones too, without disabling the user's pinch-to-zoom. */
+@media (max-width: 640px), (any-pointer: coarse) {
+  input, textarea, select {
+    /* Override component inline font sizes on mobile/touch devices. */
+    font-size: 16px !important;
+  }
+}
+
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
@@ -3940,6 +3949,21 @@ html.eye .right-panel-launcher-item:not(:disabled):hover {
   .workspace-toolbar > button,
   .workspace-toolbar > div > button {
     height: 44px !important;
+  }
+
+  .mobile-toolbar-actions {
+    display: flex;
+    align-items: stretch;
+    height: 44px;
+    flex-shrink: 0;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-toolbar-actions button {
+    height: 44px !important;
+    min-width: 44px;
+    justify-content: center;
   }
 
   .chat-empty-content {

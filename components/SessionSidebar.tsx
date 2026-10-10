@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, Search, Tag, Trash2, X } from "lucide-react";
+import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, ScrollText, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
 import { formatRelativeTime, sessionTitle } from "@/lib/session-display";
 import { copyText } from "@/lib/clipboard";
@@ -885,9 +885,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
 
         <nav className="sidebar-primary-navigation" aria-label={t("app.settings")}>
           <SidebarNavigationAction label="Skills" disabled={!selectedCwd || !onOpenSkills} onClick={() => onOpenSkills?.()}>
-            <Search size={19} strokeWidth={1.8} aria-hidden="true" />
+            <ScrollText size={19} strokeWidth={1.8} aria-hidden="true" />
           </SidebarNavigationAction>
-          <SidebarNavigationAction label="MCP" disabled={!selectedCwd || !onOpenMcp} onClick={() => onOpenMcp?.()}>
+          <SidebarNavigationAction label={t("tools.title")} disabled={!selectedCwd || !onOpenMcp} onClick={() => onOpenMcp?.()}>
             <Network size={19} strokeWidth={1.8} aria-hidden="true" />
           </SidebarNavigationAction>
           <SidebarNavigationAction label="Packs" disabled={!selectedCwd || !onOpenPacks} onClick={() => onOpenPacks?.()}>

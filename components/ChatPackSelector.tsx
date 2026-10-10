@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Package, PackagePlus } from "lucide-react";
 import type { AppliedPackInfo, SkillPackInfo, WorkspaceSkillPacksResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
+import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
 
 type JsonResponse = { error?: string };
 
@@ -18,6 +19,8 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
 }) {
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
+  const loadGeneration = useRef(0);
+  const workspaceRevision = useWorkspacePackRevision(cwd);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -28,10 +31,12 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const [selected, setSelected] = useState<string[]>([]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     const [ws, list] = await Promise.all([
       fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}`).then((r) => json<WorkspaceSkillPacksResponse & JsonResponse>(r)),
       fetch("/api/skill-packs").then((r) => json<{ packs: SkillPackInfo[] } & JsonResponse>(r)),
     ]);
+    if (generation !== loadGeneration.current) return;
     setApplied(ws.appliedPacks);
     setRevision(ws.revision);
     setPacks(list.packs);
@@ -42,9 +47,10 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
     let active = true;
     setLoading(true);
     setError(null);
+    const generationRef = loadGeneration;
     void load().catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [load, refreshKey]);
+    return () => { active = false; generationRef.current++; };
+  }, [load, refreshKey, workspaceRevision]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -75,6 +81,7 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
       } else {
         await json<JsonResponse>(await fetch(`/api/workspace-skill-packs?cwd=${encodeURIComponent(cwd)}&packId=${encodeURIComponent(packId)}&workspaceRevision=${revision}`, { method: "DELETE" }));
       }
+      announceWorkspacePackChange(cwd);
       await load();
       onChanged?.();
     } catch (e) {
@@ -84,17 +91,18 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   };
   return (
     <div ref={rootRef} style={{ position: "relative", marginLeft: 4, minWidth: 0, display: "flex", gap: 6 }}>
-      <button type="button" onClick={() => setOpen((value) => !value)} disabled={disabled} aria-expanded={open && !disabled} title="Select skill packs"
+      <button type="button" onClick={() => setOpen((value) => !value)} disabled={disabled} aria-expanded={open && !disabled} title={t("packs.workspaceSwitches")}
         style={{ display: "flex", alignItems: "center", gap: 4, border: applied.length ? "1px solid var(--border)" : "1px dashed var(--border)", borderRadius: 12, padding: "3px 10px", background: applied.length ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "none", color: applied.length ? "var(--accent)" : "var(--text-muted)", fontSize: 11, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, whiteSpace: "nowrap", maxWidth: isMobile ? 140 : 240, overflow: "hidden" }}>
         {applied.length ? <Package size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : <PackagePlus size={11} aria-hidden="true" style={{ flexShrink: 0 }} />}
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{applied.length ? (isMobile ? `${applied[0].packName || applied[0].packId}${applied.length > 1 ? "…" : ""}` : applied.map((p) => p.packName || p.packId).join(", ")) : "Add Pack"}</span>
+        <span>{applied.length}</span>
       </button>
       {open && !disabled && (
-        <div role="group" aria-label="Skill packs" style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100, width: 290, maxWidth: "calc(100vw - 32px)", maxHeight: "min(380px, 60vh)", overflowY: "auto", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.25)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div role="group" aria-label={t("packs.workspaceSwitches")} style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100, width: 290, maxWidth: "calc(100vw - 32px)", maxHeight: "min(380px, 60vh)", overflowY: "auto", background: "var(--overlay-bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.25)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <strong style={{ fontSize: 12, color: "var(--text)" }}>Packs</strong>
+            <strong style={{ fontSize: 12, color: "var(--text)" }}>{t("packs.workspaceSwitches")}</strong>
             {(loading || busy) && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("general.loading")}</span>}
           </div>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("packs.workspaceScope")}</span>
           {!loading && packs.length === 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>No packs available</span>}
           {packs.map((pack) => (
             <label key={pack.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 5, borderRadius: 6, cursor: busy ? "not-allowed" : "pointer", color: "var(--text)", fontSize: 12 }}>

@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+test("tool preset controls and request state are removed on desktop and mobile", async () => {
+  for (const file of ["./ChatInput.tsx", "./ChatWindow.tsx", "../hooks/useAgentSession.ts"]) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /toolPreset|ToolPreset|toolDropdown|TOOL_PRESET|Change tool preset|tool-preset/);
+  }
+});
+
 test("uses the configured streaming Enter action and keeps Alt+Enter as follow-up", async () => {
   const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 
@@ -20,6 +27,17 @@ test("mobile Enter inserts a newline instead of sending or choosing a suggestion
   assert.ok(keyHandler.indexOf('if (isMobile && e.key === "Enter") return;') < keyHandler.indexOf('if (e.key === "Enter" && !e.shiftKey) {'));
   assert.match(chatInput, /enterKeyHint=\{isMobile \? "enter" : undefined\}/);
   assert.match(chatInput, /onClick=\{handleSend\}/);
+});
+
+test("streaming action buttons stack on mobile and stay side by side on desktop", async () => {
+  const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const actions = chatInput.slice(chatInput.indexOf("{isStreaming ? ("), chatInput.indexOf('className="chat-send-button"'));
+
+  assert.match(actions, /flexDirection: isMobile \? "column" : "row"/);
+  assert.match(actions, /alignItems: isMobile \? "stretch" : "center"/);
+  assert.ok(actions.indexOf('sendQueued("steer")') < actions.indexOf('sendQueued("followup")'));
+  assert.match(actions, /sendQueued\("steer"\)/);
+  assert.match(actions, /sendQueued\("followup"\)/);
 });
 
 test("renders queue mode badges as controls that can switch a queued message", async () => {

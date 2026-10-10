@@ -5,7 +5,7 @@ import { ArrowUp, ExternalLink, Plus, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
-import { WorkspacePacks } from "./WorkspacePacks";
+import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
 import type {
   SkillInfo as Skill,
   SkillSearchResult,
@@ -1008,17 +1008,16 @@ function LibraryTab() {
 export function SkillsConfig({
   cwd,
   onClose,
-  onPacksChanged,
   packsRefreshKey,
 }: {
   cwd: string;
   onClose: () => void;
-  onPacksChanged?: () => void;
   packsRefreshKey?: number;
 }) {
   const backdrop = useBackdropDismiss(onClose);
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const workspaceRevision = useWorkspacePackRevision(cwd);
   const [tab, setTab] = useState<"workspace" | "library" | "acquire">("workspace");
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1058,7 +1057,7 @@ export function SkillsConfig({
     setUpdateStatuses({});
     setUpdateError(null);
     void loadSkills();
-  }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cwd, workspaceRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -1094,7 +1093,7 @@ export function SkillsConfig({
     return () => {
       cancelled = true;
     };
-  }, [cwd, packsRefreshKey]);
+  }, [cwd, packsRefreshKey, workspaceRevision]);
 
   const checkForUpdates = useCallback(
     async (skill?: Skill) => {
@@ -1319,16 +1318,6 @@ export function SkillsConfig({
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {tab === "workspace" && (
             <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <div style={{ padding: "14px 18px 0", flexShrink: 0 }}>
-                <WorkspacePacks
-                  cwd={cwd}
-                  refreshKey={packsRefreshKey}
-                  onApplied={() => {
-                    void loadSkills();
-                    onPacksChanged?.();
-                  }}
-                />
-              </div>
               <div
                 style={{
                   flex: 1,
@@ -1336,7 +1325,7 @@ export function SkillsConfig({
                   display: "flex",
                   flexDirection: isMobile ? "column" : "row",
                   overflow: "hidden",
-                  padding: "0 18px 14px",
+                  padding: "14px 18px",
                 }}
               >
                 {/* Left: skill list */}

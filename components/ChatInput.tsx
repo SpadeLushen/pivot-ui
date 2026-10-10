@@ -14,7 +14,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 import { ChatPackSelector } from "./ChatPackSelector";
-import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, Wrench, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, X } from "lucide-react";
 
 export interface Props {
   onSend: (message: string, attachments?: ChatAttachment[]) => Promise<boolean> | boolean | void;
@@ -30,9 +30,6 @@ export interface Props {
   onModelChange?: (provider: string, modelId: string) => void;
   isCompacting?: boolean;
   compactResult?: CompactResultInfo | null;
-  toolPreset?: "none" | "default" | "full";
-  toolPresetReady?: boolean;
-  onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
@@ -79,8 +76,6 @@ export interface ChatInputHandle {
   addImages: (files: File[]) => void;
 }
 
-const TOOL_PRESETS = ["off", "default", "full"] as const;
-const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -224,7 +219,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
-  isCompacting, compactResult, toolPreset, toolPresetReady = true, onToolPresetChange,
+  isCompacting, compactResult,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -243,7 +238,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>(() => (
@@ -262,7 +256,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
-  const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1007,9 +1000,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
   })();
-  const toolPresetLabel = toolPresetReady
-    ? Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "full"))?.[0] ?? "full"
-    : "…";
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1019,9 +1009,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         modelDropdownPanelRef.current && !modelDropdownPanelRef.current.contains(e.target as Node)
       ) {
         setModelDropdownOpen(false);
-      }
-      if (toolDropdownRef.current && !toolDropdownRef.current.contains(e.target as Node)) {
-        setToolDropdownOpen(false);
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
@@ -1041,7 +1028,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     if (isStreaming) {
       setThinkingDropdownOpen(false);
-      setToolDropdownOpen(false);
     }
   }, [isStreaming]);
 
@@ -1603,7 +1589,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           />
 
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            <div style={{
+              display: "flex",
+              flexDirection: isMobile ? "column" : "row",
+              alignItems: isMobile ? "stretch" : "center",
+              gap: 6,
+              flexShrink: 0,
+              alignSelf: "flex-end",
+            }}>
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
@@ -1714,7 +1707,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <Paperclip size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
 
-            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} disabled={isStreaming} />}
+            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
 
             {/* Model selector — visible always, disabled during streaming */}
             {modelOptions.length > 0 && currentName && onModelChange && (
@@ -1987,81 +1980,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => !isStreaming && toolPresetReady && setToolDropdownOpen((v) => !v)}
-                  disabled={isStreaming || !toolPresetReady}
-                  title={toolPresetReady ? `Change tool preset: ${toolPresetLabel}` : "Loading tool preset"}
-                  aria-label="Change tool preset"
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
-                    width: isMobile ? "auto" : undefined,
-                    height: 32,
-                    background: toolDropdownOpen ? "var(--bg-hover)" : "none",
-                    border: "none",
-                    borderRadius: 9,
-                    color: "var(--text-muted)",
-                    cursor: isStreaming || !toolPresetReady ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    opacity: isStreaming || !toolPresetReady ? 0.5 : 1,
-                    transition: "background 0.12s, color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isStreaming || !toolPresetReady) return;
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = toolDropdownOpen ? "var(--bg-hover)" : "none";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                  }}
-                >
-                  <Wrench size={11} strokeWidth={2} aria-hidden="true" />
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
-                </button>
-                {toolDropdownOpen && !isStreaming && toolPresetReady && (
-                  <div className="overlay-surface" style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden", minWidth: 120,
-                  }}>
-                    {TOOL_PRESETS.map((lvl) => {
-                      const preset = TOOL_PRESET_MAP[lvl];
-                      const isActive = (toolPreset ?? "full") === preset;
-                      const desc = lvl === "off" ? "No tools, read-only" : lvl === "default" ? "4 built-in tools" : "All built-in tools";
-                      return (
-                        <button
-                          key={lvl}
-                          onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive
-                            ? <Check size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0 }} />
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
-                          <span style={{ flex: 1 }}>{lvl}</span>
-                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
             {isStreaming && (
               <button
                 onClick={onAbort}
@@ -2141,7 +2059,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   aria-label="Collapse controls"
                   aria-expanded={true}
                   onClick={() => {
-                    setToolDropdownOpen(false);
                     setThinkingDropdownOpen(false);
                     setControlsMenuOpen(false);
                   }}

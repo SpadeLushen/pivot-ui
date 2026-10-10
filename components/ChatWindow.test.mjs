@@ -45,17 +45,16 @@ test("waits for a pending pack reload before sending", async () => {
   assert.match(handleSend, /await ensurePackSkillsReloaded\(\);/);
 });
 
-test("prepares workspace Packs on open and refreshes badges without spawning an agent", async () => {
+test("uses workspace revision refresh without inheriting or preparing session Packs", async () => {
   const [appShell, chatWindow, hook] = await Promise.all([
     readFile(new URL("./AppShell.tsx", import.meta.url), "utf8"),
     readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"),
     readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(hook, /const cwd = session\?\.cwd \?\? newSessionCwd/);
-  assert.match(hook, /prepareWorkspacePacks\(cwd, \{ inherit: isNew \}\)/);
-  assert.match(hook, /!cancelled && result\.inherited\) onPacksChanged\?\.\(\)/);
-  assert.match(hook, /\[session\?\.cwd, newSessionCwd, isNew, packsRefreshKey, onPacksChanged, addNotice\]/);
-  assert.match(hook, /await prepareWorkspacePacks\(newSessionCwd, \{ inherit: true \}\)/);
+  assert.match(hook, /useWorkspacePackRevision\(workspaceCwd\)/);
+  assert.match(hook, /previousWorkspacePacks\.current/);
+  assert.match(hook, /type: "reload_workspace_packs"/);
+  assert.doesNotMatch(hook, /prepareWorkspacePacks|pack-preferences|inheritLastSession/);
   assert.match(chatWindow, /packsRefreshKey, onPacksChanged, chatInputRef/);
   assert.match(appShell, /onPacksChanged=\{handlePacksChanged\}/);
   const reload = hook.slice(hook.indexOf("const ensurePackSkillsReloaded"), hook.indexOf("if (prevPacksRefreshKeyRef.current"));
@@ -114,7 +113,8 @@ test("uses a pack checkbox dropdown in both new and existing chats", async () =>
   assert.match(chatWindow, /onPacksChanged=\{onPacksChanged\}/);
   assert.match(selector, /packs\.map\(\(pack\) =>/);
   assert.match(selector, /type="checkbox" checked=\{selected\.includes\(pack\.id\)\}/);
-  assert.match(selector, /isMobile \? `\$\{applied\[0\]/);
+  assert.match(selector, /<span>\{applied\.length\}<\/span>/);
+  assert.match(selector, /title=\{t\("packs\.workspaceSwitches"\)\}/);
   assert.match(selector, /applied\.length \? <Package size=\{11\}/);
   assert.match(selector, /background: applied\.length \? "color-mix\(in srgb, var\(--accent\) 12%, transparent\)"/);
   assert.match(selector, /onChange=\{\(e\) => void toggle\(pack\.id, e\.target\.checked\)\}/);

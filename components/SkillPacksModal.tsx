@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import type {
   LibrarySkillInfo,
   LibraryMcpServerInfo,
+  NativeMcpServerInfo,
   SkillPackInfo,
 } from "@/lib/api-types";
 
@@ -17,19 +18,21 @@ interface PackDetail {
   description: string;
   skills: LibrarySkillInfo[];
   mcpServers: LibraryMcpServerInfo[];
+  nativeMcpServers?: string[];
 }
 
 interface PackForm {
   name: string;
   description: string;
   skills: { skillKey: string; contentHash: string }[];
-  mcpServers: { serverKey: string; configHash: string }[];
+  nativeMcpServers: string[];
 }
 
 export function SkillPacksModal({
-  onClose,
+  onClose, cwd,
 }: {
   onClose: () => void;
+  cwd?: string;
 }) {
   const backdrop = useBackdropDismiss(onClose);
   const isMobile = useIsMobile();
@@ -38,7 +41,7 @@ export function SkillPacksModal({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PackDetail | null>(null);
   const [librarySkills, setLibrarySkills] = useState<LibrarySkillInfo[]>([]);
-  const [libraryMcpServers, setLibraryMcpServers] = useState<LibraryMcpServerInfo[]>([]);
+  const [libraryMcpServers, setLibraryMcpServers] = useState<NativeMcpServerInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,9 +49,10 @@ export function SkillPacksModal({
     setLoading(true);
     setError(null);
     try {
-      const [packsRes, libRes] = await Promise.all([
+      const [packsRes, libRes, nativeRes] = await Promise.all([
         fetch("/api/skill-packs"),
-        fetch("/api/skill-library"),
+        fetch("/api/skill-library?skillsOnly=1"),
+        fetch(`/api/mcp/native-servers${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`),
       ]);
       const packsData = (await packsRes.json()) as { packs?: SkillPackInfo[]; error?: string };
       const libData = (await libRes.json()) as { libraryRoot?: string | null; skills?: LibrarySkillInfo[]; mcpServers?: LibraryMcpServerInfo[]; error?: string };
@@ -56,7 +60,9 @@ export function SkillPacksModal({
       if (libData.error) throw new Error(libData.error);
       setPacks(packsData.packs ?? []);
       setLibrarySkills(libData.skills ?? []);
-      setLibraryMcpServers(libData.mcpServers ?? []);
+      const native = await nativeRes.json() as { servers?: NativeMcpServerInfo[]; error?: string };
+      if (!nativeRes.ok || native.error) throw new Error(native.error ?? "Unable to read native MCP servers");
+      setLibraryMcpServers(native.servers ?? []);
       if ((packsData.packs ?? []).length > 0 && !selectedId) {
         setSelectedId(packsData.packs![0].id);
       }
@@ -65,7 +71,7 @@ export function SkillPacksModal({
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, [selectedId, cwd]);
 
   const loadDetail = useCallback(async (id: string) => {
     if (!id) return;
@@ -126,7 +132,7 @@ export function SkillPacksModal({
       setPacks((prev) =>
         prev.map((p) =>
           p.id === selectedId
-            ? { ...p, name: form.name, description: form.description, skillCount: form.skills.length, mcpServerCount: form.mcpServers.length }
+            ? { ...p, name: form.name, description: form.description, skillCount: form.skills.length, mcpServerCount: form.nativeMcpServers.length }
             : p,
         ),
       );
@@ -220,7 +226,7 @@ function ManageTab({
 }: {
   packs: SkillPackInfo[];
   librarySkills: LibrarySkillInfo[];
-  libraryMcpServers: LibraryMcpServerInfo[];
+  libraryMcpServers: NativeMcpServerInfo[];
   selectedId: string | null;
   detail: PackDetail | null;
   loading: boolean;
@@ -331,7 +337,7 @@ function PackEditor({
 }: {
   detail: PackDetail;
   librarySkills: LibrarySkillInfo[];
-  libraryMcpServers: LibraryMcpServerInfo[];
+  libraryMcpServers: NativeMcpServerInfo[];
   saving: boolean;
   onSave: (form: PackForm) => void;
   onDelete: () => void;
@@ -342,15 +348,15 @@ function PackEditor({
   const [skills, setSkills] = useState<{ skillKey: string; contentHash: string }[]>(
     detail.skills.map((s) => ({ skillKey: s.skillKey, contentHash: s.contentHash })),
   );
-  const [mcpServers, setMcpServers] = useState<{ serverKey: string; configHash: string }[]>(
-    detail.mcpServers.map((server) => ({ serverKey: server.serverKey, configHash: server.configHash })),
+  const [mcpServers, setMcpServers] = useState<{ serverKey: string }[]>(
+    (detail.nativeMcpServers ?? []).map((serverKey) => ({ serverKey })),
   );
 
   useEffect(() => {
     setName(detail.name);
     setDescription(detail.description);
     setSkills(detail.skills.map((s) => ({ skillKey: s.skillKey, contentHash: s.contentHash })));
-    setMcpServers(detail.mcpServers.map((server) => ({ serverKey: server.serverKey, configHash: server.configHash })));
+    setMcpServers((detail.nativeMcpServers ?? []).map((serverKey) => ({ serverKey })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.id]);
 
@@ -425,7 +431,7 @@ function PackEditor({
 
       <section className="skill-pack-section">
         <div className="skill-pack-section-heading">
-          <span>{t("packs.mcpServers")}</span>
+          <span>{t("packs.nativeMcpServers")}</span>
           <LibraryPicker
             compact
             items={availableMcpServers}
@@ -433,10 +439,12 @@ function PackEditor({
             label={t("packs.addMcpServer")}
             emptyLabel={t("packs.noAvailableMcpServers")}
             disabled={saving}
-            onPick={(server) => setMcpServers((current) => [...current, { serverKey: server.serverKey, configHash: server.configHash }])}
+            onPick={(server) => setMcpServers((current) => [...current, { serverKey: server.serverKey }])}
           />
           <span className="skill-pack-count">{mcpServers.length}</span>
         </div>
+        <p className="skill-pack-empty">{t("packs.nativeReferencesOnly")}</p>
+        {detail.mcpServers.length > 0 && <p className="skill-pack-empty">{t("packs.legacyReferences")}</p>}
         {mcpServers.length === 0 ? (
           <p className="skill-pack-empty">{t("packs.noMcpServers")}</p>
         ) : (
@@ -461,7 +469,7 @@ function PackEditor({
         <button
           type="button"
           className="skill-pack-save"
-          onClick={() => onSave({ name, description, skills, mcpServers })}
+          onClick={() => onSave({ name, description, skills, nativeMcpServers: mcpServers.map((server) => server.serverKey) })}
           disabled={saving || !name.trim()}
         >
           {saving ? t("general.saving") : t("general.save")}

@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Menu, Minimize2, Moon, PanelLeftClose, RotateCcw, Square, Sun } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, Eye, FileText, Gauge, History, Info, Layers2, Menu, Moon, PanelLeftClose, RotateCcw, Square, Sun } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow, type CompactionControls } from "./ChatWindow";
 import { SettingsModal } from "./SettingsModal";
 import { SkillsConfig } from "./SkillsConfig";
-import { McpConfig } from "./McpConfig";
+import { ToolsConfig } from "./McpConfig";
 import { SkillPacksModal } from "./SkillPacksModal";
 import { PluginsConfig } from "./PluginsConfig";
 import { BranchNavigator } from "./BranchNavigator";
@@ -76,14 +76,14 @@ function ExtensionStatusBar({
     };
   }, [statuses, isMobile]);
 
-  if (statuses.length === 0) return null;
+  if (statuses.length === 0 && !isMobile) return null;
 
-  const summary = statuses.map((status) => `${status.key}: ${status.text}`).join(" · ");
-  const showExpandButton = hasOverflow || open;
+  const summary = statuses.map((status) => `${status.key}\n${status.text}`).join("\n\n") || t("app.expandExtensionStatuses");
+  const showExpandButton = isMobile || hasOverflow || open;
   const tags = statuses.map((status) => (
     <span
       key={status.key}
-      title={`${status.key}: ${status.text}`}
+      title={`${status.key}\n${status.text}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -98,7 +98,6 @@ function ExtensionStatusBar({
         flexShrink: 0,
       }}
     >
-      <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status.text}</span>
     </span>
   ));
@@ -317,6 +316,17 @@ export function AppShell() {
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "extensions" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const mobileActionsRef = useRef<HTMLDivElement>(null);
+  const [mobileActionsContainer, setMobileActionsContainer] = useState<HTMLDivElement | null>(null);
+  const attachMobileActions = useCallback((element: HTMLDivElement | null) => {
+    mobileActionsRef.current = element;
+    setMobileActionsContainer(element);
+  }, []);
+  // Render the same controls in only one location; keep their handlers and
+  // controlled panel state intact when switching from extensions to a tool.
+  const renderToolbarActions = (actions: ReactNode) => isMobile
+    ? mobileActionsContainer && createPortal(actions, mobileActionsContainer)
+    : actions;
 
   const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "extensions") => {
     if (isMobile) setSidebarOpen(false);
@@ -749,6 +759,7 @@ export function AppShell() {
           >
             {sidebarOpen ? <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" /> : <Menu size={18} strokeWidth={1.8} aria-hidden="true" />}
           </button>
+          {renderToolbarActions(<>
           <button
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
@@ -768,7 +779,7 @@ export function AppShell() {
             {theme === "light" ? <Moon size={16} strokeWidth={1.8} aria-hidden="true" /> : theme === "dark" ? <Eye size={16} strokeWidth={1.8} aria-hidden="true" /> : <Sun size={16} strokeWidth={1.8} aria-hidden="true" />}
           </button>
           {showChat && (
-            <div style={{ display: "flex", alignItems: "stretch", height: "100%", flex: "1 1 auto", minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "stretch", height: "100%", flex: "0 0 auto", minWidth: 0 }}>
               <button
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
@@ -811,7 +822,7 @@ export function AppShell() {
                 onLeafChange={handleBranchLeafChange}
                 inline
                 compact={isMobile}
-                containerRef={topBarRef}
+                containerRef={isMobile ? mobileActionsRef : topBarRef}
                 open={activeTopPanel === "branches"}
                 onToggle={() => toggleTopPanel("branches")}
                 hasSession={Boolean(selectedSession)}
@@ -886,18 +897,19 @@ export function AppShell() {
                 {compactionState.isCompacting ? (
                   <><Square size={10} fill="currentColor" aria-hidden="true" />{!isMobile && <span>{t("chat.compacting")}</span>}</>
                 ) : (
-                  <><Minimize2 size={11} strokeWidth={2} aria-hidden="true" />{!isMobile && <span>{t("chat.compact")}</span>}</>
+                  <><Layers2 size={11} strokeWidth={2} aria-hidden="true" />{!isMobile && <span>{t("chat.compact")}</span>}</>
                 )}
               </button>
-              {showChat && extensionStatuses.length > 0 && (
-                <ExtensionStatusBar
-                  statuses={extensionStatuses}
-                  isMobile={isMobile}
-                  open={activeTopPanel === "extensions"}
-                  onToggle={() => toggleTopPanel("extensions")}
-                />
-              )}
             </div>
+          )}
+          </>)}
+          {(isMobile || (showChat && extensionStatuses.length > 0)) && (
+            <ExtensionStatusBar
+              statuses={extensionStatuses}
+              isMobile={isMobile}
+              open={activeTopPanel === "extensions"}
+              onToggle={() => toggleTopPanel("extensions")}
+            />
           )}
           {/* Session stats — right-aligned in top bar */}
           {showChat && (sessionStats || contextUsage) && (() => {
@@ -1002,6 +1014,13 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
+              {isMobile && (
+                <div
+                  ref={attachMobileActions}
+                  className="mobile-toolbar-actions"
+                  aria-label={t("app.expandExtensionStatuses")}
+                />
+              )}
               {activeTopPanel === "extensions" && extensionStatuses.length > 0 && (
                 <div style={{
                   background: "var(--bg-panel)",
@@ -1298,15 +1317,12 @@ export function AppShell() {
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
         onClose={() => setSkillsConfigOpen(false)}
-        onPacksChanged={handlePacksChanged}
         packsRefreshKey={packsRefreshKey}
       />
     )}
-    {mcpConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <McpConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setMcpConfigOpen(false)} />
-    )}
+    {mcpConfigOpen && <ToolsConfig cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? ""} sessionId={selectedSession?.id} onClose={() => setMcpConfigOpen(false)} />}
     {packsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <SkillPacksModal onClose={() => setPacksConfigOpen(false)} />
+      <SkillPacksModal cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? undefined} onClose={() => setPacksConfigOpen(false)} />
     )}
     {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <PluginsConfig
