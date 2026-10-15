@@ -15,6 +15,8 @@ import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session
 import { useI18n } from "@/lib/i18n";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 import { ChatPackSelector } from "./ChatPackSelector";
+import { ModelCatalogRefreshNotice } from "./ModelCatalogRefreshNotice";
+import type { ModelCatalogRefreshStatus } from "@/lib/model-refresh-types";
 import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, X } from "lucide-react";
 
 export interface Props {
@@ -32,6 +34,11 @@ export interface Props {
   modelNames?: Record<string, string>;
   modelList?: ModelPickerEntry[];
   onModelChange?: (provider: string, modelId: string) => void;
+  onRefreshModels?: (force?: boolean) => Promise<boolean>;
+  modelsRefreshing?: boolean;
+  modelsRefreshError?: string | null;
+  modelCatalogError?: string | null;
+  openRouterCatalog?: ModelCatalogRefreshStatus | null;
   isCompacting?: boolean;
   compactResult?: CompactResultInfo | null;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -242,6 +249,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
+  onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -260,6 +268,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const hasOpenRouterCatalog = !!openRouterCatalog;
+  useEffect(() => {
+    if (modelDropdownOpen && hasOpenRouterCatalog) void onRefreshModels?.(false);
+  }, [modelDropdownOpen, hasOpenRouterCatalog, onRefreshModels]);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>(() => (
@@ -1785,7 +1797,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
 
             {/* Model selector — visible always, disabled during streaming */}
-            {modelOptions.length > 0 && currentName && onModelChange && (
+            {onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
                   <button
                     onClick={(e) => {
@@ -1822,7 +1834,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     }}
                   >
                     <Cpu size={11} strokeWidth={2} aria-hidden="true" />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}{model?.virtual ? ` · ${t("chat.virtualModel")}` : ""}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName || t("models.selectModel")}{model?.virtual ? ` · ${t("chat.virtualModel")}` : ""}</span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -1842,6 +1854,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                       overflow: "hidden", maxHeight: maxH, overflowY: "auto",
                       }}>
+                      {openRouterCatalog && onRefreshModels && <ModelCatalogRefreshNotice
+                        status={openRouterCatalog} refreshing={modelsRefreshing} error={modelsRefreshError}
+                        onRefresh={() => { void onRefreshModels(true); }} />}
+                      {modelCatalogError && <p role="alert" style={{ padding: "8px 12px", maxWidth: 380, whiteSpace: "normal", color: "var(--text-muted)", fontSize: 12 }}>{t(modelCatalogError)}</p>}
+                      {!modelOptions.length && <p style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12 }}>{t("models.noAvailableModels")}</p>}
                       {modelsByProvider.map((group, gi) => (
                         <div key={group.provider}>
                           {(modelsByProvider.length > 1) && (

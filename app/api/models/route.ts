@@ -3,6 +3,7 @@ import { join, resolve } from "path";
 import { getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
+import { modelCatalogRefreshStatus } from "@/lib/model-catalog-refresh";
 import { createPivotAgentSessionServices } from "@/lib/model-runtime";
 import { configuredNonChatRefs, modelIdentity, runtimeCatalog } from "@/lib/model-catalog";
 import { ModelConfigurationError } from "@/lib/typed-model-config";
@@ -81,7 +82,8 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     defaultModel = { provider, modelId };
   }
 
-  return { typedCatalog, catalogUnavailable: !!runtime.getError(), models: Object.fromEntries(nameMap), modelList, defaultModel, defaultThinkingLevel, thinkingLevels, thinkingLevelMaps };
+  return { typedCatalog, catalogUnavailable: !!runtime.getError(),
+    ...(runtime.getError() ? { catalogError: "models.configurationInvalid" } : {}), models: Object.fromEntries(nameMap), modelList, defaultModel, defaultThinkingLevel, thinkingLevels, thinkingLevelMaps };
 }
 
 const EMPTY_MODELS: ModelsData = {
@@ -110,7 +112,11 @@ export async function GET(req: Request) {
   }
 
   try {
-    return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
+    const data = await loadModelsWithCache(cwd, () => loadModels(cwd));
+    return Response.json({ ...data,
+      ...(data.typedCatalog.some((model) => model.provider === "openrouter" && model.configured)
+        ? { openRouterCatalog: modelCatalogRefreshStatus("openrouter", cwd) } : {}),
+    });
   } catch (error) {
     return Response.json({ ...EMPTY_MODELS,
       ...(error instanceof ModelConfigurationError ? { catalogError: error.message } : {}),

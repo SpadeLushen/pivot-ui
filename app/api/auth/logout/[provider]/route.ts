@@ -1,6 +1,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { refreshModelCatalog } from "@/lib/model-catalog-refresh";
 import { deleteStoredCredential } from "@/lib/auth-store";
 import { cancelProviderLogin } from "@/lib/provider-login";
 import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
@@ -21,5 +22,6 @@ export async function POST(
   await deleteStoredCredential(provider, "oauth");
   invalidateModelsCache();
   notifyMcpConfigurationChanged();
+  if (provider === "openrouter") void refreshModelCatalog(provider).catch(() => undefined);
   return Response.json({ ok: true });
 }

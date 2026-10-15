@@ -1,5 +1,6 @@
 import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { PlainTextTheme } from "./plain-text-theme";
+import { normalizeTerminalLine } from "./ansi";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
@@ -152,7 +153,7 @@ function renderStatuslineWidget(content: unknown, theme: Theme): string[] | null
     }
     const lines = (component as ExtensionWidgetComponent).render(EXTENSION_STATUSLINE_RENDER_WIDTH);
     if (!Array.isArray(lines) || !lines.every((line) => typeof line === "string")) return null;
-    return lines as string[];
+    return (lines as string[]).map(normalizeTerminalLine);
   } catch (error) {
     console.error("[pivot-ui] failed to render extension statusline:", error instanceof Error ? error.message : error);
     return null;
@@ -589,8 +590,9 @@ export class AgentSessionWrapper {
           ? command.streamingBehavior : undefined;
         if (command.streamingBehavior != null && !streamingBehavior) throw new Error("Invalid streaming behavior");
         const ownsPrompt = !this.isRunning();
-        // Allow explicit streaming dispatch, not arbitrary concurrent prompts
-        // or a second prompt while the first is still in its input hooks.
+        // pi 1.2 also counts before_agent_start as streaming: explicit steering /
+        // follow-up may queue into that starting run. Ordinary duplicate prompts
+        // and dispatch during earlier input hooks (before SDK busy) still reject.
         if (!ownsPrompt && (!streamingBehavior || !this.inner.isStreaming)) throw new AgentBusyError();
         if (ownsPrompt && this.inner.sessionManager) persistEmptySession(this.inner.sessionManager);
         const requestId = typeof command.requestId === "string" ? command.requestId : undefined;
@@ -1005,7 +1007,7 @@ export class AgentSessionWrapper {
   private emitCustomUiRender(id: string, custom: ActiveCustomUi): void {
     let lines: string[];
     try {
-      lines = custom.component.render(custom.width);
+      lines = custom.component.render(custom.width).map(normalizeTerminalLine);
     } catch (error) {
       lines = [`Extension custom UI render failed: ${error instanceof Error ? error.message : String(error)}`];
     }

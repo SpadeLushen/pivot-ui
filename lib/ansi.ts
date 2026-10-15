@@ -1,8 +1,29 @@
 import type { CSSProperties } from "react";
 
-const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
-const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/;
+// Consume whole control strings before the two-character escape fallback.
+const ANSI_ESCAPE_SOURCE = "\\x1B(?:[\\]_][^\\x07\\x1B]*(?:\\x07|\\x1B\\\\)|[PX^][\\s\\S]*?\\x1B\\\\|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])";
+const ANSI_ESCAPE_RE = new RegExp(ANSI_ESCAPE_SOURCE, "g");
+const ANSI_ESCAPE_AT_START_RE = new RegExp(`^${ANSI_ESCAPE_SOURCE}`);
 const ANSI_SGR_RE = /\x1B\[([0-9;]*)m/g;
+
+/** Web rendering keeps SGR styling, not terminal commands or zero-width APC payloads. */
+export function normalizeTerminalLine(text: string): string {
+  const cursors = text.replaceAll("\x1b_pi:fc\x07", "\x1b[7m")
+    .replaceAll("\x1b_pi:/fc\x07", "\x1b[27m");
+  return cursors.replace(ANSI_ESCAPE_RE, (sequence) => /^\x1B\[[0-9;]*m$/.test(sequence) ? sequence : "");
+}
+const hasDrawnCursor = (line: string) => visibleCharPositions(line).some(position => position.inverse);
+
+function nextInverse(codes: number[], inverse: boolean): boolean {
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    if ((code === 38 || code === 48) && codes[i + 1] === 2) { i += 4; continue; }
+    if ((code === 38 || code === 48) && codes[i + 1] === 5) { i += 2; continue; }
+    if (code === 0 || code === 27) inverse = false;
+    else if (code === 7) inverse = true;
+  }
+  return inverse;
+}
 
 const ANSI_8_COLORS = [
   "#1f2937",
@@ -35,13 +56,15 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_ESCAPE_RE, "");
 }
 
-function visibleCharPositions(text: string): Array<{ start: number; end: number; char: string }> {
-  const positions: Array<{ start: number; end: number; char: string }> = [];
-  let i = 0;
+function visibleCharPositions(text: string): Array<{ start: number; end: number; char: string; inverse: boolean }> {
+  const positions: Array<{ start: number; end: number; char: string; inverse: boolean }> = [];
+  let i = 0, inverse = false;
   while (i < text.length) {
     if (text.charCodeAt(i) === 0x1b) {
       const match = text.slice(i).match(ANSI_ESCAPE_AT_START_RE);
       if (match) {
+        const sgr = /^\x1B\[([0-9;]*)m$/.exec(match[0]);
+        if (sgr) inverse = nextInverse(sgr[1] ? sgr[1].split(";").map(Number) : [0], inverse);
         i += match[0].length;
         continue;
       }
@@ -49,7 +72,7 @@ function visibleCharPositions(text: string): Array<{ start: number; end: number;
     const codePoint = text.codePointAt(i);
     if (codePoint === undefined) break;
     const char = String.fromCodePoint(codePoint);
-    positions.push({ start: i, end: i + char.length, char });
+    positions.push({ start: i, end: i + char.length, char, inverse });
     i += char.length;
   }
   return positions;
@@ -79,7 +102,7 @@ function trimEndVisibleSpaces(text: string): string {
   while (true) {
     const positions = visibleCharPositions(next);
     const last = positions[positions.length - 1];
-    if (!last || last.char.trim() !== "") return next;
+    if (!last || last.inverse || last.char.trim() !== "") return next;
     next = next.slice(0, last.start) + next.slice(last.end);
   }
 }
@@ -89,10 +112,9 @@ export function normalizeCustomPanelLines(lines: string[]): string[] {
   const normalized: string[] = [];
 
   for (const rawLine of lines) {
-    const plain = stripAnsi(rawLine).trimEnd();
+    let line = normalizeTerminalLine(rawLine);
+    const plain = stripAnsi(line).trimEnd();
     if (horizontalFrameLine.test(plain)) continue;
-
-    let line = rawLine;
     const first = firstVisibleChar(line);
     if (first === "│" || first === "┃") {
       line = removeVisibleCharAt(line, 0);
@@ -105,12 +127,14 @@ export function normalizeCustomPanelLines(lines: string[]): string[] {
       line = removeVisibleCharAt(line, rightBorderIndex);
     }
 
+    // An empty editor draws its cursor as a highlighted space. Do not trim it away.
     normalized.push(trimEndVisibleSpaces(line));
   }
 
-  while (normalized.length > 0 && stripAnsi(normalized[0]).trim() === "") normalized.shift();
-  while (normalized.length > 0 && stripAnsi(normalized[normalized.length - 1]).trim() === "") normalized.pop();
-  return normalized.length ? normalized : lines;
+  const empty = (line: string) => !hasDrawnCursor(line) && stripAnsi(line).trim() === "";
+  while (normalized.length > 0 && empty(normalized[0])) normalized.shift();
+  while (normalized.length > 0 && empty(normalized[normalized.length - 1])) normalized.pop();
+  return normalized.length ? normalized : lines.map(normalizeTerminalLine);
 }
 
 export function ansi256Color(index: number): string | undefined {
@@ -184,25 +208,32 @@ function applyAnsiCodes(style: CSSProperties, codes: number[]): CSSProperties {
 }
 
 export function parseAnsiLine(line: string): AnsiSegment[] {
+  line = normalizeTerminalLine(line);
   const segments: AnsiSegment[] = [];
   let style: CSSProperties = {};
+  let inverse = false;
+  const displayStyle = (): CSSProperties => inverse ? {
+    ...style, color: style.backgroundColor ?? "var(--bg)",
+    backgroundColor: style.color ?? "var(--text)",
+  } : style;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   ANSI_SGR_RE.lastIndex = 0;
 
   while ((match = ANSI_SGR_RE.exec(line)) !== null) {
     if (match.index > lastIndex) {
-      segments.push({ text: line.slice(lastIndex, match.index), style });
+      segments.push({ text: line.slice(lastIndex, match.index), style: displayStyle() });
     }
     const codes = match[1]
       ? match[1].split(";").map((part) => Number(part || "0"))
       : [0];
+    inverse = nextInverse(codes, inverse);
     style = applyAnsiCodes(style, codes);
     lastIndex = match.index + match[0].length;
   }
 
   if (lastIndex < line.length) {
-    segments.push({ text: line.slice(lastIndex), style });
+    segments.push({ text: line.slice(lastIndex), style: displayStyle() });
   }
 
   return segments;

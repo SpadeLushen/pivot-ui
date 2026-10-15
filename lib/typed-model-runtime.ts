@@ -85,13 +85,20 @@ export async function installPivotTypedModels(runtime: ModelRuntime, config: Mod
       if (runtime.getRegisteredNativeProvider(name) || runtime.getRegisteredProviderConfig(name)) {
         throw new ModelConfigurationError("A typed model Provider conflicts with an extension; use a separate Provider name");
       }
-      const baseModels = runtime.getAllModels(name);
-      const models = new Map<string, NonNullable<ProviderConfigInput["models"]>[number]>(baseModels.map((model) => [identity(model), { ...model }]));
-      for (const model of provider.models ?? []) {
-        if (model.type !== "classifier" && model.type !== "image") continue;
-        models.set(identity(model), definition(model, baseModels.find((base) => identity(base) === identity(model))));
-      }
-      pending.push([name, { baseUrl: provider.baseUrl, models: [...models.values()],
+      const source = runtime.getProvider(name);
+      const mergeDefinitions = () => {
+        const baseModels = source?.getAllModels?.() ?? source?.getModels() ?? [];
+        const models = new Map<string, NonNullable<ProviderConfigInput["models"]>[number]>(baseModels.map((model) => [identity(model), { ...model }]));
+        for (const model of provider.models ?? []) {
+          if (model.type !== "classifier" && model.type !== "image") continue;
+          models.set(identity(model), definition(model, baseModels.find((base) => identity(base) === identity(model))));
+        }
+        return [...models.values()];
+      };
+      pending.push([name, { baseUrl: provider.baseUrl, models: mergeDefinitions(),
+        // The captured pre-overlay provider follows the SDK's personalized catalog.
+        // A static copy would reintroduce chat models removed after a key-specific refresh.
+        ...(name === "openrouter" && source ? { refreshModels: async () => mergeDefinitions() } : {}),
         classifiers: {
           "typesafe-system-one": typesafeSystemOneApi(), "openai-decisions": openAIDecisionsApi(),
           "cloudflare-workers-ai-system-one": cloudflareWorkersAISystemOneApi(), "llama-cpp-classify": llamaCppClassifyApi(),

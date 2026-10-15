@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CredentialSynchronizationError, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getOAuthProviders } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { refreshModelCatalog } from "@/lib/model-catalog-refresh";
 import { getAuthStore } from "@/lib/auth-store";
 import { beginProviderLogin, providerLoginDeviceId, providerLoginError } from "@/lib/provider-login";
 import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
@@ -225,12 +226,12 @@ export async function GET(
 
         // Refresh only the provider just authorized (e.g. Radius account catalogs).
         // Catalog failure must not misreport an already saved login as failed.
-        try {
-          const refreshed = await runtime.refresh({ providers: [provider], allowNetwork: true,
-            signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)]) });
-          if (refreshed.errors.size || refreshed.aborted) send(controller, { type: "info", message: "auth.savedReloadFailed" });
-        } catch { send(controller, { type: "info", message: "auth.savedReloadFailed" }); }
         invalidateModelsCache();
+        try {
+          const refreshed = await refreshModelCatalog(provider, { runtime, force: true,
+            signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)]) });
+          if (!refreshed.ok) send(controller, { type: "info", message: "auth.savedReloadFailed" });
+        } catch { send(controller, { type: "info", message: "auth.savedReloadFailed" }); }
         notifyMcpConfigurationChanged();
         send(controller, { type: "success" });
       } catch (err) {

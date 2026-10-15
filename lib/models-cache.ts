@@ -17,6 +17,8 @@ interface ModelsCacheState {
   entries: Map<string, { data: ModelsData; expiresAt: number }>;
   inFlight: Map<string, Promise<ModelsData>>;
   generation: number;
+  catalogGeneration?: number;
+  refreshControllers?: Set<AbortController>;
 }
 
 declare global {
@@ -37,11 +39,27 @@ function getModelsCacheState(): ModelsCacheState {
   return globalThis.__piModelsCacheState;
 }
 
-export function invalidateModelsCache(): void {
+export function modelCatalogGeneration(): number {
+  return getModelsCacheState().catalogGeneration ?? 0;
+}
+
+/** Config/auth edits cancel old publications; snapshot-only refreshes do not. */
+export function invalidateModelsCache(options: { catalogChanged?: boolean } = {}): void {
   const state = getModelsCacheState();
   state.generation += 1;
+  if (options.catalogChanged !== false) {
+    state.catalogGeneration = (state.catalogGeneration ?? 0) + 1;
+    for (const controller of state.refreshControllers ?? []) controller.abort();
+    state.refreshControllers?.clear();
+  }
   state.entries.clear();
   state.inFlight.clear();
+}
+
+export function trackModelCatalogRefresh(controller: AbortController): () => void {
+  const controllers = getModelsCacheState().refreshControllers ??= new Set();
+  controllers.add(controller);
+  return () => { controllers.delete(controller); };
 }
 
 export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsData>): Promise<ModelsData> {
@@ -59,7 +77,9 @@ export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsDat
   const loadPromise: Promise<ModelsData> = Promise.resolve()
     .then(loader)
     .then((data) => {
-      if (state.generation === generation && state.inFlight.get(cwd) === loadPromise) {
+      // A config/auth change during the read must not return an old account's snapshot.
+      if (state.generation !== generation) return loadModelsWithCache(cwd, loader);
+      if (state.inFlight.get(cwd) === loadPromise) {
         const now = Date.now();
         for (const [key, entry] of state.entries) {
           if (entry.expiresAt <= now) state.entries.delete(key);

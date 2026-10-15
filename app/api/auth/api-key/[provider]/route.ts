@@ -4,6 +4,7 @@ import { getAuthStore, deleteStoredCredential } from "@/lib/auth-store";
 import { cancelProviderLogin } from "@/lib/provider-login";
 import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { refreshModelCatalog } from "@/lib/model-catalog-refresh";
 import { modelTypeCounts } from "@/lib/model-catalog";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export async function POST(req: Request, { params }: Params) {
     });
     invalidateModelsCache();
     notifyMcpConfigurationChanged();
+    if (provider === "openrouter") void refreshModelCatalog(provider).catch(() => undefined);
     return NextResponse.json({ success: true });
   } catch (error) {
     const conflict = error instanceof Error && error.message === "auth.replaceOAuth";
@@ -53,6 +55,7 @@ export async function DELETE(_req: Request, { params }: Params) {
     await deleteStoredCredential(provider, "api_key");
     invalidateModelsCache();
     notifyMcpConfigurationChanged();
+    if (provider === "openrouter") void refreshModelCatalog(provider).catch(() => undefined);
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "auth.credentialsWriteFailed" }, { status: 500 });

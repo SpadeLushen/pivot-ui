@@ -33,7 +33,8 @@ export interface ToolInfo {
   description: string;
   sourceInfo: { source: string; path?: string };
   parameters?: unknown;
-  namespace?: { name: string };
+  namespace?: ReturnType<AgentSession["getAllTools"]>[number]["namespace"];
+  reachesTools?: ReturnType<AgentSession["getAllTools"]>[number]["reachesTools"];
   exposure?: "direct" | "model-only" | "codemode" | "deferred" | "hidden";
 }
 

@@ -768,7 +768,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       const data = await response.json() as { ok?: boolean; error?: string };
       if (refreshRequestRef.current !== controller) return;
       if (!response.ok || !data.ok) {
-        const codes = ["refreshInvalidProvider", "refreshUnsupported", "refreshNeedsAuth", "refreshFailed", "refreshCancelled"].map((code) => `models.${code}`);
+        const codes = ["refreshInvalidProvider", "refreshUnsupported", "refreshNeedsAuth", "refreshFailed", "refreshCancelled", "refreshOffline", "configurationInvalid"].map((code) => `models.${code}`);
         setRefreshModelsError(t(codes.includes(data.error ?? "") ? data.error! : "models.refreshFailed"));
       } else onRefresh();
     } catch {
@@ -1525,7 +1525,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <div><ApiKeyDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); }} /><ProviderModelCatalog key={`${p.id}:${p.configured}:${p.storedType}:${catalogRevision}`} providerId={p.id} /></div>;
+      return <div><ApiKeyDetail key={p.id} provider={p} onRefresh={() => { loadOAuthProviders(); loadApiKeyProviders(); setCatalogRevision((revision) => revision + 1); }} /><ProviderModelCatalog key={`${p.id}:${p.configured}:${p.storedType}:${catalogRevision}`} providerId={p.id} /></div>;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];

@@ -25,6 +25,8 @@ import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import { getSessionDocumentTitle } from "@/lib/background-title";
 import { useTimings } from "@/hooks/useTimings";
 import { useSessionStatistics } from "@/hooks/useSessionStatistics";
+import { useModelCatalogRefresh } from "@/hooks/useModelCatalogRefresh";
+import type { ModelCatalogRefreshStatus } from "@/lib/model-refresh-types";
 import type { ChatInputHandle } from "@/components/ChatInput";
 
 export interface SessionData {
@@ -352,6 +354,8 @@ type ModelsResponse = {
   models: Record<string, string>;
   typedCatalog?: TypedModelEntry[];
   catalogUnavailable?: boolean;
+  catalogError?: string;
+  openRouterCatalog?: ModelCatalogRefreshStatus;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
   thinkingLevels?: Record<string, string[]>;
@@ -399,6 +403,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelCatalog, setModelCatalog] = useState<TypedModelEntry[]>([]);
   const [catalogUnavailable, setCatalogUnavailable] = useState(true);
+  const [modelCatalogError, setModelCatalogError] = useState<string | null>(null);
+  const [openRouterCatalog, setOpenRouterCatalog] = useState<ModelCatalogRefreshStatus | null>(null);
+  const modelsReadRevision = useRef(0);
   const [routedModel, setRoutedModel] = useState<RoutedModel | null>(null);
   const contextRequestRevisionRef = useRef(0);
   const [modelCatalogRevision, setModelCatalogRevision] = useState(0);
@@ -1561,13 +1568,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isCompacting, loadSession]);
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
-    setCatalogUnavailable(true);
+    const revision = ++modelsReadRevision.current;
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
     const res = await fetch(modelsUrl, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json() as ModelsResponse;
     signal?.throwIfAborted();
+    if (revision !== modelsReadRevision.current) return;
+    setModelCatalogError(d.catalogError ?? null);
+    setOpenRouterCatalog(d.openRouterCatalog ?? null);
     setModelNames(d.models);
     setModelCatalog(d.typedCatalog ?? []);
     setCatalogUnavailable(d.catalogUnavailable !== false);
@@ -1586,6 +1596,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
     }
   }, [isNew, newSessionCwd, session?.cwd]);
+
+  const { refresh: refreshOpenRouterModels, refreshing: modelsRefreshing, refreshError: modelsRefreshError } =
+    useModelCatalogRefresh("openrouter", workspaceCwd ?? undefined, loadModels);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
@@ -1910,6 +1923,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // State
     data, loading, error, activeLeafId, messages, entryIds, entryTimestamps, streamState,
     agentRunning, inputSending: inputPending, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
+    openRouterCatalog, modelCatalogError, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, selectedModelInfo, routedModel: routedModelInfo, selectionNotice, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
