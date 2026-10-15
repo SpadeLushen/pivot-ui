@@ -80,6 +80,7 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
       case "sound-enabled":
       case "tps-enabled":
       case "cost-enabled":
+      case "fork-hierarchy-enabled":
         if (typeof item !== "boolean") return { error: `Invalid preference: ${key}` };
         patch[key] = item;
         break;

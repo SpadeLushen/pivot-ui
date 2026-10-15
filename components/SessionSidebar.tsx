@@ -12,6 +12,7 @@ import { getWorkspaceDisplayGroups, getWorkspaceProjects } from "@/lib/workspace
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
+import { usePreferences } from "@/lib/preferences-context";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
 import { useWorkspaceRegistry } from "@/hooks/useWorkspaceRegistry";
 import { DEFAULT_WORKSPACE_TAG, getWorkspaceEntries, workspaceName as projectLabel } from "@/lib/workspace-registry";
@@ -321,7 +322,13 @@ interface SessionTreeNode {
   children: SessionTreeNode[];
 }
 
-function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
+function buildSessionTree(sessions: SessionInfo[], showForkHierarchy: boolean): SessionTreeNode[] {
+  if (!showForkHierarchy) {
+    return sessions
+      .map((session) => ({ session, children: [] }))
+      .sort((a, b) => b.session.modified.localeCompare(a.session.modified));
+  }
+
   const byId = new Map<string, SessionTreeNode>();
   for (const s of sessions) {
     byId.set(s.id, { session: s, children: [] });
@@ -471,6 +478,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
 export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const { preferences } = usePreferences();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -924,8 +932,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
     : allSessions;
 
-  // Build parent-child tree within the filtered set
-  const sessionTree = buildSessionTree(filteredSessions);
+  // Only the display changes; retain the recorded Fork relationships.
+  const sessionTree = buildSessionTree(filteredSessions, preferences["fork-hierarchy-enabled"]);
 
   return (
     <>

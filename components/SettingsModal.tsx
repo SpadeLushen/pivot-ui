@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, Cpu, ChartNoAxesCombined, Keyboard, Clock, X } from "lucide-react";
+import { Globe, Cpu, ChartNoAxesCombined, GitFork, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
@@ -33,6 +33,20 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
   const [workspaceParent, setWorkspaceParent] = useState(preferences["default-workspace-parent"]);
   const [parentError, setParentError] = useState("");
   const [savingParent, setSavingParent] = useState(false);
+  const [forkHierarchyError, setForkHierarchyError] = useState(false);
+  const [savingForkHierarchy, setSavingForkHierarchy] = useState(false);
+
+  const saveForkHierarchy = async (enabled: boolean) => {
+    setSavingForkHierarchy(true);
+    setForkHierarchyError(false);
+    try {
+      await updatePreferences({ "fork-hierarchy-enabled": enabled });
+    } catch {
+      setForkHierarchyError(true);
+    } finally {
+      setSavingForkHierarchy(false);
+    }
+  };
   useEffect(() => setWorkspaceParent(preferences["default-workspace-parent"]), [preferences["default-workspace-parent"]]);
 
   const saveWorkspaceParent = async () => {
@@ -270,6 +284,30 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                   </button>
                 </form>
                 {parentError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{parentError}</p>}
+              </section>
+
+              {/* Fork session display (shared server preference) */}
+              <section style={{ marginTop: 32 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                  <GitFork size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.sessionList")}
+                </h3>
+                <p id="settings-fork-hierarchy-description" style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+                  {t("settings.forkHierarchyDescription")}
+                </p>
+                <label htmlFor="settings-fork-hierarchy" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text)", cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    id="settings-fork-hierarchy"
+                    type="checkbox"
+                    checked={preferences["fork-hierarchy-enabled"]}
+                    disabled={savingForkHierarchy}
+                    aria-describedby="settings-fork-hierarchy-description"
+                    onChange={(event) => { void saveForkHierarchy(event.target.checked); }}
+                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("settings.forkHierarchy")}
+                </label>
+                {forkHierarchyError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{t("settings.forkHierarchyError")}</p>}
               </section>
 
               {/* Time format */}

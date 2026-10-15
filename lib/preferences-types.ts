@@ -12,6 +12,7 @@ export interface UserPreferences {
   "sound-enabled": boolean;
   "tps-enabled": boolean;
   "cost-enabled": boolean;
+  "fork-hierarchy-enabled": boolean;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
   "default-workspace-parent": string;
@@ -26,6 +27,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "sound-enabled": false,
   "tps-enabled": false,
   "cost-enabled": true,
+  "fork-hierarchy-enabled": false,
   "enter-behavior": "followUp",
   "time-format": "24",
   "default-workspace-parent": "~/pivot-default-workspaces",
@@ -46,6 +48,9 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "sound-enabled": raw["sound-enabled"] === true,
     "tps-enabled": raw["tps-enabled"] === true,
     "cost-enabled": typeof raw["cost-enabled"] === "boolean" ? raw["cost-enabled"] : DEFAULT_PREFERENCES["cost-enabled"],
+    "fork-hierarchy-enabled": typeof raw["fork-hierarchy-enabled"] === "boolean"
+      ? raw["fork-hierarchy-enabled"]
+      : DEFAULT_PREFERENCES["fork-hierarchy-enabled"],
     "enter-behavior": raw["enter-behavior"] === "steer" ? "steer" : DEFAULT_PREFERENCES["enter-behavior"],
     "time-format": raw["time-format"] === "12" ? "12" : DEFAULT_PREFERENCES["time-format"],
     "default-workspace-parent": typeof raw["default-workspace-parent"] === "string" && raw["default-workspace-parent"].trim()
