@@ -1,14 +1,20 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { computeSkillHash } from "./content-hash";
+import { workspaceFile } from "./workspace-pack-files";
 
 const SKILL_FILE = "SKILL.md";
 
@@ -24,7 +30,7 @@ export interface LibrarySkill {
   name: string;
   /** Description from frontmatter. */
   description: string;
-  /** Absolute skill directory (`<lib>/.pi/skills/<skillKey>`). */
+  /** Absolute skill directory (`<libraryRoot>/.pi/skills/<skillKey>`). */
   baseDir: string;
   /** Absolute path to the SKILL.md file. */
   filePath: string;
@@ -92,20 +98,48 @@ function buildLibrarySkill(
   };
 }
 
-/** List every skill copy under `<libraryRoot>/.pi/skills`, sorted by skillKey. */
+function isWithin(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/** Never follow library links outside the canonical .pi/skills directory. */
+function isLibrarySkillPath(libraryRoot: string, path: string): boolean {
+  return isWithin(realpathSync(path), getLibrarySkillsDir(realpathSync(libraryRoot)));
+}
+
+function librarySkillDirectories(libraryRoot: string): { skillKey: string; baseDir: string }[] {
+  const out: { skillKey: string; baseDir: string }[] = [];
+  const dir = getLibrarySkillsDir(libraryRoot);
+  if (!existsSync(dir) || realpathSync(dir) !== getLibrarySkillsDir(realpathSync(libraryRoot))) return out;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const baseDir = join(dir, entry.name);
+    if (!existsSync(baseDir) || !isLibrarySkillPath(libraryRoot, baseDir)) continue;
+    if (!statSync(baseDir).isDirectory()) continue;
+    out.push({ skillKey: entry.name, baseDir });
+  }
+  return out;
+}
+
+function hasSkillFile(baseDir: string): boolean {
+  const file = join(baseDir, SKILL_FILE);
+  return existsSync(file) && statSync(file).isFile()
+    && isWithin(realpathSync(file), realpathSync(baseDir));
+}
+
+/** List .pi/skills, deduplicated by case-insensitive skillKey. */
 export function scanLibrary(libraryRoot: string, opts: ReadOpts = {}): LibrarySkill[] {
   const hashFn = opts.hashFn ?? computeSkillHash;
-  const dir = getLibrarySkillsDir(libraryRoot);
-  if (!existsSync(dir)) return [];
-  const skills: LibrarySkill[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = join(dir, entry.name);
-    const skillMd = join(skillDir, SKILL_FILE);
-    if (!existsSync(skillMd)) continue;
-    skills.push(buildLibrarySkill(entry.name, skillDir, skillMd, hashFn));
+  const skills = new Map<string, LibrarySkill>();
+  for (const { skillKey, baseDir } of librarySkillDirectories(libraryRoot)) {
+    const key = lowerKey(skillKey);
+    if (skills.has(key) || !hasSkillFile(baseDir)) continue;
+    const resolvedDir = realpathSync(baseDir);
+    skills.set(key, buildLibrarySkill(skillKey, resolvedDir, join(resolvedDir, SKILL_FILE), hashFn));
   }
-  return skills.sort((a, b) => a.skillKey.localeCompare(b.skillKey));
+  return [...skills.values()].sort((a, b) => a.skillKey.localeCompare(b.skillKey));
 }
 
 /** Get a single library skill by skillKey (case-insensitive). */
@@ -115,29 +149,19 @@ export function getLibrarySkill(
   opts: ReadOpts = {},
 ): LibrarySkill | null {
   const hashFn = opts.hashFn ?? computeSkillHash;
-  const dir = getLibrarySkillsDir(libraryRoot);
-  if (!existsSync(dir)) return null;
   const target = lowerKey(skillKey);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && lowerKey(entry.name) === target) {
-      const skillDir = join(dir, entry.name);
-      const skillMd = join(skillDir, SKILL_FILE);
-      if (!existsSync(skillMd)) return null;
-      return buildLibrarySkill(entry.name, skillDir, skillMd, hashFn);
-    }
+  for (const entry of librarySkillDirectories(libraryRoot)) {
+    if (lowerKey(entry.skillKey) !== target || !hasSkillFile(entry.baseDir)) continue;
+    const resolvedDir = realpathSync(entry.baseDir);
+    return buildLibrarySkill(entry.skillKey, resolvedDir, join(resolvedDir, SKILL_FILE), hashFn);
   }
   return null;
 }
 
-/** True when a skillKey already exists in the library (case-insensitive). */
+/** True when a skillKey already exists in the canonical library directory. */
 export function librarySkillExists(libraryRoot: string, skillKey: string): boolean {
-  const dir = getLibrarySkillsDir(libraryRoot);
-  if (!existsSync(dir)) return false;
   const target = lowerKey(skillKey);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && lowerKey(entry.name) === target) return true;
-  }
-  return false;
+  return librarySkillDirectories(libraryRoot).some((entry) => lowerKey(entry.skillKey) === target);
 }
 
 /**
@@ -207,14 +231,28 @@ export function writeLibrarySkill(
   opts: WriteOpts = {},
 ): LibrarySkill {
   const hashFn = opts.hashFn ?? computeSkillHash;
+  if (!skillKey || skillKey.startsWith(".") || /[/\\\\:\x00]/.test(skillKey)) {
+    throw new Error("Invalid library skill key");
+  }
   if (librarySkillExists(libraryRoot, skillKey) && !opts.overwrite) {
     throw new Error(`A skill named "${skillKey}" already exists in the library`);
   }
-  const dest = join(getLibrarySkillsDir(libraryRoot), skillKey);
-  if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
-  cpSync(sourceDir, dest, { recursive: true });
-  const skillMd = join(dest, SKILL_FILE);
-  return buildLibrarySkill(skillKey, dest, skillMd, hashFn);
+  mkdirSync(libraryRoot, { recursive: true });
+  const dest = workspaceFile(libraryRoot, join("skills", skillKey));
+  mkdirSync(dirname(dest), { recursive: true });
+  const tmp = join(dirname(dest), `.skill-import-${randomUUID()}`);
+  try {
+    cpSync(sourceDir, tmp, { recursive: true });
+    const skill = buildLibrarySkill(skillKey, tmp, join(tmp, SKILL_FILE), hashFn);
+    if (existsSync(dest)) {
+      if (!opts.overwrite) throw new Error(`A skill named "${skillKey}" already exists in the library`);
+      rmSync(dest, { recursive: true, force: true });
+    }
+    renameSync(tmp, dest);
+    return { ...skill, baseDir: dest, filePath: join(dest, SKILL_FILE) };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 export interface DeleteResult {
@@ -236,14 +274,36 @@ export function deleteLibrarySkill(
       referencedBy,
     };
   }
-  const dir = getLibrarySkillsDir(libraryRoot);
   const target = lowerKey(skillKey);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && lowerKey(entry.name) === target) {
-      rmSync(join(dir, entry.name), { recursive: true, force: true });
-      return { ok: true };
+  const entries = librarySkillDirectories(libraryRoot)
+    .filter((entry) => lowerKey(entry.skillKey) === target);
+  // Remove the CLI's receipt as well so a reinstall starts cleanly. Preserve
+  // unrelated entries and fields; parse before deleting to surface corruption.
+  const lockPath = join(libraryRoot, "skills-lock.json");
+  let updatedLock: string | undefined;
+  if (existsSync(lockPath)) {
+    if (realpathSync(lockPath) !== join(realpathSync(libraryRoot), "skills-lock.json")) {
+      return { ok: false, error: "Skills lock file escapes the library root" };
+    }
+    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
+      skills?: Record<string, unknown>;
+    };
+    if (lock.skills && typeof lock.skills === "object" && !Array.isArray(lock.skills)) {
+      const keys = Object.keys(lock.skills).filter((key) => lowerKey(key) === target);
+      for (const key of keys) delete lock.skills[key];
+      if (keys.length > 0) updatedLock = `${JSON.stringify(lock, null, 2)}\n`;
     }
   }
-  // Nothing to delete — treat as success (idempotent).
+  // Remove matching copies only from the canonical .pi/skills directory.
+  for (const entry of entries) rmSync(entry.baseDir, { recursive: true, force: true });
+  if (updatedLock !== undefined) {
+    const tmp = `${lockPath}.tmp-${randomUUID()}`;
+    try {
+      writeFileSync(tmp, updatedLock, { encoding: "utf8", flag: "wx" });
+      renameSync(tmp, lockPath);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
   return { ok: true };
 }

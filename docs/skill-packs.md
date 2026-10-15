@@ -5,7 +5,7 @@ Packs 是工作目录级的启停开关，不是 session 的工具预设。同�
 ## 定义与存储
 
 - 全局定义：`~/.pi/agent/skill-packs.json`，包含名称、描述、Skills 快照 `{ skillKey, contentHash }` 和 `nativeMcpServers: string[]`。
-- Skills Library：`<libraryRoot>/.pi/skills/<skillKey>/`；默认根目录为 `~/.pivot-ui/lib/skills`。相对根目录以全局配置文件所在目录解析，不重写原始文本。
+- Skills Library：统一使用 `<libraryRoot>/.pi/skills/<skillKey>/`；默认根目录为 `~/.pivot-ui/lib/skills`。相对根目录以全局配置文件所在目录解析，不重写原始文本。在线安装在临时目录中运行 `npx skills add --agent pi --copy`，仅在临时目录识别 CLI 的 `.agents/skills`／旧 `.pi/skills` 输出，再将实际文件导入库的 `.pi/skills`，结束后清理临时目录。导入拒绝符号链接及同名已有技能，复制失败不留下半成品；批量失败撤回本次新建副本，不覆盖原有技能或 Pack 快照。安装记录按技能合并到库根目录的 `skills-lock.json`，保留无关条目。库的列表、详情、工作区复制和删除只查找 `.pi/skills`，不自动迁移或清理已有 `.agents` 内容。删除仍受 Pack 引用保护，会清理对应安装记录，不删除工作区已有副本。在线安装仅进入库；需在工作区「添加 Skill」或启用 Pack 才加入工作区。
 - 工作空间状态：`<cwd>/.pi/skill-packs.json`，保留 revision、启用/停用记录、receipt、受管理资源名称及本次生成的 Skills 排除项。
 - Native MCP 定义仅来自 pi 原生的 `<agentDir>/mcp.json` 和受信任的 `<cwd>/.pi/mcp.json`。Packs 引用已配置的服务器名称，不保存、复制或部署定义。
 

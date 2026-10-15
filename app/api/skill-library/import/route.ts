@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNpx } from "@/lib/npx";
-import { scanLibrary, discoverSkillDir, writeLibrarySkill, getLibrarySkillsDir } from "@/lib/skill-library";
+import { scanLibrary, discoverSkillDir, writeLibrarySkill, librarySkillExists } from "@/lib/skill-library";
+import { readPackFile, savePackFile } from "@/lib/workspace-pack-files";
 import { readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
 import { getAllowedFileRoots, isFilePathAllowed, allowFileRoot } from "@/lib/file-access";
 
@@ -18,27 +19,98 @@ function getLibraryRoot(): string {
   return root;
 }
 
-async function marketImport(pkg: string) {
-  const libraryRoot = getLibraryRoot();
-  const before = new Set(scanLibrary(libraryRoot).map((s) => s.skillKey.toLowerCase()));
-  const args = ["skills", "add", pkg.trim(), "-y", "--agent", "pi"];
-  const { stdout, stderr } = await runNpx(args, {
-    timeout: 120000,
-    cwd: libraryRoot,
-    env: { ...process.env, FORCE_COLOR: "0" },
-  });
-  const output = (stdout + stderr).replace(ANSI_RE, "");
-  const success = /Installation complete|Installed \d+ skill/.test(output);
-  if (!success) throw new Error(output.slice(-300) || "Install failed");
-  const after = scanLibrary(libraryRoot);
-  const expectedRoot = getLibrarySkillsDir(libraryRoot);
-  for (const skill of after) {
-    if (!skill.baseDir.startsWith(expectedRoot)) {
-      throw new Error(`Installed skill escaped the library root: ${skill.baseDir}`);
+// CLI-specific layouts are staging details, never library scan locations.
+function stagedMarketSkills(root: string) {
+  const pending = [root];
+  while (pending.length > 0) {
+    const path = pending.pop()!;
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) throw new Error("Installed skills must not contain symbolic links");
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(path)) pending.push(join(path, name));
+    } else if (!stat.isFile()) {
+      throw new Error("Installed skills must contain only regular files and directories");
     }
   }
-  const added = after.filter((s) => !before.has(s.skillKey.toLowerCase()));
-  return { skills: after, added };
+  const found = new Map<string, ReturnType<typeof discoverSkillDir>>();
+  for (const layout of [".pi", ".agents"]) {
+    const dir = join(root, layout, "skills");
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const sourceDir = join(dir, entry.name);
+      if (!existsSync(join(sourceDir, "SKILL.md"))) continue;
+      const key = entry.name.toLowerCase();
+      if (!found.has(key)) found.set(key, discoverSkillDir(sourceDir));
+    }
+  }
+  return [...found.values()];
+}
+
+function marketLockUpdate(root: string, libraryRoot: string, keys: string[]) {
+  const stagedPath = join(root, "skills-lock.json");
+  if (!existsSync(stagedPath)) return null;
+  const staged = readPackFile(stagedPath).value.skills;
+  if (!staged || typeof staged !== "object" || Array.isArray(staged)) {
+    throw new Error("Invalid installer skills lock");
+  }
+  const path = join(libraryRoot, "skills-lock.json");
+  if (existsSync(path) && realpathSync(path) !== join(realpathSync(libraryRoot), "skills-lock.json")) {
+    throw new Error("Skills lock file escapes the library root");
+  }
+  const lock = readPackFile(path).value;
+  if (lock.skills !== undefined && (!lock.skills || typeof lock.skills !== "object" || Array.isArray(lock.skills))) {
+    throw new Error("Invalid library skills lock");
+  }
+  const skills = { ...lock.skills as Record<string, unknown> | undefined };
+  const receipts = staged as Record<string, unknown>;
+  for (const key of keys) {
+    const name = Object.keys(receipts).find((name) => name.toLowerCase() === key.toLowerCase());
+    if (!name) throw new Error(`Missing installer receipt for "${key}"`);
+    for (const oldKey of Object.keys(skills)) {
+      if (oldKey.toLowerCase() === key.toLowerCase()) delete skills[oldKey];
+    }
+    skills[key] = receipts[name];
+  }
+  return { path, text: `${JSON.stringify({ ...lock, version: lock.version ?? 1, skills }, null, 2)}\n` };
+}
+
+async function marketImport(pkg: string) {
+  const libraryRoot = getLibraryRoot();
+  const stagingRoot = mkdtempSync(join(tmpdir(), "pivot-ui-market-import-"));
+  const added: ReturnType<typeof writeLibrarySkill>[] = [];
+  try {
+    const args = ["skills", "add", pkg.trim(), "-y", "--agent", "pi", "--copy"];
+    const { stdout, stderr } = await runNpx(args, {
+      timeout: 120000,
+      cwd: stagingRoot,
+      env: { ...process.env, FORCE_COLOR: "0" },
+    });
+    const output = (stdout + stderr).replace(ANSI_RE, "");
+    if (!/Installation complete|Installed \d+ skill/.test(output)) {
+      throw new Error(output.slice(-300) || "Install failed");
+    }
+    const installed = stagedMarketSkills(stagingRoot);
+    if (installed.length === 0) throw new Error("Installer completed but no skills were found");
+    for (const skill of installed) {
+      if (librarySkillExists(libraryRoot, skill.skillKey)) {
+        throw new Error(`A skill named "${skill.skillKey}" already exists in the library`);
+      }
+    }
+    const lock = marketLockUpdate(stagingRoot, libraryRoot, installed.map((skill) => skill.skillKey));
+    for (const skill of installed) {
+      added.push(writeLibrarySkill(libraryRoot, skill.skillKey, skill.sourceDir));
+    }
+    const skills = scanLibrary(libraryRoot);
+    if (lock) savePackFile(lock.path, lock.text);
+    return { skills, added };
+  } catch (error) {
+    // Only these newly created copies belong to this import; never remove existing skills.
+    for (const skill of added) rmSync(skill.baseDir, { recursive: true, force: true });
+    throw error;
+  } finally {
+    rmSync(stagingRoot, { recursive: true, force: true });
+  }
 }
 
 async function localImport(sourcePath: string, targetKey?: string) {
