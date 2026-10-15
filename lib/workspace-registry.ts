@@ -27,12 +27,12 @@ export interface WorkspaceGroup {
 }
 
 /** Match the whole phrase (including spaces), not separate search tokens. */
-export function matchingWorkspaceSessions(sessions: readonly SessionInfo[], query: string): Map<string, SessionInfo[]> {
+export function matchingWorkspaceSessions(sessions: readonly SessionInfo[], query: string, contentMatches: ReadonlySet<string> = new Set()): Map<string, SessionInfo[]> {
   const phrase = query.trim().toLocaleLowerCase();
   const byWorkspace = new Map<string, SessionInfo[]>();
   if (!phrase) return byWorkspace;
   for (const session of sessions) {
-    if (!sessionTitle(session).toLocaleLowerCase().includes(phrase)) continue;
+    if (!contentMatches.has(session.id) && !sessionTitle(session).toLocaleLowerCase().includes(phrase)) continue;
     const root = session.projectRoot ?? session.cwd;
     const matches = byWorkspace.get(root) ?? [];
     matches.push(session);

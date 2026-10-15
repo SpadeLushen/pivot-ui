@@ -19,6 +19,8 @@ import { DEFAULT_WORKSPACE_TAG, getWorkspaceEntries, workspaceName as projectLab
 import { AllWorkspacesModal } from "./AllWorkspacesModal";
 import { WorkspaceTagDialog } from "./WorkspaceTagDialog";
 import { WorkspaceTag } from "./WorkspaceDialog";
+import { SessionSearchControl } from "./SessionSearchControl";
+import { useSessionSearch } from "@/hooks/useSessionSearch";
 
 interface Props {
   selectedSessionId: string | null;
@@ -480,6 +482,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const { t } = useI18n();
   const { preferences } = usePreferences();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const search = useSessionSearch(allSessions, searchQuery);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -929,11 +933,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   );
 
   const filteredSessions = selectedProject
-    ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
-    : allSessions;
+    ? search.matches.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+    : search.matches;
 
   // Only the display changes; retain the recorded Fork relationships.
-  const sessionTree = buildSessionTree(filteredSessions, preferences["fork-hierarchy-enabled"]);
+  const sessionTree = buildSessionTree(filteredSessions, !search.phrase && preferences["fork-hierarchy-enabled"]);
 
   return (
     <>
@@ -1231,6 +1235,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
               <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
               <span>{t("nav.newSession")}</span>
             </button>
+            <SessionSearchControl query={searchQuery} onChange={setSearchQuery} enabled={search.enabled} />
             <button
               type="button"
               onClick={() => loadSessions(false, true)}
@@ -1241,7 +1246,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
             </button>
           </div>
         </div>
+        <div className="session-search-spacer" aria-hidden="true" />
         <div className="sidebar-session-list">
+          {(search.pending || search.indexing) && <div className="session-search-status" role="status">{t(search.indexing ? "sessionSearch.indexing" : "general.searching")}</div>}
+          {search.error && <div className="workspace-error" role="alert">{search.error}</div>}
           {loading && (
             <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
               {t("general.loading")}

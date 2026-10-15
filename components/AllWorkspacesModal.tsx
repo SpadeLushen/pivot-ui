@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import { copyText } from "@/lib/clipboard";
 import { groupWorkspaces, matchingWorkspaceSessions, type WorkspaceEntry, type WorkspacePatch } from "@/lib/workspace-registry";
 import { WorkspaceDialog, WorkspaceTag } from "./WorkspaceDialog";
+import { useSessionSearch } from "@/hooks/useSessionSearch";
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
   const phrase = query.trim();
@@ -106,9 +107,13 @@ export function AllWorkspacesModal({ entries, sessions, onClose, onSelect, onSel
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"status" | "tag">("status");
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const matchingSessions = useMemo(() => matchingWorkspaceSessions(sessions, query), [sessions, query]);
-  const groups = groupWorkspaces(entries, query, mode, new Set(matchingSessions.keys()));
-  const searching = Boolean(query.trim());
+  const search = useSessionSearch(sessions, query);
+  const matchingSessions = useMemo(() => {
+    const ids = new Set(search.matches.map((session) => session.id));
+    return matchingWorkspaceSessions(sessions, search.phrase, ids);
+  }, [sessions, search.phrase, search.matches]);
+  const groups = groupWorkspaces(entries, search.phrase, mode, new Set(matchingSessions.keys()));
+  const searching = Boolean(search.phrase);
   return <WorkspaceDialog title={t("workspaces.all")} onClose={onClose}>
     <div className="workspace-modal-toolbar">
       <label className="workspace-search"><Search size={16} aria-hidden="true" />
@@ -119,6 +124,8 @@ export function AllWorkspacesModal({ entries, sessions, onClose, onSelect, onSel
         <option value="tag">{t("workspaces.byTag")}</option>
       </select>
     </div>
+    {(search.pending || search.indexing) && <div className="session-search-status" role="status">{t(search.indexing ? "sessionSearch.indexing" : "general.searching")}</div>}
+    {search.error && <div className="workspace-error" role="alert">{search.error}</div>}
     <div className="workspace-modal-list">
       {!groups.some((group) => group.entries.length > 0) && <p className="workspace-empty">{t("app.noMatchingProjects")}</p>}
       {groups.map((group) => group.entries.length > 0 && <section key={group.key}>
@@ -133,7 +140,7 @@ export function AllWorkspacesModal({ entries, sessions, onClose, onSelect, onSel
         {(mode === "tag" || !group.removed || searching || archivedOpen) && group.entries.map((entry) =>
           // The tag section heading already shows the tag, so tag mode
           // omits the per-row tag prefix to avoid repeating it.
-          <WorkspaceRow key={entry.path} entry={entry} showTag={mode === "status"} query={query}
+          <WorkspaceRow key={entry.path} entry={entry} showTag={mode === "status"} query={search.phrase}
             sessions={matchingSessions.get(entry.path) ?? []} onTag={onTag} onUpdate={onUpdate}
             onSelect={(path) => { onSelect(path); onClose(); }}
             onSelectSession={(session) => { onSelectSession(session); onClose(); }} />)}

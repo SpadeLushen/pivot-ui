@@ -16,6 +16,8 @@ export interface UserPreferences {
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
   "default-workspace-parent": string;
+  "session-search-enabled": boolean;
+  "session-search-path": string;
 }
 
 export type PreferencePatch = Partial<UserPreferences>;
@@ -31,6 +33,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "enter-behavior": "followUp",
   "time-format": "24",
   "default-workspace-parent": "~/pivot-default-workspaces",
+  "session-search-enabled": false,
+  "session-search-path": "~/.pivot-ui/session-search.sqlite",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +57,10 @@ export function normalizePreferences(value: unknown): UserPreferences {
       : DEFAULT_PREFERENCES["fork-hierarchy-enabled"],
     "enter-behavior": raw["enter-behavior"] === "steer" ? "steer" : DEFAULT_PREFERENCES["enter-behavior"],
     "time-format": raw["time-format"] === "12" ? "12" : DEFAULT_PREFERENCES["time-format"],
+    "session-search-enabled": raw["session-search-enabled"] === true,
+    "session-search-path": typeof raw["session-search-path"] === "string" && raw["session-search-path"].trim()
+      ? raw["session-search-path"].trim()
+      : DEFAULT_PREFERENCES["session-search-path"],
     "default-workspace-parent": typeof raw["default-workspace-parent"] === "string" && raw["default-workspace-parent"].trim()
       ? raw["default-workspace-parent"].trim()
       : DEFAULT_PREFERENCES["default-workspace-parent"],

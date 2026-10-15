@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Globe, Cpu, ChartNoAxesCombined, GitFork, Keyboard, Clock, X } from "lucide-react";
+import { useState } from "react";
+import { Globe, Cpu, Database, ChartNoAxesCombined, GitFork, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { usePreferences } from "@/lib/preferences-context";
 import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
+import { StorageSettings } from "./StorageSettings";
 
-type SettingsTab = "general" | "models";
+type SettingsTab = "general" | "models" | "storage";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -30,9 +31,6 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const { preferences, updatePreferences } = usePreferences();
-  const [workspaceParent, setWorkspaceParent] = useState(preferences["default-workspace-parent"]);
-  const [parentError, setParentError] = useState("");
-  const [savingParent, setSavingParent] = useState(false);
   const [forkHierarchyError, setForkHierarchyError] = useState(false);
   const [savingForkHierarchy, setSavingForkHierarchy] = useState(false);
 
@@ -47,23 +45,9 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
       setSavingForkHierarchy(false);
     }
   };
-  useEffect(() => setWorkspaceParent(preferences["default-workspace-parent"]), [preferences["default-workspace-parent"]]);
-
-  const saveWorkspaceParent = async () => {
-    setSavingParent(true);
-    setParentError("");
-    try {
-      const response = await updatePreferences({ "default-workspace-parent": workspaceParent.trim() });
-      setWorkspaceParent(response["default-workspace-parent"]);
-    } catch {
-      setParentError(t("settings.defaultWorkspaceParentError"));
-    } finally {
-      setSavingParent(false);
-    }
-  };
-
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: "general", label: t("settings.general"), icon: <Globe size={15} strokeWidth={1.8} aria-hidden="true" /> },
+    { id: "storage", label: t("settings.storage"), icon: <Database size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "models", label: t("settings.models"), icon: <Cpu size={15} strokeWidth={1.8} aria-hidden="true" /> },
   ];
 
@@ -189,7 +173,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
           {activeTab === "general" && (
             <div style={{ padding: 24, overflowY: "auto", height: "100%" }}>
               {/* Language */}
-              <section style={{ marginBottom: 32 }}>
+              <section style={{ marginBottom: 0 }}>
                 <h3
                   style={{
                     fontSize: 13,
@@ -264,50 +248,61 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </div>
               </section>
 
-              {/* Default workspace parent on the server */}
+              {/* Theme */}
               <section style={{ marginTop: 32 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-                  {t("settings.defaultWorkspaceParent")}
+                <h3
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: 16,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  {themeIcon} {t("settings.theme")}
                 </h3>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.5 }}>
-                  {t("settings.defaultWorkspaceParentDescription")}
-                </p>
-                <form onSubmit={(event) => { event.preventDefault(); void saveWorkspaceParent(); }} style={{ display: "flex", gap: 8 }}>
-                  <input
-                    aria-label={t("settings.defaultWorkspaceParent")}
-                    value={workspaceParent}
-                    onChange={(event) => { setWorkspaceParent(event.target.value); setParentError(""); }}
-                    style={{ flex: 1, minWidth: 0, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)" }}
-                  />
-                  <button type="submit" disabled={savingParent || !workspaceParent.trim()} style={{ padding: "8px 14px", cursor: "pointer" }}>
-                    {t("settings.saveWorkspaceParent")}
-                  </button>
-                </form>
-                {parentError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{parentError}</p>}
-              </section>
-
-              {/* Fork session display (shared server preference) */}
-              <section style={{ marginTop: 32 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
-                  <GitFork size={16} strokeWidth={1.8} aria-hidden="true" />
-                  {t("settings.sessionList")}
-                </h3>
-                <p id="settings-fork-hierarchy-description" style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
-                  {t("settings.forkHierarchyDescription")}
-                </p>
-                <label htmlFor="settings-fork-hierarchy" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text)", cursor: "pointer", fontSize: 13 }}>
-                  <input
-                    id="settings-fork-hierarchy"
-                    type="checkbox"
-                    checked={preferences["fork-hierarchy-enabled"]}
-                    disabled={savingForkHierarchy}
-                    aria-describedby="settings-fork-hierarchy-description"
-                    onChange={(event) => { void saveForkHierarchy(event.target.checked); }}
-                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
-                  />
-                  {t("settings.forkHierarchy")}
-                </label>
-                {forkHierarchyError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{t("settings.forkHierarchyError")}</p>}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {themes.map((th) => {
+                    const isActive = theme === th.key;
+                    return (
+                      <button
+                        key={th.key}
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setTheme(th.key, {
+                            x: rect.left + rect.width / 2,
+                            y: rect.top + rect.height / 2,
+                          });
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "10px 20px",
+                          background: isActive
+                            ? "var(--accent)"
+                            : "var(--bg)",
+                          border: isActive
+                            ? "1px solid var(--accent)"
+                            : "1px solid var(--border)",
+                          borderRadius: 8,
+                          color: isActive ? "#fff" : "var(--text)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 400,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        {th.key === "light" && "☀️"}
+                        {th.key === "dark" && "🌙"}
+                        {th.key === "eye" && "👁️"}
+                        {th.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
 
               {/* Time format */}
@@ -367,45 +362,48 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </div>
               </section>
 
-              {/* Theme */}
+              {/* Enter behavior while the agent is running */}
               <section style={{ marginTop: 32 }}>
                 <h3
                   style={{
                     fontSize: 13,
                     fontWeight: 600,
                     color: "var(--text)",
-                    marginBottom: 16,
+                    marginBottom: 4,
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
                   }}
                 >
-                  {themeIcon} {t("settings.theme")}
+                  <Keyboard size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.enterBehavior")}
                 </h3>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {t("settings.enterBehaviorDescription")}
+                </p>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {themes.map((th) => {
-                    const isActive = theme === th.key;
+                  {([
+                    ["steer", t("settings.enterBehaviorSteer")],
+                    ["followUp", t("settings.enterBehaviorFollowUp")],
+                  ] as const).map(([behavior, label]) => {
+                    const isActive = enterBehavior === behavior;
                     return (
                       <button
-                        key={th.key}
-                        onClick={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          setTheme(th.key, {
-                            x: rect.left + rect.width / 2,
-                            y: rect.top + rect.height / 2,
-                          });
-                        }}
+                        key={behavior}
+                        type="button"
+                        onClick={() => onEnterBehaviorChange(behavior)}
+                        aria-pressed={isActive}
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
                           padding: "10px 20px",
-                          background: isActive
-                            ? "var(--accent)"
-                            : "var(--bg)",
-                          border: isActive
-                            ? "1px solid var(--accent)"
-                            : "1px solid var(--border)",
+                          background: isActive ? "var(--accent)" : "var(--bg)",
+                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
                           borderRadius: 8,
                           color: isActive ? "#fff" : "var(--text)",
                           cursor: "pointer",
@@ -414,14 +412,35 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                           transition: "all 0.12s",
                         }}
                       >
-                        {th.key === "light" && "☀️"}
-                        {th.key === "dark" && "🌙"}
-                        {th.key === "eye" && "👁️"}
-                        {th.label}
+                        {label}
                       </button>
                     );
                   })}
                 </div>
+              </section>
+
+              {/* Fork session display (shared server preference) */}
+              <section style={{ marginTop: 32 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                  <GitFork size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.sessionList")}
+                </h3>
+                <p id="settings-fork-hierarchy-description" style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+                  {t("settings.forkHierarchyDescription")}
+                </p>
+                <label htmlFor="settings-fork-hierarchy" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text)", cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    id="settings-fork-hierarchy"
+                    type="checkbox"
+                    checked={preferences["fork-hierarchy-enabled"]}
+                    disabled={savingForkHierarchy}
+                    aria-describedby="settings-fork-hierarchy-description"
+                    onChange={(event) => { void saveForkHierarchy(event.target.checked); }}
+                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("settings.forkHierarchy")}
+                </label>
+                {forkHierarchyError && <p role="alert" style={{ color: "var(--text)", fontSize: 12 }}>{t("settings.forkHierarchyError")}</p>}
               </section>
 
               {/* Usage and performance */}
@@ -485,65 +504,10 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </label>
               </section>
 
-              {/* Enter behavior while the agent is running */}
-              <section style={{ marginTop: 32 }}>
-                <h3
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    marginBottom: 4,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Keyboard size={16} strokeWidth={1.8} aria-hidden="true" />
-                  {t("settings.enterBehavior")}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-muted)",
-                    marginBottom: 16,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {t("settings.enterBehaviorDescription")}
-                </p>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {([
-                    ["steer", t("settings.enterBehaviorSteer")],
-                    ["followUp", t("settings.enterBehaviorFollowUp")],
-                  ] as const).map(([behavior, label]) => {
-                    const isActive = enterBehavior === behavior;
-                    return (
-                      <button
-                        key={behavior}
-                        type="button"
-                        onClick={() => onEnterBehaviorChange(behavior)}
-                        aria-pressed={isActive}
-                        style={{
-                          padding: "10px 20px",
-                          background: isActive ? "var(--accent)" : "var(--bg)",
-                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
-                          borderRadius: 8,
-                          color: isActive ? "#fff" : "var(--text)",
-                          cursor: "pointer",
-                          fontSize: 13,
-                          fontWeight: isActive ? 600 : 400,
-                          transition: "all 0.12s",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
             </div>
           )}
 
+          {activeTab === "storage" && <StorageSettings />}
           {activeTab === "models" && (
             <ModelsConfigTab
               onClose={onClose}

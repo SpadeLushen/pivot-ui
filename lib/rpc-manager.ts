@@ -5,6 +5,7 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { requestSessionSearchSync } from "./session-search";
 import { branchModelSelection } from "./session-models";
 import { knownModelLimit, VIRTUAL_CHAT_API } from "./response-model";
 import { sessionStatistics } from "./session-statistics";
@@ -346,6 +347,7 @@ export class AgentSessionWrapper {
           (event.type === "message_end" && (event.message as { role?: string } | undefined)?.role === "user")) {
         invalidateSessionListCache();
       }
+      if (event.type === "agent_end") requestSessionSearchSync(true);
       this.emit(event);
       if (event.type === "agent_settled") for (const complete of this.settledInputCompletions) complete();
       // Streaming / compaction / tool events flow through here; re-broadcast
