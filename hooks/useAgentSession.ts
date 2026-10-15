@@ -1023,6 +1023,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         || agentEventRevisionRef.current !== eventRevision || (wasRunning && !agentRunRef.current.running)) return;
       const state = data.state;
       if (state) applyLiveModels(state);
+      // Context can change between turns while the same run remains busy.
+      // Do not wait for reconciliation to finish the entire prompt.
+      if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
@@ -1042,7 +1045,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (agentRunRef.current.reconcile(runId, Boolean(busy)) !== "finish") return;
       if (state) {
-        if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
@@ -1104,6 +1106,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "start" });
         break;
       }
+      case "turn_end":
+        if (!agentRunRef.current.running) break;
+        refreshSessionStats();
+        break;
       case "agent_end": {
         if (!agentRunRef.current.running) break;
         if (event.willRetry !== true) {
@@ -1126,6 +1132,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const settledEventRevision = agentEventRevisionRef.current;
         const queueRevision = queueRevisionRef.current;
         if (!agentRunRef.current.finish(settledRunId)) break;
+        refreshSessionStats();
         setAgentRunning(false);
         if (!inputRequestRef.current) setInputSending(false);
         setAgentPhase(null);
@@ -1296,6 +1303,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       case "auto_compaction_end":
       case "compaction_end":
+        // The pre-compaction live value is no longer applicable. Statistics
+        // supply the rebuilt context, including the offline fallback.
+        setContextUsage(null);
+        refreshSessionStats();
         setIsCompacting(false);
         if (event.errorMessage) {
           setCompactError(event.errorMessage as string);
@@ -1314,7 +1325,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLiveModels, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels]);
+  }, [addNotice, applyLiveModels, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels, refreshSessionStats]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Sanitize a file name for embedding inside a <file name="..."> tag.

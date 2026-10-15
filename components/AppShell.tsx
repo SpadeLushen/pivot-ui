@@ -321,7 +321,9 @@ export function AppShell() {
     setContextUsage(usage);
   }, []);
 
-  const displayedContextUsage = preferredContextUsage(contextUsage, sessionStats?.contextUsage);
+  // Statistics are refreshed per turn and scoped to the selected session/leaf.
+  // A live value captured at session load must not mask a newer snapshot.
+  const displayedContextUsage = preferredContextUsage(sessionStats?.contextUsage, contextUsage);
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "extensions" | null>(null);
