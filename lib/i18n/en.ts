@@ -620,8 +620,8 @@ const en: Record<string, string> = {
 
   // Message actions
   "message.copyMessage": "Copy message",
-  "message.forkFromHere": "Fork from here",
-  "message.newSession": "New session",
+  "message.revert": "Revert",
+  "message.fork": "Fork",
   "message.noToolOutput": "(no output)",
   "message.outputView": "Output view",
   "message.outputPlain": "plain",

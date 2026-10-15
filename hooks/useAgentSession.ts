@@ -617,7 +617,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     clearNested();
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      if (leafId) params.set("leafId", leafId);
+      // Empty explicitly selects the root; omitting leafId selects latest history.
+      params.set("leafId", leafId ?? "");
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1457,37 +1458,49 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         entryId,
       });
       const { cancelled, newSessionId } = result ?? {};
-      if (!cancelled && newSessionId) {
+      if (sessionIdRef.current === sid && !cancelled && newSessionId) {
         onSessionForked?.(newSessionId);
       }
     } catch (e) {
-      console.error("Fork failed:", e);
+      if (sessionIdRef.current === sid) {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      }
     } finally {
-      setForkingEntryId(null);
+      if (sessionIdRef.current === sid) setForkingEntryId(null);
     }
-  }, [onSessionForked]);
+  }, [onSessionForked, addNotice]);
 
   const handleNavigate = useCallback(async (entryId: string) => {
     const sid = sessionIdRef.current;
-    if (!sid) return;
+    if (!sid || agentRunRef.current.running || inputSending || isCompacting) return;
     const revision = ++contextRequestRevisionRef.current;
-    setActiveLeafId(entryId);
-    await sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
-    if (sessionIdRef.current !== sid || contextRequestRevisionRef.current !== revision) return;
-    await loadContext(sid, entryId);
-    await refreshLiveModels(sid);
-  }, [loadContext, refreshLiveModels]);
+    try {
+      const result = await sendAgentCommand<{
+        cancelled: boolean; leafId: string | null; editorText?: string;
+      }>(sid, { type: "navigate_tree", targetId: entryId });
+      if (sessionIdRef.current !== sid || contextRequestRevisionRef.current !== revision || result.cancelled) return;
+      // User-node navigation rewinds to its actual parent, not the selected ID.
+      setActiveLeafId(result.leafId);
+      if (result.editorText !== undefined) opts.chatInputRef?.current?.insertIfEmpty(result.editorText);
+      await loadContext(sid, result.leafId);
+      if (sessionIdRef.current === sid) await refreshLiveModels(sid);
+    } catch (e) {
+      if (sessionIdRef.current === sid && contextRequestRevisionRef.current === revision) {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }, [loadContext, refreshLiveModels, opts.chatInputRef, inputSending, isCompacting, addNotice]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
-    const revision = ++contextRequestRevisionRef.current;
-    setActiveLeafId(leafId);
+    if (leafId) {
+      await handleNavigate(leafId);
+      return;
+    }
     const sid = sessionIdRef.current;
-    if (!sid) return;
-    if (leafId) await sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
-    if (sessionIdRef.current !== sid || contextRequestRevisionRef.current !== revision) return;
-    await loadContext(sid, leafId);
-    if (leafId) await refreshLiveModels(sid);
-  }, [loadContext, refreshLiveModels]);
+    if (!sid || agentRunRef.current.running || inputSending || isCompacting) return;
+    setActiveLeafId(null);
+    await loadContext(sid, null);
+  }, [handleNavigate, loadContext, inputSending, isCompacting]);
 
   const persistNewSessionDefault = useCallback(async (selection: { provider: string; modelId: string } | { thinkingLevel: string }) => {
     const res = await fetch("/api/models/defaults", {

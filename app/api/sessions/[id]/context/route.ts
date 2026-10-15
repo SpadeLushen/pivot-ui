@@ -8,7 +8,8 @@ export async function GET(
 ) {
   const { id } = await params;
   const url = new URL(req.url);
-  const leafId = url.searchParams.get("leafId") ?? undefined;
+  const leafParam = url.searchParams.get("leafId");
+  const leafId = leafParam === null ? undefined : leafParam === "" ? null : leafParam;
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
 

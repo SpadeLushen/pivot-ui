@@ -200,14 +200,12 @@ hooks/
 - Modal backdrops use `useBackdropDismiss()` from `hooks/useBackdropDismiss.ts`. Dismiss only after the same primary pointer presses and releases outside; close on the ensuing click, not on pointerdown/up. Interior-to-exterior and exterior-to-interior drags must not dismiss.
 - Hit-test both positions with `elementFromPoint()` to handle touch pointer capture; native `<dialog>` also excludes its own border/padding rectangle. Keep close buttons and Escape separate. Tests live in `lib/backdrop-dismiss.test.mjs` and `hooks/useBackdropDismiss.test.mjs`.
 
-### Fork must destroy the wrapper immediately
-`AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
-
-**Fix**: `send("fork")` captures `newSessionId`, then calls `this.destroy()` before returning. The next request for the original session reloads a clean AgentSession from the original file.
+### Fork must preserve the source wrapper
+`send("fork")` opens a separate `SessionManager` and copies the path before the selected user message into a new file. `createBranchedSession()` mutates only that separately opened manager; never call it on the live wrapper's manager. Keep the source wrapper alive, including during generation or compaction, so Fork does not abort or change the source run. Mutating runtime fork APIs must not be substituted for this source-preserving copy.
 
 ### Two kinds of branching — don't confuse them
 - **Fork** (Fork button on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.
-- **In-session branch** (Continue button / BranchNavigator): calls `navigate_tree` within the same file. Multiple entries share the same `parentId`. Switching between them calls `/api/sessions/[id]/context?leafId=`.
+- **In-session branch** (Revert button / BranchNavigator): calls `navigate_tree` within the same file and requires an idle session. Revert targets the user entry directly; SDK navigation returns its parent leaf and editor text. Multiple entries share the same `parentId`. Context requests pass that returned leaf: `?leafId=` explicitly means root, while omitting the parameter means latest history.
 
 ### Session files can be fully rewritten
 `parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (pi does this itself during migrations). Used when cascade-reparenting children on delete.

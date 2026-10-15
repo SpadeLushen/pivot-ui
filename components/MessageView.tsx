@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo, type ReactNode } from "react";
-import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFork } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFork, Undo2 } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ToolResultContent } from "./ToolResultContent";
 import { NestedCallSummary, NestedCallTrail, NestedToolCalls } from "./NestedToolCalls";
@@ -73,8 +73,6 @@ interface Props {
   onFork?: (entryId: string) => void;
   forking?: boolean;
   onNavigate?: (entryId: string) => void;
-  prevAssistantEntryId?: string;
-  onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
   showCost?: boolean;
@@ -124,9 +122,9 @@ function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string
   return message.content.every((block) => block.type !== "toolCall" || previous?.get(block.toolCallId) === next?.get(block.toolCallId));
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, showTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} hour12={hour12} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} hour12={hour12} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
@@ -154,8 +152,6 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onFork === next.onFork
     && prev.forking === next.forking
     && prev.onNavigate === next.onNavigate
-    && prev.prevAssistantEntryId === next.prevAssistantEntryId
-    && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.showTps === next.showTps
     && prev.showCost === next.showCost
@@ -361,7 +357,7 @@ function renderUserContent(
   return nodes;
 }
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, hour12 }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, hour12 }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -369,8 +365,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onFork?: (entryId: string) => void;
   forking?: boolean;
   onNavigate?: (entryId: string) => void;
-  prevAssistantEntryId?: string;
-  onEditContent?: (content: string) => void;
   hour12: boolean;
 }) {
   const { t } = useI18n();
@@ -392,7 +386,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   const time = formatTime(message.timestamp, hour12);
   const canFork = !!entryId && !!onFork;
-  const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+  const canNavigate = !!entryId && !!onNavigate;
 
   const copyContent = () => {
     copyText(content).then(() => {
@@ -501,8 +495,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             }}>
               {canNavigate && (
                 <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
-                  title={t("message.forkFromHere")}
+                  onClick={() => { onNavigate!(entryId!); }}
+                  title={t("message.revert")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
@@ -517,15 +511,15 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <GitFork size={11} strokeWidth={1.8} aria-hidden="true" />
-                  {t("message.forkFromHere")}
+                  <Undo2 size={11} strokeWidth={1.8} aria-hidden="true" />
+                  {t("message.revert")}
                 </button>
               )}
               {canFork && (
                 <button
                   onClick={() => { onFork!(entryId!); }}
                   disabled={forking}
-                  title={forking ? t("app.creating") : t("message.newSession")}
+                  title={forking ? t("app.creating") : t("message.fork")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
@@ -541,7 +535,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
                   <GitFork size={11} strokeWidth={1.8} aria-hidden="true" />
-                  {forking ? t("app.creating") : t("message.newSession")}
+                  {forking ? t("app.creating") : t("message.fork")}
                 </button>
               )}
             </div>

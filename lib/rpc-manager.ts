@@ -739,7 +739,9 @@ export class AgentSessionWrapper {
         if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
 
         const entry = sessionManager.getEntry(entryId);
-        if (!entry) throw new Error("Invalid entry ID for forking");
+        if (!entry || entry.type !== "message" || entry.message.role !== "user") {
+          throw new Error("Fork requires a user message entry");
+        }
 
         const sessionDir = sessionManager.getSessionDir();
         let newSessionFile: string;
@@ -764,13 +766,19 @@ export class AgentSessionWrapper {
         const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
-        this.destroy();
+        // Only the separately opened sourceManager is branched. Keep this
+        // wrapper alive so an in-flight source run continues unaffected.
         return { cancelled: false, newSessionId };
       }
 
       case "navigate_tree": {
+        if (this.isRunning()) throw new AgentBusyError();
         const result = await this.inner.navigateTree(command.targetId as string, {});
-        return { cancelled: result.cancelled };
+        return {
+          cancelled: result.cancelled,
+          editorText: result.editorText,
+          leafId: this.inner.sessionManager.getLeafId(),
+        };
       }
 
       case "set_thinking_level": {

@@ -622,8 +622,8 @@ const zh: Record<string, string> = {
 
   // Message actions
   "message.copyMessage": "复制消息",
-  "message.forkFromHere": "从此克隆",
-  "message.newSession": "新建会话",
+  "message.revert": "回退",
+  "message.fork": "分叉",
   "message.noToolOutput": "（无输出）",
   "message.outputView": "输出视图",
   "message.outputPlain": "plain",
