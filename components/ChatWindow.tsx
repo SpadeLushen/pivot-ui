@@ -1,21 +1,20 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { ChevronRight, FileText, ImagePlus, X } from "lucide-react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ExtensionStatusItem, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { InteractionSurface, InteractionHeader, InteractionChoice } from "./InteractionSurface";
+import { InteractionHeader, InteractionChoice } from "./InteractionSurface";
+import { SessionDialog, SessionDialogScope } from "./SessionDialog";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { useChatViewport } from "./useChatViewport";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -173,6 +172,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, []);
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
+  // The dialog's background interaction includes both messages and their minimap.
+  const messageListRegionRef = useRef<HTMLDivElement>(null);
 
   const hour12 = timeFormat === "12";
 
@@ -387,6 +388,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }
 
   return (
+    <SessionDialogScope messageListRef={messageListRegionRef}>
     <div
       className={`chat-workspace ${isEmptyNew ? "chat-empty-workspace" : "chat-session-workspace"} relative flex h-full flex-col overflow-hidden`}
       onDragEnter={handleDragEnter}
@@ -440,7 +442,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={nonErrorNotices} floating align="right" />
           </div>
         </div>
-        <div className="relative flex flex-1 overflow-hidden">
+        <div ref={messageListRegionRef} className="relative flex flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="chat-message-scroll flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
@@ -704,6 +706,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
       </div>
     </div>
+    </SessionDialogScope>
   );
 }
 
@@ -821,40 +824,22 @@ function NoticeShelfItem({ notice, isLast, floating, onShowDetails }: { notice: 
 }
 
 function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose: () => void }) {
-  const backdrop = useBackdropDismiss(onClose);
   const { t } = useI18n();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, []);
 
   if (typeof document === "undefined") return null;
 
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1200,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        background: "rgba(0,0,0,0.38)",
-      }}
-      {...backdrop}
-    >
-      <div
-        className="modal-surface"
+  return (
+      <SessionDialog
         role="dialog"
-        aria-modal="true"
         aria-labelledby="notice-details-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+        }}
         onClick={(event) => event.stopPropagation()}
         style={{
           width: "min(720px, calc(100vw - 32px))",
@@ -868,7 +853,7 @@ function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose:
           boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+        <div data-dialog-drag-handle style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: noticeColor(notice.type), flexShrink: 0 }} />
           <div id="notice-details-title" style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 14, fontWeight: 650 }}>
             {t("chat.noticeDetailsTitle")}
@@ -913,9 +898,7 @@ function NoticeDetailsDialog({ notice, onClose }: { notice: NoticeItem; onClose:
         >
           {notice.message}
         </div>
-      </div>
-    </div>,
-    document.body,
+      </SessionDialog>
   );
 }
 
@@ -976,22 +959,16 @@ export function ExtensionDialog({
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 90,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <InteractionSurface>
+      <SessionDialog key={request.id} aria-label={request.title}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onRespond(request, { cancelled: true });
+          }
+        }}>
         <InteractionHeader title={request.title} subtitle="extension request" />
 
-        <div style={{ padding: 14 }}>
+        <div style={{ padding: 14, minHeight: 0, overflowY: "auto" }}>
           {request.method === "confirm" && (
             <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
           )}
@@ -1012,7 +989,6 @@ export function ExtensionDialog({
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitValue();
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
               }}
               style={{
                 width: "100%",
@@ -1032,7 +1008,6 @@ export function ExtensionDialog({
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
               }}
               style={{
@@ -1097,8 +1072,7 @@ export function ExtensionDialog({
             </button>
           ) : null}
         </div>
-      </InteractionSurface>
-    </div>
+      </SessionDialog>
   );
 }
 
@@ -1161,24 +1135,13 @@ function ExtensionCustomPanel({
   }, [request.id]);
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 95,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <InteractionSurface
+      <SessionDialog
+        key={request.id}
         ref={panelRef}
         className="extension-custom-surface"
         tabIndex={0}
         role="dialog"
-        aria-modal="true"
+        aria-label="Extension panel"
         onKeyDown={(e) => {
           const data = toTerminalKeyData(e);
           if (!data) return;
@@ -1197,7 +1160,7 @@ function ExtensionCustomPanel({
           outline: "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+        <div data-dialog-drag-handle style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
           <button
             onClick={() => onInput(request, "\x03")}
@@ -1235,7 +1198,6 @@ function ExtensionCustomPanel({
             </Fragment>
           ))}
         </pre>
-      </InteractionSurface>
-    </div>
+      </SessionDialog>
   );
 }

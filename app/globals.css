@@ -1898,6 +1898,40 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   box-shadow: var(--shadow-float) !important;
 }
 
+/* Keep the visual backdrop; only the message-list opening passes events through. */
+.session-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.session-dialog-blocker {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.session-dialog {
+  position: relative;
+  z-index: 1;
+}
+
+.session-dialog [data-dialog-drag-handle] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.session-dialog[data-dragging] [data-dialog-drag-handle] {
+  cursor: grabbing;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

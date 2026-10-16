@@ -12,7 +12,7 @@ export function InteractionSurface({ style, ...props }: ComponentPropsWithRef<"d
   }} />;
 }
 export function InteractionHeader({ title, subtitle, id }: { title: ReactNode; subtitle?: ReactNode; id?: string }) {
-  return <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+  return <div data-dialog-drag-handle style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
     <div id={id} style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{title}</div>
     {subtitle && <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{subtitle}</div>}
   </div>;
