@@ -899,6 +899,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog(request);
         break;
       case "notify": {
+        // Pivot already displays usage statistics; suppress extension TPS summaries only.
+        if ((request.notifyType ?? "info") === "info"
+          && /^TPS\s+\d+(?:\.\d+)?\s+tok\/s\.\s+out\s+[\d,]+,\s+in\s+[\d,]+,\s+cache r\/w\s+[\d,]+\/[\d,]+,\s+total\s+[\d,]+,\s+\d+(?:\.\d+)?s\s*$/i.test(request.message.trim())) break;
         addNotice({
           id: request.id,
           message: request.message,

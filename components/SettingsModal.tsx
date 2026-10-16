@@ -17,6 +17,8 @@ interface SettingsModalProps {
   onModelsChanged?: () => void;
   showTps: boolean;
   onTpsToggle: () => void;
+  showTurnTps: boolean;
+  onTurnTpsToggle: () => void;
   showCost: boolean;
   onCostToggle: () => void;
   timeFormat: TimeFormat;
@@ -25,7 +27,7 @@ interface SettingsModalProps {
   onEnterBehaviorChange: (behavior: "steer" | "followUp") => void;
 }
 
-export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, showCost, onCostToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
+export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, showTurnTps, onTurnTpsToggle, showCost, onCostToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const backdrop = useBackdropDismiss(onClose);
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
@@ -488,6 +490,19 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
                   />
                   {t("settings.showTps")}
+                </label>
+                <label
+                  htmlFor="settings-show-turn-tps"
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, color: "var(--text)", cursor: "pointer", fontSize: 13 }}
+                >
+                  <input
+                    id="settings-show-turn-tps"
+                    type="checkbox"
+                    checked={showTurnTps}
+                    onChange={onTurnTpsToggle}
+                    style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("settings.showTurnTps")}
                 </label>
                 <label
                   htmlFor="settings-show-cost"

@@ -11,6 +11,7 @@ export interface UserPreferences {
   "tool-preset": ToolPreset;
   "sound-enabled": boolean;
   "tps-enabled": boolean;
+  "turn-tps-enabled": boolean;
   "cost-enabled": boolean;
   "fork-hierarchy-enabled": boolean;
   "enter-behavior": EnterBehavior;
@@ -28,6 +29,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "tool-preset": "full",
   "sound-enabled": false,
   "tps-enabled": false,
+  "turn-tps-enabled": false,
   "cost-enabled": true,
   "fork-hierarchy-enabled": false,
   "enter-behavior": "followUp",
@@ -51,6 +53,7 @@ export function normalizePreferences(value: unknown): UserPreferences {
       : DEFAULT_PREFERENCES["tool-preset"],
     "sound-enabled": raw["sound-enabled"] === true,
     "tps-enabled": raw["tps-enabled"] === true,
+    "turn-tps-enabled": raw["turn-tps-enabled"] === true,
     "cost-enabled": typeof raw["cost-enabled"] === "boolean" ? raw["cost-enabled"] : DEFAULT_PREFERENCES["cost-enabled"],
     "fork-hierarchy-enabled": typeof raw["fork-hierarchy-enabled"] === "boolean"
       ? raw["fork-hierarchy-enabled"]

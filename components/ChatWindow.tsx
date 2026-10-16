@@ -50,6 +50,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   showTps?: boolean;
+  showTurnTps?: boolean;
   showCost?: boolean;
   timeFormat?: TimeFormat;
   enterBehavior?: EnterBehavior;
@@ -160,7 +161,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, expanded, onToggle, 
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showTurnTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
   const [expandedProcessGroups, setExpandedProcessGroups] = useState<Set<string>>(() => new Set());
   const toggleProcessGroup = useCallback((key: string) => {
     setExpandedProcessGroups((previous) => {
@@ -509,6 +510,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onNavigate={agentRunning || inputSending || isCompacting ? undefined : handleNavigate}
                     showTimestamp={showTimestamp}
                     showTps={showTps}
+                    showTurnTps={showTurnTps}
                     showCost={showCost}
                     hour12={hour12}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}

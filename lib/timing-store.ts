@@ -86,6 +86,14 @@ export function formatDisplayedElapsed(ms: number | undefined, running: boolean)
   return formatElapsed(ms);
 }
 
+/** Uses one assistant message's output and its own complete turn, including tools. */
+export function formatTurnTps(output: number | undefined, durationMs: number | undefined): string {
+  if (output === undefined || !Number.isFinite(output) || output < 0
+    || durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return "";
+  const tps = output / (durationMs / 1000);
+  return Number.isFinite(tps) ? `${tps.toFixed(1)} t/s` : "";
+}
+
 export function appendElapsedToUsage(usage: string, exact?: number, estimate?: number): string {
   const elapsed = exact !== undefined ? formatElapsed(exact)
     : estimate !== undefined ? formatElapsed(estimate) : "";

@@ -186,6 +186,7 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const showTps = preferences["tps-enabled"];
+  const showTurnTps = preferences["turn-tps-enabled"];
   const showCost = preferences["cost-enabled"];
   const timeFormat: TimeFormat = preferences["time-format"];
   const enterBehavior: EnterBehavior = preferences["enter-behavior"];
@@ -201,6 +202,10 @@ export function AppShell() {
   const handleTpsToggle = useCallback(() => {
     void updatePreferences({ "tps-enabled": !showTps }).catch(() => undefined);
   }, [showTps, updatePreferences]);
+
+  const handleTurnTpsToggle = useCallback(() => {
+    void updatePreferences({ "turn-tps-enabled": !showTurnTps }).catch(() => undefined);
+  }, [showTurnTps, updatePreferences]);
 
   const handleCostToggle = useCallback(() => {
     void updatePreferences({ "cost-enabled": !showCost }).catch(() => undefined);
@@ -1341,6 +1346,7 @@ export function AppShell() {
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               showTps={showTps}
+              showTurnTps={showTurnTps}
               showCost={showCost}
               timeFormat={timeFormat}
               enterBehavior={enterBehavior}
@@ -1383,7 +1389,7 @@ export function AppShell() {
         }}
       />
     </div>
-    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} showCost={showCost} onCostToggle={handleCostToggle} timeFormat={timeFormat} onTimeFormatChange={handleTimeFormatChange} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
+    {settingsOpen && <SettingsModal onClose={() => { setSettingsOpen(false); setModelsRefreshKey((k) => k + 1); }} onModelsChanged={() => setModelsRefreshKey((k) => k + 1)} showTps={showTps} onTpsToggle={handleTpsToggle} showTurnTps={showTurnTps} onTurnTpsToggle={handleTurnTpsToggle} showCost={showCost} onCostToggle={handleCostToggle} timeFormat={timeFormat} onTimeFormatChange={handleTimeFormatChange} enterBehavior={enterBehavior} onEnterBehaviorChange={handleEnterBehaviorChange} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig
         cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}

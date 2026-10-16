@@ -11,7 +11,7 @@ import { recordedCost, summarizeUsage } from "@/lib/session-usage";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock } from "@/lib/message-display";
-import { appendElapsedToUsage, formatDisplayedElapsed, readTiming, recordedDuration } from "@/lib/timing-store";
+import { appendElapsedToUsage, formatDisplayedElapsed, formatTurnTps, readTiming, recordedDuration } from "@/lib/timing-store";
 import { useI18n } from "@/lib/i18n";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import {
@@ -75,6 +75,7 @@ interface Props {
   onNavigate?: (entryId: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  showTurnTps?: boolean;
   showCost?: boolean;
   hour12?: boolean;
   sessionId?: string;
@@ -122,12 +123,12 @@ function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string
   return message.content.every((block) => block.type !== "toolCall" || previous?.get(block.toolCallId) === next?.get(block.toolCallId));
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showTurnTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showTurnTps={showTurnTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -154,6 +155,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onNavigate === next.onNavigate
     && prev.showTimestamp === next.showTimestamp
     && prev.showTps === next.showTps
+    && prev.showTurnTps === next.showTurnTps
     && prev.showCost === next.showCost
     && prev.hour12 === next.hour12
     && prev.sessionId === next.sessionId
@@ -557,6 +559,7 @@ function AssistantMessageView({
   onOpenFile,
   showTimestamp,
   showTps = false,
+  showTurnTps = false,
   showCost = true,
   hour12,
   sessionId,
@@ -581,6 +584,7 @@ function AssistantMessageView({
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
   showTps?: boolean;
+  showTurnTps?: boolean;
   showCost?: boolean;
   hour12: boolean;
   sessionId?: string;
@@ -610,16 +614,23 @@ function AssistantMessageView({
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
 
+  const ownTurnDuration = timingRevision && sessionId && timingMessageId
+    ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
   // Expanded details show one turn; the collapsed answer may supply a group
   // total. Never fall back to just the final turn when part of a group is missing.
   const turnDuration = !showTurnDuration ? undefined : turnDurationOverride !== undefined
-    ? turnDurationOverride.exact
-    : timingRevision && sessionId && timingMessageId ? readTiming(`turn:${sessionId}:${timingMessageId}`) : undefined;
-  const usageLine = appendElapsedToUsage(
-    message.usage ? formatUsage(message.usage, showCost) : "",
-    turnDuration,
-    showTurnDuration ? (turnDurationOverride !== undefined ? turnDurationOverride.estimate : estimatedTurnDuration) : undefined,
-  );
+    ? turnDurationOverride.exact : ownTurnDuration;
+  // TPS always pairs this message's output with its own turn, never the group.
+  const turnTps = showTurnTps && showTurnDuration
+    ? formatTurnTps(message.usage?.output, ownTurnDuration ?? estimatedTurnDuration) : "";
+  const usageLine = [
+    appendElapsedToUsage(
+      message.usage ? formatUsage(message.usage, showCost) : "",
+      turnDuration,
+      showTurnDuration ? (turnDurationOverride !== undefined ? turnDurationOverride.estimate : estimatedTurnDuration) : undefined,
+    ),
+    turnTps,
+  ].filter(Boolean).join(" · ");
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
