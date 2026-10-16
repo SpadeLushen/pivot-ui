@@ -7,6 +7,7 @@ import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { CatalogModelType, ModelTypeCounts } from "@/lib/model-catalog";
 import { ProviderModelCatalog } from "./ProviderModelCatalog";
+import { ProviderUpgradeNotice } from "./ProviderUpgradeNotice";
 import { MODEL_APIS, type SavedSamplingFields } from "@/lib/typed-model-config";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
@@ -311,6 +312,8 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
           {t("general.delete")}
         </button>
       </div>
+
+      <ProviderUpgradeNotice providerId={name} overrides={[provider, ...(provider.models ?? []), ...Object.values(provider.modelOverrides ?? {}).filter((value): value is Record<string, unknown> => typeof value === "object" && value !== null)]} />
 
       <Field label="Provider name">
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
@@ -662,6 +665,7 @@ function ModelDetail({
           placeholder={'{"state":{},"questions":{"ok":{"type":"bool","instructions":"Is this OK?","criteria":{"true":"Yes","false":"No"}}}}'} />
         <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("models.classifierTestNotice")}</span>
       </Field>}
+      <ProviderUpgradeNotice providerId={providerName} overrides={[provider, model]} />
       <Field label="API override">
         <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={MODEL_APIS[modelType] ?? API_OPTIONS} />
       </Field>

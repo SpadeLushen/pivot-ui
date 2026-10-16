@@ -509,6 +509,13 @@ const zh: Record<string, string> = {
   "models.configurationInvalid": "无法加载模型配置，请检查模型参数和覆盖设置；原文件未被修改。",
   "models.selectModel": "选择模型",
   "models.noAvailableModels": "没有可用的聊天模型。",
+  "models.scope.no-match": "没有模型匹配 enabledModels 规则：${pattern}",
+  "models.scope.invalid-thinking-level": "enabledModels 规则中的思考级别无效：${pattern}。将使用默认级别。",
+  "models.scope.ambiguous": "规则 ${pattern} 匹配多个 Provider，已保留全部匹配；请用 provider/modelId 指定其中一个。",
+  "models.scope.fallback": "enabledModels 规则均未匹配，当前显示全部可用聊天模型。",
+  "models.scope.unavailable": "enabledModels 解析超时或可用性刷新失败，当前显示未过滤的可用模型快照。",
+  "models.kimiProtocolUpgrade": "Kimi Coding 已改用 Chat Completions，默认地址为 https://api.kimi.com/coding/v1。请检查保存的 API、Base URL 和 Anthropic compat 覆盖；自定义代理需先确认支持的协议。",
+  "models.opencodeEndpointUpgrade": "OpenCode 已将 /zen 改为 /inference（Go 为 /inference/go）。请检查此地址覆盖；Go MiniMax M2.7 使用 Anthropic Messages，Gemini 使用 Google API。",
   "models.catalogMayBeStale": "当前显示上次目录，信息可能已过期。",
   "models.catalogCached": "OpenRouter 目录来自缓存，信息可能已过期。",
   "models.catalogRefreshing": "正在刷新 OpenRouter 目录…",
@@ -668,6 +675,8 @@ const zh: Record<string, string> = {
   "message.omittedImageData": "[已省略图片数据]",
   "message.structuredTruncated": "[预览已截断]",
   "message.structuredUnavailable": "结构化结果不可用。",
+  "message.invalidArguments": "工具参数无效",
+  "message.codemodeCapacity": "codemode 容量已满；请等待运行中或退出中的 worker 释放名额后重试。",
 
   // Nested tool calls
   "nested.title": "子调用",

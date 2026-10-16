@@ -13,6 +13,7 @@ import type {
   ToolResultMessage,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import type { ModelScopeDiagnosticDto } from "@/lib/models-cache";
 import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session-models";
 import type { TypedModelEntry } from "@/lib/model-catalog";
 import { successfulResponseModel } from "@/lib/response-model";
@@ -355,6 +356,7 @@ type ModelsResponse = {
   typedCatalog?: TypedModelEntry[];
   catalogUnavailable?: boolean;
   catalogError?: string;
+  modelScopeDiagnostics?: ModelScopeDiagnosticDto[];
   openRouterCatalog?: ModelCatalogRefreshStatus;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
@@ -404,6 +406,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelCatalog, setModelCatalog] = useState<TypedModelEntry[]>([]);
   const [catalogUnavailable, setCatalogUnavailable] = useState(true);
   const [modelCatalogError, setModelCatalogError] = useState<string | null>(null);
+  const [modelScopeDiagnostics, setModelScopeDiagnostics] = useState<ModelScopeDiagnosticDto[]>([]);
   const [openRouterCatalog, setOpenRouterCatalog] = useState<ModelCatalogRefreshStatus | null>(null);
   const modelsReadRevision = useRef(0);
   const [routedModel, setRoutedModel] = useState<RoutedModel | null>(null);
@@ -1577,6 +1580,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     signal?.throwIfAborted();
     if (revision !== modelsReadRevision.current) return;
     setModelCatalogError(d.catalogError ?? null);
+    setModelScopeDiagnostics(d.modelScopeDiagnostics ?? []);
     setOpenRouterCatalog(d.openRouterCatalog ?? null);
     setModelNames(d.models);
     setModelCatalog(d.typedCatalog ?? []);
@@ -1923,7 +1927,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // State
     data, loading, error, activeLeafId, messages, entryIds, entryTimestamps, streamState,
     agentRunning, inputSending: inputPending, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
-    openRouterCatalog, modelCatalogError, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
+    openRouterCatalog, modelCatalogError, modelScopeDiagnostics, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, selectedModelInfo, routedModel: routedModelInfo, selectionNotice, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,

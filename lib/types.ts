@@ -105,6 +105,8 @@ export interface ToolCallContent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** SDK diagnostic, including the raw malformed arguments. Never executable input. */
+  argumentsError?: string;
 }
 
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;

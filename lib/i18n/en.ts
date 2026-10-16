@@ -507,6 +507,13 @@ const en: Record<string, string> = {
   "models.configurationInvalid": "Model configuration could not be loaded. Check model parameters and overrides; your files were not changed.",
   "models.selectModel": "Select a model",
   "models.noAvailableModels": "No available chat models.",
+  "models.scope.no-match": "No models match enabledModels pattern: ${pattern}",
+  "models.scope.invalid-thinking-level": "Invalid thinking level in enabledModels pattern: ${pattern}. Using the default level.",
+  "models.scope.ambiguous": "Pattern ${pattern} matches multiple Providers. All matches are included; use provider/modelId to choose one.",
+  "models.scope.fallback": "No enabledModels patterns matched. Showing all available chat models.",
+  "models.scope.unavailable": "enabledModels could not be resolved in time or availability refresh failed. Showing the available snapshot without filtering.",
+  "models.kimiProtocolUpgrade": "Kimi Coding now uses Chat Completions at https://api.kimi.com/coding/v1. Review the saved API, Base URL and Anthropic compat overrides. Confirm custom proxy support before changing them.",
+  "models.opencodeEndpointUpgrade": "OpenCode now uses /inference instead of /zen (/inference/go for Go). Review this endpoint override; Go MiniMax M2.7 uses Anthropic Messages and Gemini uses the Google API.",
   "models.catalogMayBeStale": "Showing the last catalog; it may be out of date.",
   "models.catalogCached": "OpenRouter catalog is cached and may be out of date.",
   "models.catalogRefreshing": "Refreshing OpenRouter catalog…",
@@ -666,6 +673,8 @@ const en: Record<string, string> = {
   "message.omittedImageData": "[image data omitted]",
   "message.structuredTruncated": "[preview truncated]",
   "message.structuredUnavailable": "Structured result unavailable.",
+  "message.invalidArguments": "Invalid tool arguments",
+  "message.codemodeCapacity": "Codemode capacity reached; wait for running or shutting-down workers to exit, then retry.",
 
   // Nested tool calls
   "nested.title": "Child calls",

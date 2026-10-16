@@ -1520,6 +1520,8 @@ export async function startRpcSession(
       throw new Error("Saved Azure model could not be restored. Configure its credentials/model before continuing.");
     }
 
+    // Pi 1.3 restores transcript tools first; Pivot policy remains authoritative.
+    // Keep restored indirect tools active only while their owner/exposure rules allow it.
     activateAllSessionTools(inner);
 
     // Keep existing empty-session visibility through the public manager API,

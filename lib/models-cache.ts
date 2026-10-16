@@ -1,7 +1,13 @@
 import type { TypedModelEntry } from "./model-catalog";
 import type { ModelPickerEntry } from "./session-models";
 
+export interface ModelScopeDiagnosticDto {
+  code: "no-match" | "invalid-thinking-level" | "ambiguous" | "fallback" | "unavailable";
+  pattern: string;
+}
+
 export interface ModelsData {
+  modelScopeDiagnostics?: ModelScopeDiagnosticDto[];
   typedCatalog: TypedModelEntry[];
   catalogUnavailable?: boolean;
   catalogError?: string;

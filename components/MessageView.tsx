@@ -938,7 +938,10 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
   const hasNested = Boolean(group && (group.calls.length || !group.complete));
   const usage = result?.usage ? summarizeUsage(result.usage) : null;
   const cost = recordedCost(result?.usage);
-  const isError = result?.isError ?? false;
+  const isError = Boolean(block.argumentsError) || (result?.isError ?? false);
+  const workerLimitReached = isCodemode && result?.isError && result.content.some(
+    (item) => item.type === "text" && item.text.includes("Codemode worker limit reached ("),
+  );
   const isPending = !result || result.isPartial === true;
 
   return (
@@ -973,7 +976,9 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
         <span style={{ color: isError ? "#f87171" : isPending ? "var(--text-muted)" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
-        {isCodemode ? <NestedCallTrail group={group} /> : (
+        {block.argumentsError ? <span style={{ color: "#f87171", flex: 1 }}>{t("message.invalidArguments")}</span> : workerLimitReached ? (
+          <span style={{ color: "#f87171", flex: 1 }}>{t("message.codemodeCapacity")}</span>
+        ) : isCodemode ? <NestedCallTrail group={group} /> : (
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {getToolPreview(block)}
           </span>
@@ -989,7 +994,8 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
       </button>
 
       {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {expanded && block.argumentsError && <pre style={{ margin: 0, padding: "8px 10px", borderTop: "1px solid var(--border)", color: "#f87171", whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 360, overflow: "auto" }}>{block.argumentsError}</pre>}
+      {expanded && !block.argumentsError && !isEditTool && (
         <details open={!hasNested}>
         <summary style={{ display: hasNested ? undefined : "none", padding: "8px 10px", color: "var(--text-muted)", borderTop: "1px solid var(--border)", cursor: "pointer" }}>{t("nested.input")}</summary>
         <pre

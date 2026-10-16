@@ -16,6 +16,8 @@ import { useI18n } from "@/lib/i18n";
 import { WorktreeSwitcher } from "./WorktreeSwitcher";
 import { ChatPackSelector } from "./ChatPackSelector";
 import { ModelCatalogRefreshNotice } from "./ModelCatalogRefreshNotice";
+import { ModelScopeNotice } from "./ModelScopeNotice";
+import type { ModelScopeDiagnosticDto } from "@/lib/models-cache";
 import type { ModelCatalogRefreshStatus } from "@/lib/model-refresh-types";
 import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File as FileIcon, Lightbulb, Loader2, Paperclip, RefreshCw, SendHorizontal, Square, Volume2, VolumeX, X } from "lucide-react";
 
@@ -38,6 +40,7 @@ export interface Props {
   modelsRefreshing?: boolean;
   modelsRefreshError?: string | null;
   modelCatalogError?: string | null;
+  modelScopeDiagnostics?: ModelScopeDiagnosticDto[];
   openRouterCatalog?: ModelCatalogRefreshStatus | null;
   isCompacting?: boolean;
   compactResult?: CompactResultInfo | null;
@@ -249,7 +252,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
-  onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, openRouterCatalog,
+  onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -1858,6 +1861,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         status={openRouterCatalog} refreshing={modelsRefreshing} error={modelsRefreshError}
                         onRefresh={() => { void onRefreshModels(true); }} />}
                       {modelCatalogError && <p role="alert" style={{ padding: "8px 12px", maxWidth: 380, whiteSpace: "normal", color: "var(--text-muted)", fontSize: 12 }}>{t(modelCatalogError)}</p>}
+                      <ModelScopeNotice diagnostics={modelScopeDiagnostics} />
                       {!modelOptions.length && <p style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12 }}>{t("models.noAvailableModels")}</p>}
                       {modelsByProvider.map((group, gi) => (
                         <div key={group.provider}>
