@@ -13,6 +13,8 @@ interface TimingEvent {
 interface LiveTurn {
   start: number;
   assistant: AssistantMessage | null;
+  firstOutputAt?: number;
+  lastOutputAt?: number;
   thinkingStarts: Map<number, number>;
   thinkingDone: Map<number, number>;
 }
@@ -69,10 +71,25 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
         turn.current = { start: clock, assistant: null, thinkingStarts: new Map(), thinkingDone: new Map() };
         refresh();
         break;
+      case "message_start": {
+        const message = event.message as { role?: string } | undefined;
+        if (message?.role === "assistant" && turn.current) {
+          turn.current.firstOutputAt = undefined;
+          turn.current.lastOutputAt = undefined;
+        }
+        break;
+      }
       case "message_update": {
-        const update = event.assistantMessageEvent as { type?: string; contentIndex?: number } | undefined;
+        const update = event.assistantMessageEvent as { type?: string; contentIndex?: number; delta?: string } | undefined;
         const active = turn.current;
         if (!active || typeof update?.contentIndex !== "number") break;
+        // All model output counts: text, thinking and generated tool arguments.
+        // Empty/start/end events must not extend the output window into waits.
+        if (["text_delta", "thinking_delta", "toolcall_delta"].includes(update.type ?? "")
+          && typeof update.delta === "string" && update.delta.length > 0) {
+          active.firstOutputAt ??= clock;
+          active.lastOutputAt = clock;
+        }
         if (update.type === "thinking_start") active.thinkingStarts.set(update.contentIndex, clock);
         if (update.type === "thinking_end") {
           const start = active.thinkingStarts.get(update.contentIndex);
@@ -88,6 +105,11 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
         const active = turn.current;
         active.assistant = normalizeToolCalls(message) as AssistantMessage;
         const id = assistantTimingId(active.assistant);
+        // Finalize before tools run; never include first-token or completion waits.
+        if (active.firstOutputAt !== undefined && active.lastOutputAt !== undefined
+          && active.lastOutputAt > active.firstOutputAt) {
+          stage(`generation:${sid}:${id}`, active.lastOutputAt - active.firstOutputAt);
+        }
         for (const [index, ms] of active.thinkingDone) stage(`thinking:${sid}:${id}:${index}`, ms);
         // A block cut off by an abort has no thinking_end; do not invent a duration.
         refresh();

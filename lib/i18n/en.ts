@@ -170,7 +170,7 @@ const en: Record<string, string> = {
   "settings.timeFormat12": "12-hour",
   "settings.timeFormat24": "24-hour",
   "settings.usagePerformance": "Usage & performance",
-  "settings.usagePerformanceDescription": "Show realtime TPS while streaming, average TPS in each response footer (including tool execution time), and costs in response footers and the top bar.",
+  "settings.usagePerformanceDescription": "Show realtime TPS while streaming, average TPS from first to last output in each response footer (excluding first-token wait and tool execution), and costs in response footers and the top bar.",
   "settings.showTps": "Show realtime TPS",
   "settings.showTurnTps": "Show turn TPS",
   "settings.showCost": "Show costs",

@@ -172,7 +172,7 @@ const zh: Record<string, string> = {
   "settings.timeFormat12": "12小时制",
   "settings.timeFormat24": "24小时制",
   "settings.usagePerformance": "用量与性能",
-  "settings.usagePerformanceDescription": "选择是否显示流式响应中的实时 TPS、每条响应底部的平均 TPS（含工具执行耗时），以及响应底部和顶栏的费用。",
+  "settings.usagePerformanceDescription": "选择是否显示流式响应中的实时 TPS、每条响应底部从首个到最后一个输出计算的平均 TPS（不含首 token 等待和工具执行耗时），以及响应底部和顶栏的费用。",
   "settings.showTps": "显示实时 TPS",
   "settings.showTurnTps": "显示 turn TPS",
   "settings.showCost": "显示费用",

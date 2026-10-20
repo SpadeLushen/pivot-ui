@@ -620,9 +620,12 @@ function AssistantMessageView({
   // total. Never fall back to just the final turn when part of a group is missing.
   const turnDuration = !showTurnDuration ? undefined : turnDurationOverride !== undefined
     ? turnDurationOverride.exact : ownTurnDuration;
-  // TPS always pairs this message's output with its own turn, never the group.
+  // TPS uses only the observed first-to-last output window, not request/turn time.
+  // Historical timestamps cannot recover this window; never substitute them.
+  const generationDuration = showTurnTps && timingRevision && sessionId && timingMessageId
+    ? readTiming(`generation:${sessionId}:${timingMessageId}`) : undefined;
   const turnTps = showTurnTps && showTurnDuration
-    ? formatTurnTps(message.usage?.output, ownTurnDuration ?? estimatedTurnDuration) : "";
+    ? formatTurnTps(message.usage?.output, generationDuration) : "";
   const usageLine = [
     appendElapsedToUsage(
       message.usage ? formatUsage(message.usage, showCost) : "",

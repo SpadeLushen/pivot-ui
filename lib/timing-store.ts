@@ -86,7 +86,7 @@ export function formatDisplayedElapsed(ms: number | undefined, running: boolean)
   return formatElapsed(ms);
 }
 
-/** Uses one assistant message's output and its own complete turn, including tools. */
+/** Uses one assistant message's output and first-to-last output duration, excluding tool execution. */
 export function formatTurnTps(output: number | undefined, durationMs: number | undefined): string {
   if (output === undefined || !Number.isFinite(output) || output < 0
     || durationMs === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return "";
