@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantMessage } from "@/lib/types";
-import { assistantTimingId, MAX_TIMING_RECORDS, recordedDuration, saveTimings } from "@/lib/timing-store";
+import { assistantTimingId, MAX_TIMING_RECORDS, recordedDuration, saveTiming, saveTimings } from "@/lib/timing-store";
 import { normalizeToolCalls } from "@/lib/normalize";
 
 interface TimingEvent {
@@ -105,10 +105,11 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
         const active = turn.current;
         active.assistant = normalizeToolCalls(message) as AssistantMessage;
         const id = assistantTimingId(active.assistant);
-        // Finalize before tools run; never include first-token or completion waits.
+        // Publish output timing at message_end so TPS is visible while tools run.
+        // Keep thinking/tool/whole-turn timings on their existing batch lifecycle.
         if (active.firstOutputAt !== undefined && active.lastOutputAt !== undefined
           && active.lastOutputAt > active.firstOutputAt) {
-          stage(`generation:${sid}:${id}`, active.lastOutputAt - active.firstOutputAt);
+          saveTiming(`generation:${sid}:${id}`, active.lastOutputAt - active.firstOutputAt);
         }
         for (const [index, ms] of active.thinkingDone) stage(`thinking:${sid}:${id}:${index}`, ms);
         // A block cut off by an abort has no thinking_end; do not invent a duration.
