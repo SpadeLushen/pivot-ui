@@ -132,7 +132,7 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
     setError(null);
     try {
       const query = path ? `?path=${encodeURIComponent(path)}` : "";
-      const response = await fetch(`/api/cwd/browse${query}`);
+      const response = await fetch(`/api/cwd/browse${query}`, { cache: "no-store" });
       const data = await response.json() as DirectoryListing & { error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       setListing(data);
@@ -149,6 +149,7 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
     setSelecting(false);
     setCreating(false);
     setNewWorkspaceName("");
+    setListing(null);
     setPathInput("/");
     void loadDirectory();
   }, [open, loadDirectory]);

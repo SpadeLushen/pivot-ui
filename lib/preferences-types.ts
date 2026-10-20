@@ -17,6 +17,7 @@ export interface UserPreferences {
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
   "default-workspace-parent": string;
+  "workspace-picker-start-directory": string;
   "session-search-enabled": boolean;
   "session-search-path": string;
 }
@@ -35,6 +36,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "enter-behavior": "followUp",
   "time-format": "24",
   "default-workspace-parent": "~/pivot-default-workspaces",
+  "workspace-picker-start-directory": "",
   "session-search-enabled": false,
   "session-search-path": "~/.pivot-ui/session-search.sqlite",
 };
@@ -64,6 +66,9 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "session-search-path": typeof raw["session-search-path"] === "string" && raw["session-search-path"].trim()
       ? raw["session-search-path"].trim()
       : DEFAULT_PREFERENCES["session-search-path"],
+    "workspace-picker-start-directory": typeof raw["workspace-picker-start-directory"] === "string"
+      ? raw["workspace-picker-start-directory"].trim()
+      : DEFAULT_PREFERENCES["workspace-picker-start-directory"],
     "default-workspace-parent": typeof raw["default-workspace-parent"] === "string" && raw["default-workspace-parent"].trim()
       ? raw["default-workspace-parent"].trim()
       : DEFAULT_PREFERENCES["default-workspace-parent"],

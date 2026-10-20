@@ -3,7 +3,7 @@
 // The file is intentionally kept outside any workspace so every browser that
 // connects to this Pivot UI instance observes the same settings.
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, opendirSync, readFileSync } from "node:fs";
 import { rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getPivotUiConfigDir } from "./attachment-config";
@@ -92,6 +92,18 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
       case "time-format":
         if (item !== "12" && item !== "24") return { error: `Invalid preference: ${key}` };
         patch["time-format"] = item;
+        break;
+      case "workspace-picker-start-directory":
+        if (typeof item !== "string") return { error: `Invalid preference: ${key}` };
+        if (item.trim()) {
+          try {
+            const directory = resolveDefaultWorkspaceParent(item);
+            opendirSync(directory).closeSync();
+          } catch {
+            return { error: `Invalid preference: ${key} (use an existing, readable absolute directory or ~/...)` };
+          }
+        }
+        patch["workspace-picker-start-directory"] = item.trim();
         break;
       case "default-workspace-parent":
         if (typeof item !== "string" || !item.trim()) return { error: `Invalid preference: ${key}` };

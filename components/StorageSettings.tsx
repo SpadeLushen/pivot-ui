@@ -12,6 +12,10 @@ export function StorageSettings() {
   const [status, setStatus] = useState<SessionSearchStatus | null>(null);
   const [path, setPath] = useState(preferences["session-search-path"]);
   const [workspaceParent, setWorkspaceParent] = useState(preferences["default-workspace-parent"]);
+  const [pickerStart, setPickerStart] = useState(preferences["workspace-picker-start-directory"]);
+  const [pickerError, setPickerError] = useState("");
+  const [savingPicker, setSavingPicker] = useState(false);
+  const [pickerSaved, setPickerSaved] = useState(false);
   const [parentError, setParentError] = useState("");
   const [savingParent, setSavingParent] = useState(false);
   const [error, setError] = useState("");
@@ -21,6 +25,7 @@ export function StorageSettings() {
 
   useEffect(() => setWorkspaceParent(preferences["default-workspace-parent"]), [preferences["default-workspace-parent"]]);
   useEffect(() => setPath(preferences["session-search-path"]), [preferences["session-search-path"]]);
+  useEffect(() => setPickerStart(preferences["workspace-picker-start-directory"]), [preferences["workspace-picker-start-directory"]]);
   useEffect(() => {
     mounted.current = true;
     const controller = new AbortController();
@@ -94,6 +99,17 @@ export function StorageSettings() {
     } catch { setParentError(t("settings.defaultWorkspaceParentError")); }
     finally { setSavingParent(false); }
   };
+  const savePickerStart = async () => {
+    setSavingPicker(true);
+    setPickerError("");
+    setPickerSaved(false);
+    try {
+      const next = await updatePreferences({ "workspace-picker-start-directory": pickerStart.trim() });
+      setPickerStart(next["workspace-picker-start-directory"]);
+      setPickerSaved(true);
+    } catch { setPickerError(t("storage.workspacePickerStartError")); }
+    finally { setSavingPicker(false); }
+  };
   return <div className="storage-settings">
     <section>
       <h3>{t("storage.sessionTextSearch")}</h3>
@@ -124,6 +140,26 @@ export function StorageSettings() {
           : status.error ? t("storage.incomplete") : t("storage.ready")}
       </p>
       {(error || status?.error) && <p role="alert" className="workspace-error">{error || status?.error}</p>}
+    </section>
+    <section>
+      <h3 id="workspace-picker-start-heading">{t("storage.workspacePickerStart")}</h3>
+      <p id="workspace-picker-start-description">{t("storage.workspacePickerStartDescription")}</p>
+      <form className="storage-path-form" onSubmit={(event) => { event.preventDefault(); void savePickerStart(); }}>
+        <div>
+          <input
+            aria-labelledby="workspace-picker-start-heading"
+            aria-describedby="workspace-picker-start-description"
+            value={pickerStart}
+            disabled={savingPicker}
+            onChange={(event) => { setPickerStart(event.target.value); setPickerError(""); setPickerSaved(false); }}
+          />
+          <button type="submit" disabled={savingPicker}>
+            {t(savingPicker ? "general.saving" : "general.save")}
+          </button>
+        </div>
+      </form>
+      {pickerError && <p role="alert" className="workspace-error">{pickerError}</p>}
+      {pickerSaved && <p role="status">{t("general.saved")}</p>}
     </section>
     {/* Default workspace parent on the server */}
     <section style={{ marginTop: 32 }}>

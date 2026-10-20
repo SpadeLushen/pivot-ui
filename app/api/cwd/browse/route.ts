@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { mkdirSync, opendirSync, realpathSync, statSync } from "fs";
 import { isAbsolute, relative, resolve } from "path";
+import { readPreferences } from "@/lib/preferences";
+import { resolveDefaultWorkspaceParent } from "@/lib/default-workspace-parent";
 
 const DIRECTORY_SCAN_LIMIT = 1_000;
 const DIRECTORY_LIST_LIMIT = 500;
@@ -16,7 +18,9 @@ export async function GET(request: Request) {
   const requestedPath = new URL(request.url).searchParams.get("path");
 
   try {
-    const candidate = requestedPath ? resolve(requestedPath) : "/";
+    const startDirectory = requestedPath ? "" : readPreferences()["workspace-picker-start-directory"];
+    const candidate = requestedPath ? resolve(requestedPath)
+      : startDirectory ? resolveDefaultWorkspaceParent(startDirectory) : "/";
     const directory = realpathSync(candidate);
     if (!statSync(directory).isDirectory()) {
       return NextResponse.json({ error: "Directory is not available" }, { status: 400 });
