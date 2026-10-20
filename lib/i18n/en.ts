@@ -1,6 +1,10 @@
 // English translations (default)
 
 const en: Record<string, string> = {
+  "slash.loadingArguments": "Loading arguments…",
+  "slash.arguments": "/${command} · Arguments",
+  "slash.noArguments": "No matching arguments",
+  "slash.argumentsError": "Could not load arguments. Edit the input to retry.",
   // Native MCP (breaking change; no migration)
   "nativeMcp.title": "Native MCP",
   "packs.workspaceSwitches": "Workspace Packs",

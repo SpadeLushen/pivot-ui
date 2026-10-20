@@ -429,7 +429,7 @@ export class AgentSessionWrapper {
   }
 
   private shouldWaitForExtensions(type: string): boolean {
-    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
+    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands" || type === "get_command_completions";
   }
 
   private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
@@ -877,13 +877,14 @@ export class AgentSessionWrapper {
       }
 
       case "get_commands": {
-        const commands: SlashCommandInfo[] = [];
+        const commands: (SlashCommandInfo & { hasArgumentCompletions?: boolean })[] = [];
         for (const registered of this.inner.extensionRunner.getRegisteredCommands()) {
           commands.push({
             name: registered.invocationName,
             description: registered.description,
             source: "extension",
             sourceInfo: registered.sourceInfo,
+            hasArgumentCompletions: typeof registered.getArgumentCompletions === "function",
           });
         }
         for (const template of this.inner.promptTemplates) {
@@ -905,6 +906,17 @@ export class AgentSessionWrapper {
           });
         }
         return { commands };
+      }
+
+      case "get_command_completions": {
+        if (typeof command.name !== "string" || typeof command.argumentPrefix !== "string") {
+          throw new Error("Invalid command completion request");
+        }
+        const registered = this.inner.extensionRunner.getRegisteredCommands()
+          .find((item) => item.invocationName === command.name);
+        const items = await registered?.getArgumentCompletions?.(command.argumentPrefix);
+        // Only plain completion data crosses the API boundary, never callbacks.
+        return { items: (items ?? []).map(({ value, label, description }) => ({ value, label, description })) };
       }
 
       case "set_tools": {

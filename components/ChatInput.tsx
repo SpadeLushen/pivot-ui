@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { EnterBehavior } from "@/lib/preferences-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftAttachment } from "@/lib/draft-store";
 import {
@@ -58,6 +59,7 @@ export interface Props {
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
+  onLoadSlashArgumentCompletions?: (name: string, prefix: string) => Promise<SlashArgumentCompletion[]>;
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
@@ -135,11 +137,11 @@ function formatTokenCount(tokens: number): string {
   return tokens.toLocaleString();
 }
 
-type SlashCommandPaletteItem = SlashCommandInfo | {
+type SlashCommandPaletteItem = (SlashCommandInfo | {
   name: string;
   description: string;
   source: "builtin";
-};
+}) & { argumentCompletion?: SlashArgumentCompletion };
 
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
@@ -255,7 +257,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, errorNotice, onDismissError, queuedMessages, onRecallQueue, onToggleQueuedMessage, enterBehavior = "followUp",
-  slashCommands, slashCommandsLoading, onLoadSlashCommands,
+  slashCommands, slashCommandsLoading, onLoadSlashCommands, onLoadSlashArgumentCompletions,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
@@ -283,6 +285,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [maxAttachmentBytes, setMaxAttachmentBytes] = useState(DEFAULT_MAX_ATTACHMENT_BYTES);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [slashArgumentResult, setSlashArgumentResult] = useState<{
+    input: string; draftKey?: string; cwd?: string | null;
+    items: SlashArgumentCompletion[]; error?: boolean;
+  } | null>(null);
   const [atQuery, setAtQuery] = useState<AtQueryMatch | null>(null);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
@@ -299,6 +305,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
+  const slashAcceptedValueRef = useRef<string | null>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const atItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
@@ -635,12 +642,48 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [value, attachments, attachmentsReady, isStreaming, isInputSending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
-  const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
+  const slashNameQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
     : null;
+  const slashArgumentMatch = /^\/(\S+) ([^\r\n]*)$/.exec(value);
+  const slashArgumentCommand = onLoadSlashArgumentCompletions && slashArgumentMatch
+    ? slashCommands?.find((command) => command.source === "extension"
+      && command.name === slashArgumentMatch[1] && command.hasArgumentCompletions)
+    : undefined;
+  const slashArgumentName = slashArgumentCommand?.name ?? null;
+  const slashArgumentPrefix = slashArgumentName ? slashArgumentMatch![2] : null;
+  const slashQuery = slashNameQuery ?? (slashArgumentName ? value : null);
+  const slashDiscoveryActive = slashNameQuery !== null || slashArgumentMatch !== null;
+  const currentArgumentResult = slashArgumentResult?.input === value
+    && slashArgumentResult.draftKey === draftKey && slashArgumentResult.cwd === cwd
+    ? slashArgumentResult : null;
+  const slashSuggestionsLoading = slashArgumentName ? !currentArgumentResult : slashCommandsLoading;
 
-  const filteredSlashCommands = (() => {
+  useEffect(() => {
+    if (!slashArgumentName || slashArgumentPrefix === null || !onLoadSlashArgumentCompletions) return;
+    let cancelled = false;
+    const input = value;
+    // Providers own filtering and ordering, including multi-level arguments.
+    const timer = setTimeout(() => {
+      onLoadSlashArgumentCompletions(slashArgumentName, slashArgumentPrefix).then((items) => {
+        if (!cancelled) setSlashArgumentResult({ input, draftKey, cwd, items });
+      }).catch(() => {
+        if (!cancelled) setSlashArgumentResult({ input, draftKey, cwd, items: [], error: true });
+      });
+    }, 100);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [slashArgumentName, slashArgumentPrefix, value, draftKey, cwd, onLoadSlashArgumentCompletions, slashCommands]);
+
+  const filteredSlashCommands: SlashCommandPaletteItem[] = (() => {
     if (slashQuery === null) return [];
+    if (slashArgumentName) {
+      return (currentArgumentResult?.items ?? []).map((item) => ({
+        name: `${slashArgumentName} ${item.value}`,
+        description: item.description,
+        source: "extension",
+        argumentCompletion: item,
+      }));
+    }
     const commands = [...(isStreaming ? [] : BUILTIN_SLASH_COMMANDS), ...(slashCommands ?? [])];
     return [...commands]
       .filter((command) => {
@@ -812,7 +855,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [atActiveIndex, atMenuOpen]);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
-    const nextValue = `/${command.name} `;
+    // A completion value replaces the entire argument prefix, not its last word.
+    // Preserve provider-supplied trailing spaces for the next argument level.
+    const nextValue = `/${command.name}${command.argumentCompletion ? "" : " "}`;
+    slashAcceptedValueRef.current = command.argumentCompletion && !/\s$/.test(nextValue) ? nextValue : null;
     setValue(nextValue);
     setSlashMenuOpen(false);
     setSlashActiveIndex(0);
@@ -1005,18 +1051,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (slashQuery === null) {
       setSlashMenuOpen(false);
       setSlashActiveIndex(0);
-      slashCommandsRequestedRef.current = false;
-      return;
+    } else {
+      setSlashMenuOpen(slashAcceptedValueRef.current !== value);
+      setSlashActiveIndex(0);
     }
-    setSlashMenuOpen(true);
-    setSlashActiveIndex(0);
-    if (!slashCommandsRequestedRef.current && onLoadSlashCommands) {
+    if (!slashDiscoveryActive) {
+      slashCommandsRequestedRef.current = false;
+      slashAcceptedValueRef.current = null;
+    } else if (!slashCommandsRequestedRef.current && onLoadSlashCommands) {
       slashCommandsRequestedRef.current = true;
       Promise.resolve(onLoadSlashCommands()).catch(() => {
         slashCommandsRequestedRef.current = false;
       });
     }
-  }, [slashQuery, onLoadSlashCommands]);
+  }, [slashQuery, slashDiscoveryActive, value, onLoadSlashCommands]);
 
   useEffect(() => {
     if (slashActiveIndex >= filteredSlashCommands.length) {
@@ -1414,13 +1462,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   color: "var(--text-dim)",
                 }}
               >
-                <span>{slashCommandsLoading ? "Loading commands..." : `Slash commands · ${slashCommandCountLabel}`}</span>
+                <span>{slashArgumentName
+                  ? t(slashSuggestionsLoading ? "slash.loadingArguments" : "slash.arguments", { command: slashArgumentName })
+                  : slashCommandsLoading ? "Loading commands..." : `Slash commands · ${slashCommandCountLabel}`}</span>
                 <span style={{ fontFamily: "var(--font-mono)" }}>Tab / Enter</span>
               </div>
               <div style={{ maxHeight: "calc(min(56vh, 460px) - 34px)", overflowY: "auto", padding: 10 }}>
-                {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
+                {!slashSuggestionsLoading && filteredSlashCommands.length === 0 ? (
                   <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
-                    No extension, prompt, or skill commands found
+                    {slashArgumentName
+                      ? t(currentArgumentResult?.error ? "slash.argumentsError" : "slash.noArguments")
+                      : "No extension, prompt, or skill commands found"}
                   </div>
                 ) : (
                   groupedSlashCommands.map((group) => (
@@ -1442,7 +1494,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                           textTransform: "uppercase",
                         }}
                       >
-                        <span>{SLASH_SOURCE_GROUP_LABEL[group.source]}</span>
+                        <span>{slashArgumentName ? `/${slashArgumentName}` : SLASH_SOURCE_GROUP_LABEL[group.source]}</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}>{group.items.length}</span>
                       </div>
                       <div
@@ -1490,7 +1542,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                 overflowWrap: "anywhere",
                                 wordBreak: "break-word",
                               }}>
-                                /{command.name}
+                                {command.argumentCompletion ? command.argumentCompletion.label : `/${command.name}`}
                               </span>
                               {command.description && (
                                 <span style={{

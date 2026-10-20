@@ -8,6 +8,8 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 
+export type SlashArgumentCompletion = import("@earendil-works/pi-tui").AutocompleteItem;
+
 /** Accepted input, not a run-completion acknowledgement. */
 export type InputDisposition = "started" | "queued" | "handled";
 export interface InputReceipt {
@@ -90,6 +92,7 @@ interface ExtensionRunnerLike {
   emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
   getRegisteredCommands(): Array<{
     invocationName: string;
+    getArgumentCompletions?: (prefix: string) => SlashArgumentCompletion[] | null | Promise<SlashArgumentCompletion[] | null>;
     description?: string;
     sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;

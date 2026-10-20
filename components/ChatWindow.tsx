@@ -208,7 +208,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleToggleQueuedMessage, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleThinkingLevelChange, loadSlashCommands,
+    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onPacksChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -355,6 +355,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
+      onLoadSlashArgumentCompletions={loadSlashArgumentCompletions}
       onBuiltinCommand={handleBuiltinSlashCommand}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}

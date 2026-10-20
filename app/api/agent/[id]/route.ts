@@ -20,6 +20,12 @@ export async function POST(
       return NextResponse.json({ success: true, data: result });
     }
 
+    // Argument suggestions use the runtime already loaded by get_commands.
+    // Never start an expired session just for a delayed completion request.
+    if (body.type === "get_command_completions") {
+      return NextResponse.json({ success: true, data: { items: [] } });
+    }
+
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });

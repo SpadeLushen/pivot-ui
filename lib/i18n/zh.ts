@@ -3,6 +3,10 @@
 // Skills, MCP, Packs, Plugins, Prompts, Extensions, Themes, Pivot UI
 
 const zh: Record<string, string> = {
+  "slash.loadingArguments": "正在加载参数候选…",
+  "slash.arguments": "/${command} · 子命令与参数",
+  "slash.noArguments": "没有匹配的子命令或参数",
+  "slash.argumentsError": "无法加载参数候选，请修改输入后重试。",
   // Native MCP (breaking change; no migration)
   "nativeMcp.title": "原生 MCP",
   "packs.workspaceSwitches": "工作区 Packs",

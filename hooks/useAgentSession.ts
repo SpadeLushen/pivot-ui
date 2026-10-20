@@ -28,6 +28,7 @@ import { useTimings } from "@/hooks/useTimings";
 import { useSessionStatistics } from "@/hooks/useSessionStatistics";
 import { useModelCatalogRefresh } from "@/hooks/useModelCatalogRefresh";
 import type { ModelCatalogRefreshStatus } from "@/lib/model-refresh-types";
+import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { ChatInputHandle } from "@/components/ChatInput";
 
 export interface SessionData {
@@ -137,6 +138,7 @@ export interface CompactResultInfo {
 
 export interface SlashCommandInfo {
   name: string;
+  hasArgumentCompletions?: boolean;
   description?: string;
   source: "extension" | "prompt" | "skill";
   sourceInfo?: {
@@ -721,7 +723,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel]);
 
   const loadSlashCommands = useCallback(async () => {
+    const epoch = inputEpochRef.current;
     const sid = sessionIdRef.current ?? await ensureNewSession();
+    if (inputEpochRef.current !== epoch) return [] as SlashCommandInfo[];
     if (!sid) {
       setSlashCommands([]);
       return [] as SlashCommandInfo[];
@@ -730,16 +734,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
       const commands = data?.commands ?? [];
+      if (sessionIdRef.current !== sid || inputEpochRef.current !== epoch) return [] as SlashCommandInfo[];
       setSlashCommands(commands);
       return commands;
     } catch (e) {
       console.error("Failed to load slash commands:", e);
-      setSlashCommands([]);
+      if (sessionIdRef.current === sid && inputEpochRef.current === epoch) setSlashCommands([]);
       return [] as SlashCommandInfo[];
     } finally {
-      setSlashCommandsLoading(false);
+      if (sessionIdRef.current === sid && inputEpochRef.current === epoch) setSlashCommandsLoading(false);
     }
   }, [ensureNewSession]);
+
+  const loadSlashArgumentCompletions = useCallback(async (name: string, argumentPrefix: string) => {
+    const sid = sessionIdRef.current;
+    const epoch = inputEpochRef.current;
+    if (!sid) return [];
+    const data = await sendAgentCommand<{ items: SlashArgumentCompletion[] }>(sid, {
+      type: "get_command_completions", name, argumentPrefix,
+    });
+    if (sessionIdRef.current !== sid || inputEpochRef.current !== epoch) return [];
+    return data?.items ?? [];
+  }, []);
 
   const connectEvents = useCallback((sid: string, clearError = false): Promise<EventStreamConnectionResult> => {
     const connectionEpoch = ++eventConnectionEpochRef.current;
@@ -1946,7 +1962,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleToggleQueuedMessage,
     handleBuiltinSlashCommand,
-    handleThinkingLevelChange, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId, addNotice,
     // Subscriptions
     handleAgentEventRef,
