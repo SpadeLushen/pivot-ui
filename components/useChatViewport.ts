@@ -37,6 +37,7 @@ export function useChatViewport({
   const rememberVisibleStart = useCallback((start: number) => { lastVisibleStartRef.current = start; }, []);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastUserMessageRef = useRef<HTMLDivElement>(null);
@@ -54,6 +55,35 @@ export function useChatViewport({
   // after they have selected a passage to copy for their next prompt.
   const selectionPausedRef = useRef(false);
   const selectionPointerDownRef = useRef(false);
+
+  // Size the in-flow interaction slot against this chat, including the mobile keyboard.
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    const parent = workspace?.parentElement;
+    if (!workspace || !parent) return;
+    const viewport = window.visualViewport;
+    const resize = () => {
+      const top = workspace.getBoundingClientRect().top;
+      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      const height = Math.max(0, Math.min(parent.clientHeight, visibleBottom - top));
+      workspace.style.setProperty("--session-visible-height", `${height}px`);
+      workspace.style.setProperty("--session-interaction-max-height", `${Math.min(height, Math.max(180, Math.floor(height / 2)))}px`);
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(parent);
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    window.addEventListener("resize", resize);
+    resize();
+    return () => {
+      observer.disconnect();
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+      window.removeEventListener("resize", resize);
+      workspace.style.removeProperty("--session-visible-height");
+      workspace.style.removeProperty("--session-interaction-max-height");
+    };
+  }, [loading, hasMessageViewport]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     if (selectionPausedRef.current) return;
@@ -271,6 +301,7 @@ export function useChatViewport({
   }, [streamingMessage, scrollToBottom]);
 
   return {
+    workspaceRef,
     visibleCount,
     pinnedVisibleStart,
     rememberVisibleStart,

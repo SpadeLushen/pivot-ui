@@ -11,7 +11,7 @@ import { knownModelLimit, VIRTUAL_CHAT_API } from "./response-model";
 import { sessionStatistics } from "./session-statistics";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
-import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import type { ExtensionUiInteraction, ExtensionUiSnapshot, ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "./extension-statusline";
 import type { ToolPreset } from "./tool-presets";
 import { activateAllSessionTools } from "./active-tools";
@@ -170,6 +170,11 @@ export class AgentSessionWrapper {
   private listeners: EventListener[] = [];
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
+  private uiRuntimeId = randomUUID();
+  private uiRevision = 0;
+  private uiOrder = new Map<string, number>();
+  private nextUiOrder = 0;
+  private pendingCustomFinishes = new Map<string, () => void>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
@@ -284,6 +289,7 @@ export class AgentSessionWrapper {
       const cwd = this.workspaceCwd();
       const revision = cwd ? readWorkspaceState({ cwd }).revision : this.workspacePackRevision;
       const resources = cwd ? resourceRevision(cwd) : this.workspaceResourceRevision;
+      this.cancelExtensionUi();
       this.extensionStatuses.clear();
       this.extensionWidgets.clear();
       this.extensionsBound = false;
@@ -532,6 +538,7 @@ export class AgentSessionWrapper {
 
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
+    listener(this.getExtensionUiSnapshot() as unknown as AgentEvent);
     for (const event of this.pendingUiRequests.values()) listener(event);
     // Extension startup can finish before the SSE route has attached its
     // listener. Replay the latest fire-and-forget UI state so a newly selected
@@ -675,6 +682,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
+        this.cancelExtensionUi();
         await this.withFinalRunningNotification(() => this.inner.abort());
         return null;
 
@@ -714,6 +722,7 @@ export class AgentSessionWrapper {
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
+          extensionUi: this.getExtensionUiSnapshot(),
         };
       }
 
@@ -940,14 +949,17 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      case "get_extension_ui":
+        return this.getExtensionUiSnapshot();
+
       case "extension_ui_response": {
         this.resolveExtensionUiResponse(command as ExtensionUiResponse);
-        return null;
+        return this.getExtensionUiSnapshot();
       }
 
       case "extension_ui_input": {
         this.handleExtensionUiInput(command.id as string, command.data as string);
-        return null;
+        return this.getExtensionUiSnapshot();
       }
 
       case "set_auto_retry": {
@@ -972,10 +984,7 @@ export class AgentSessionWrapper {
     this.unsubscribeWorkspacePacks?.();
     this.unsubscribeWorkspaceTools?.();
     this.unsubscribeResourceChanges?.();
-    for (const pending of this.pendingUiResponses.values()) pending.cancel();
-    for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
-    this.pendingUiResponses.clear();
-    this.pendingUiRequests.clear();
+    this.cancelExtensionUi();
     const dispose = () => { try { this.inner.dispose(); } catch { /* cleanup must not strand the wrapper */ } };
     if (this.inner.extensionRunner?.emit) {
       // dispose() alone does not emit session_shutdown; native MCP owns processes.
@@ -993,10 +1002,40 @@ export class AgentSessionWrapper {
     await this.shutdownPromise;
   }
 
+  private getExtensionUiSnapshot(): ExtensionUiSnapshot {
+    const requests = [...this.pendingUiRequests.values()].sort((a, b) =>
+      (this.uiOrder.get(a.id as string) ?? 0) - (this.uiOrder.get(b.id as string) ?? 0));
+    return { type: "extension_ui_snapshot", sessionId: this.sessionId, runtimeId: this.uiRuntimeId,
+      revision: this.uiRevision, requests: requests as unknown as ExtensionUiInteraction[] };
+  }
+
+  private publishExtensionUi(): void {
+    this.uiRevision++;
+    this.emit(this.getExtensionUiSnapshot() as unknown as AgentEvent);
+  }
+
+  private cancelExtensionUi(): void {
+    for (const pending of this.pendingUiResponses.values()) pending.cancel();
+    for (const id of [...this.activeCustomUis.keys()]) this.closeCustomUi(id, undefined);
+    for (const finish of this.pendingCustomFinishes.values()) finish();
+  }
+
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
     const pending = this.pendingUiResponses.get(response.id);
-    if (!pending) return;
-    pending.resolve(response);
+    if (!pending) return; // Already answered/expired: no duplicate side effects.
+    const request = this.pendingUiRequests.get(response.id);
+    if (this.getExtensionUiSnapshot().requests.at(-1)?.id !== response.id) throw new Error("This question is not active");
+    const cancelled = "cancelled" in response && response.cancelled === true;
+    if (!cancelled) {
+      if (request?.method === "confirm") {
+        if (!("confirmed" in response) || typeof response.confirmed !== "boolean") throw new Error("Invalid confirmation");
+      } else {
+        if (!("value" in response) || typeof response.value !== "string") throw new Error("Invalid question response");
+        if (request?.method === "select" && !(request.options as string[]).includes(response.value)) throw new Error("Invalid choice");
+      }
+    }
+    if (cancelled) pending.cancel();
+    else pending.resolve(response);
   }
 
   private getExtensionStatuses(): Array<{ key: string; text: string }> {
@@ -1032,6 +1071,7 @@ export class AgentSessionWrapper {
       lines,
     } as ExtensionUiRequest as AgentEvent;
     this.pendingUiRequests.set(id, event);
+    this.publishExtensionUi();
     this.emit(event);
   }
 
@@ -1041,6 +1081,8 @@ export class AgentSessionWrapper {
     custom.settled = true;
     this.activeCustomUis.delete(id);
     this.pendingUiRequests.delete(id);
+    this.uiOrder.delete(id);
+    this.publishExtensionUi();
     try {
       custom.component.dispose?.();
     } catch {
@@ -1059,6 +1101,7 @@ export class AgentSessionWrapper {
   private handleExtensionUiInput(id: string, data: string): void {
     const custom = this.activeCustomUis.get(id);
     if (!custom || typeof data !== "string") return;
+    if (this.getExtensionUiSnapshot().requests.at(-1)?.id !== id) throw new Error("This panel is not active");
     try {
       custom.component.handleInput?.(data);
       if (this.activeCustomUis.has(id)) this.emitCustomUiRender(id, custom);
@@ -1077,9 +1120,10 @@ export class AgentSessionWrapper {
     factory: unknown,
     options?: unknown,
   ): Promise<T> {
-    if (typeof factory !== "function") return Promise.resolve(undefined as T);
+    if (!this._alive || typeof factory !== "function") return Promise.resolve(undefined as T);
 
     const id = randomUUID();
+    this.uiOrder.set(id, ++this.nextUiOrder);
     const width = this.getCustomUiWidth(options);
 
     return new Promise<T>((resolve) => {
@@ -1093,8 +1137,11 @@ export class AgentSessionWrapper {
       const finish = (value: T) => {
         if (completed) return;
         completed = true;
+        this.pendingCustomFinishes.delete(id);
+        this.uiOrder.delete(id);
         resolve(value);
       };
+      this.pendingCustomFinishes.set(id, () => finish(undefined as T));
       const done = (value: T) => {
         if (this.activeCustomUis.has(id)) {
           this.closeCustomUi(id, value);
@@ -1147,9 +1194,10 @@ export class AgentSessionWrapper {
     timeout?: number,
     signal?: AbortSignal,
   ): Promise<T> {
-    if (signal?.aborted) return Promise.resolve(defaultValue);
+    if (!this._alive || signal?.aborted) return Promise.resolve(defaultValue);
 
     const id = randomUUID();
+    this.uiOrder.set(id, ++this.nextUiOrder);
     const fullRequest = {
       type: "extension_ui_request",
       id,
@@ -1158,15 +1206,20 @@ export class AgentSessionWrapper {
     };
 
     return new Promise((resolve) => {
+      let settled = false;
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       const cleanup = () => {
         if (timeoutId) clearTimeout(timeoutId);
         signal?.removeEventListener("abort", onAbort);
         this.pendingUiRequests.delete(id);
         this.pendingUiResponses.delete(id);
+        this.uiOrder.delete(id);
       };
       const settle = (value: T) => {
+        if (settled) return;
+        settled = true;
         cleanup();
+        this.publishExtensionUi();
         resolve(value);
       };
       const onAbort = () => settle(defaultValue);
@@ -1179,6 +1232,7 @@ export class AgentSessionWrapper {
         resolve: (response) => settle(parseResponse(response)),
         cancel: () => settle(defaultValue),
       });
+      this.publishExtensionUi();
       this.emit(fullRequest as AgentEvent);
     });
   }
@@ -1340,6 +1394,7 @@ export class AgentSessionWrapper {
       },
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
+        this.cancelExtensionUi();
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
         await this.inner.reload({

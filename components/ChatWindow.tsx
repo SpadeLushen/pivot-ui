@@ -8,6 +8,7 @@ import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistant
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { InteractionHeader, InteractionChoice } from "./InteractionSurface";
+import { SessionInteractionDock } from "./SessionInteractionDock";
 import { SessionDialog, SessionDialogScope } from "./SessionDialog";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { useChatViewport } from "./useChatViewport";
@@ -170,6 +171,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       return next;
     });
   }, []);
+  const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
   // The dialog's background interaction includes both messages and their minimap.
@@ -199,7 +201,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, selectedModelInfo, routedModel, selectionNotice, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
+    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionInteraction, extensionInteractions, setExtensionInteractionValue,
+    extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice,
     isAutoModelSelection,
     agentPhase, timings, nestedCalls, partialToolResults,
     isNew,
@@ -217,7 +220,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // A new session starts without a message viewport; it mounts on the first
   // prompt even though loading stays false. Reattach selection listeners then.
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
-  const { visibleCount, pinnedVisibleStart, rememberVisibleStart, sentinelRef, scrollContainerRef, messagesEndRef, lastUserMessageRef } = useChatViewport({
+  const showWelcome = isEmptyNew && !extensionInteraction;
+  const { workspaceRef, visibleCount, pinnedVisibleStart, rememberVisibleStart, sentinelRef, scrollContainerRef, messagesEndRef, lastUserMessageRef } = useChatViewport({
     messageCount: messages.length,
     streamingMessage: streamState.streamingMessage,
     agentRunning,
@@ -294,9 +298,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
   const onDrop = useCallback((files: File[]) => {
-    if (agentRunning) return;
+    if (agentRunning || extensionInteraction) return;
     chatInputRef?.current?.addFiles(files);
-  }, [agentRunning, chatInputRef]);
+  }, [agentRunning, extensionInteraction, chatInputRef]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -319,6 +323,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
+      suspended={!!extensionInteraction}
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
@@ -391,13 +396,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   return (
     <SessionDialogScope messageListRef={messageListRegionRef}>
     <div
-      className={`chat-workspace ${isEmptyNew ? "chat-empty-workspace" : "chat-session-workspace"} relative flex h-full flex-col overflow-hidden`}
+      ref={workspaceRef}
+      className={`chat-workspace ${showWelcome ? "chat-empty-workspace" : "chat-session-workspace"} relative flex h-full flex-col overflow-hidden`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDragOver && !agentRunning && (
+      {isDragOver && !agentRunning && !extensionInteraction && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
@@ -412,22 +418,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
       )}
 
-      {extensionDialog && (
-        <ExtensionDialog
-          request={extensionDialog}
-          onRespond={respondToExtensionUi}
-        />
-      )}
-
-      {extensionCustomUi && (
-        <ExtensionCustomPanel
-          request={extensionCustomUi}
-          onInput={sendExtensionCustomInput}
-        />
-      )}
-
       {!isEmptyNew && (
-      <div className="chat-scroll-region relative flex flex-1 flex-col overflow-hidden">
+      <div className="chat-scroll-region relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           style={{
             position: "absolute",
@@ -672,12 +664,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
       )}
 
-      {/* Keep the composer mounted when the first prompt leaves the welcome layout. */}
-      <div className={isEmptyNew
+      {isEmptyNew && !showWelcome && <div className="min-h-0 flex-1" />}
+      {/* Keep the composer mounted through welcome and interaction layout changes. */}
+      <div className={showWelcome
         ? "chat-empty-layout relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8"
-        : "relative"}>
-        <div className={isEmptyNew ? "chat-empty-content w-full max-w-[820px]" : undefined}>
-          {isEmptyNew && (
+        : "relative shrink-0"}>
+        <div className={showWelcome ? "chat-empty-content w-full max-w-[820px]" : undefined}>
+          {showWelcome && (
             <>
               <div className="chat-empty-heading">
                 <p>Hello, Developer</p>
@@ -694,6 +687,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             </>
           )}
         <div
+          hidden={!!extensionInteraction}
           style={{
             padding: `0 ${CHAT_COLUMN_PADDING}px`,
             paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
@@ -706,6 +700,28 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         {chatInputElement}
         </div>
       </div>
+      {extensionInteraction && <SessionInteractionDock
+        requestId={extensionInteraction.request.id}
+        title={extensionDialog?.title ?? t("interaction.panel")}
+        pending={extensionInteractions.length}
+        running={agentRunning || inputSending}
+        compacting={isCompacting}
+        onStop={isCompacting ? handleAbortCompaction : handleAbort}
+        error={latestErrorNotice?.message}
+        onDismissError={() => { if (latestErrorNotice) dismissNotice(latestErrorNotice.id); }}
+        retry={retryInfo?.errorMessage}
+        queued={queuedMessages.steering.length + queuedMessages.followUp.length}
+      >
+        {extensionDialog && <ExtensionDialog embedded
+          request={extensionDialog} value={extensionInteraction.value}
+          onValueChange={(value) => setExtensionInteractionValue(extensionDialog.id, value)}
+          submitting={extensionInteraction.submitting} failed={extensionInteraction.failed}
+          onRespond={respondToExtensionUi}
+        />}
+        {extensionCustomUi && <ExtensionCustomPanel embedded
+          request={extensionCustomUi} failed={extensionInteraction.failed} onInput={sendExtensionCustomInput}
+        />}
+      </SessionInteractionDock>}
     </div>
     </SessionDialogScope>
   );
@@ -939,19 +955,28 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
 export function ExtensionDialog({
-  request,
-  onRespond,
+  request, onRespond, value: controlledValue, onValueChange, submitting = false, failed = false, embedded = false,
 }: {
   request: ExtensionDialogRequest;
+  embedded?: boolean;
+  value?: string;
+  onValueChange?: (value: string) => void;
+  submitting?: boolean;
+  failed?: boolean;
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
-  const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
-
+  const { t } = useI18n();
+  const [localValue, setLocalValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+  const Surface = embedded ? "div" : SessionDialog;
+  const value = controlledValue ?? localValue;
+  const setValue = onValueChange ?? setLocalValue;
+  const compositionEndedAt = useRef(0);
   useEffect(() => {
-    setValue(request.method === "editor" ? request.prefill ?? "" : "");
-  }, [request]);
+    setLocalValue(request.method === "editor" ? request.prefill ?? "" : "");
+  }, [request.id, request.method, request.method === "editor" ? request.prefill : undefined]);
 
   const submitValue = () => {
+    if (submitting) return;
     if (request.method === "confirm") {
       onRespond(request, { confirmed: true });
     } else {
@@ -960,14 +985,27 @@ export function ExtensionDialog({
   };
 
   return (
-      <SessionDialog key={request.id} aria-label={request.title}
+      <Surface key={request.id} className={embedded ? "session-question" : undefined}
+        aria-label={request.title} aria-busy={submitting}
+        onCompositionEndCapture={() => { compositionEndedAt.current = Date.now(); }}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Enter" && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 ||
+              Date.now() - compositionEndedAt.current < 100)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || submitting) return;
           if (event.key === "Escape") {
             event.stopPropagation();
             onRespond(request, { cancelled: true });
           }
         }}>
-        <InteractionHeader title={request.title} subtitle="extension request" />
+        {embedded ? <div className="session-question-heading"><h2>{request.title}</h2>
+          {submitting && <span role="status">{t("interaction.submitting")}</span>}
+        </div> : <InteractionHeader title={request.title} subtitle={submitting ? t("interaction.submitting") : t("interaction.request")} />}
+        {failed && <div role="alert" style={{ padding: 12, color: "var(--text-muted)" }}>{t("interaction.submitFailed")}</div>}
 
         <div style={{ padding: 14, minHeight: 0, overflowY: "auto" }}>
           {request.method === "confirm" && (
@@ -976,7 +1014,7 @@ export function ExtensionDialog({
           {request.method === "select" && (
             <div style={{ display: "grid", gap: 8 }}>
               {request.options.map((option) => (
-                <InteractionChoice key={option} onClick={() => onRespond(request, { value: option })}>
+                <InteractionChoice key={option} disabled={submitting} onClick={() => onRespond(request, { value: option })}>
                   {option}
                 </InteractionChoice>
               ))}
@@ -984,12 +1022,14 @@ export function ExtensionDialog({
           )}
           {request.method === "input" && (
             <input
-              autoFocus
+              data-interaction-focus
+              autoFocus={!embedded}
+              readOnly={submitting}
               value={value}
               placeholder={request.placeholder}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submitValue();
+                if (!e.nativeEvent.isComposing && e.key === "Enter") { e.preventDefault(); submitValue(); }
               }}
               style={{
                 width: "100%",
@@ -1005,11 +1045,13 @@ export function ExtensionDialog({
           )}
           {request.method === "editor" && (
             <textarea
-              autoFocus
+              data-interaction-focus
+              autoFocus={!embedded}
+              readOnly={submitting}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
+                if (!e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submitValue(); }
               }}
               style={{
                 width: "100%",
@@ -1031,6 +1073,8 @@ export function ExtensionDialog({
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
           <button
+            data-interaction-focus
+            disabled={submitting}
             onClick={() => onRespond(request, { cancelled: true })}
             style={{
               padding: "6px 10px",
@@ -1041,10 +1085,11 @@ export function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            Cancel
+            {t("interaction.cancel")}
           </button>
           {request.method === "confirm" ? (
             <button
+              disabled={submitting}
               onClick={submitValue}
               style={{
                 padding: "6px 10px",
@@ -1055,10 +1100,11 @@ export function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Confirm
+              {t("interaction.confirm")}
             </button>
           ) : request.method !== "select" ? (
             <button
+              disabled={submitting}
               onClick={submitValue}
               style={{
                 padding: "6px 10px",
@@ -1069,11 +1115,11 @@ export function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Submit
+              {t("interaction.submit")}
             </button>
           ) : null}
         </div>
-      </SessionDialog>
+      </Surface>
   );
 }
 
@@ -1121,29 +1167,33 @@ function renderAnsiLine(line: string, keyPrefix: string): ReactNode[] {
 }
 
 function ExtensionCustomPanel({
-  request,
-  onInput,
+  request, onInput, embedded = false, failed = false,
 }: {
   request: ExtensionCustomRequest;
+  embedded?: boolean;
+  failed?: boolean;
   onInput: (request: ExtensionCustomRequest, data: string) => void;
 }) {
   const { t } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const displayLines = normalizeCustomPanelLines(request.lines);
+  const Surface = embedded ? "div" : SessionDialog;
 
   useEffect(() => {
-    panelRef.current?.focus();
-  }, [request.id]);
+    if (!embedded) panelRef.current?.focus();
+  }, [request.id, embedded]);
 
   return (
-      <SessionDialog
+      <Surface
         key={request.id}
         ref={panelRef}
-        className="extension-custom-surface"
+        data-interaction-focus
+        className={embedded ? "session-custom-question" : "extension-custom-surface"}
         tabIndex={0}
-        role="dialog"
-        aria-label="Extension panel"
+        role={embedded ? undefined : "dialog"}
+        aria-label={t("interaction.panel")}
         onKeyDown={(e) => {
+          if ((e.target as Element).closest("button") || e.nativeEvent.isComposing) return;
           const data = toTerminalKeyData(e);
           if (!data) return;
           e.preventDefault();
@@ -1151,18 +1201,18 @@ function ExtensionCustomPanel({
           onInput(request, data);
         }}
         style={{
-          width: "min(920px, 100%)",
-          maxHeight: "min(760px, calc(100vh - 40px))",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
+          width: embedded ? "100%" : "min(920px, 100%)",
+          maxHeight: embedded ? undefined : "min(760px, calc(100vh - 40px))",
+          border: embedded ? "none" : "1px solid var(--border)",
+          borderRadius: embedded ? 0 : 8,
           background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+          boxShadow: embedded ? "none" : "0 20px 60px rgba(0,0,0,0.28)",
           overflow: "hidden",
           outline: "none",
         }}
       >
-        <div data-dialog-drag-handle style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
+        <div data-dialog-drag-handle={!embedded || undefined} style={{ display: "flex", flexShrink: 0, alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("interaction.panel")}</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{
@@ -1178,11 +1228,12 @@ function ExtensionCustomPanel({
             {t("general.close")}
           </button>
         </div>
+        {failed && <div role="alert" className="session-interaction-status">{t("interaction.customInputFailed")}</div>}
         <pre
           style={{
             margin: 0,
             padding: 14,
-            maxHeight: "calc(min(760px, 100vh - 40px) - 48px)",
+            maxHeight: embedded ? undefined : "calc(min(760px, 100vh - 40px) - 48px)",
             overflow: "auto",
             background: "var(--bg-panel)",
             color: "var(--text)",
@@ -1199,6 +1250,6 @@ function ExtensionCustomPanel({
             </Fragment>
           ))}
         </pre>
-      </SessionDialog>
+      </Surface>
   );
 }

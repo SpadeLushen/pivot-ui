@@ -1,5 +1,46 @@
 @import "tailwindcss";
 
+/* Extension questions participate in chat layout, never in the global modal layer. */
+.chat-workspace { min-height: 0; max-height: var(--session-visible-height, 100%); }
+.chat-input-shell[hidden] { display: none !important; }
+.session-interaction-dock {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: var(--session-interaction-max-height, 50dvh);
+  margin: 0 16px max(8px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+  outline: none;
+}
+.session-interaction-toolbar, .session-interaction-status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px; flex-shrink: 0; font-size: 12px;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+.session-interaction-toolbar button, .session-interaction-status button {
+  margin-left: auto; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text); padding: 4px 9px;
+}
+.session-interaction-status { align-items: flex-start; overflow-wrap: anywhere; max-height: 72px; overflow: auto; }
+.session-question, .session-custom-question {
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden; flex: 1 1 auto;
+}
+.session-question-heading { padding: 10px 14px; flex-shrink: 0; max-height: min(96px, calc(var(--session-interaction-max-height, 50dvh) * .25)); overflow: auto; border-bottom: 1px solid var(--border); }
+.session-question-heading h2 { margin: 0; font-size: 14px; font-weight: 650; white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-question > div:last-child { flex-shrink: 0; }
+.session-question button:disabled { cursor: wait; opacity: .65; }
+.session-question textarea { resize: none !important; min-height: min(220px, 24dvh) !important; }
+.session-custom-question pre { min-height: 0; flex: 1 1 auto; }
+@media (max-width: 640px) {
+  .session-interaction-dock { margin-left: 8px; margin-right: 8px; }
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);

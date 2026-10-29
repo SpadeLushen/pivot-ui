@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { EnterBehavior } from "@/lib/preferences-types";
@@ -30,6 +30,8 @@ export interface Props {
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   isStreaming: boolean;
   isInputSending?: boolean;
+  /** Keep draft/upload state mounted while an extension owns the composer slot. */
+  suspended?: boolean;
   model?: SelectedModel | null;
   routedModel?: RoutedModel | null;
   selectionNotice?: "unknown" | "missing" | null;
@@ -252,7 +254,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
   onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -296,6 +298,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
 
+  const shellRef = useRef<HTMLDivElement>(null);
+  const suspendedRef = useRef(suspended);
+  suspendedRef.current = suspended;
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
@@ -319,6 +325,50 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachmentsRef.current = attachments;
 
+  // Capture focus before hiding; keep the same DOM and all upload/draft state alive.
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    if (suspended) {
+      const active = document.activeElement;
+      restoreFocusRef.current = active instanceof HTMLElement && shell.contains(active) ? active : null;
+      shell.hidden = true;
+      shell.inert = true;
+      shell.setAttribute("aria-hidden", "true");
+      setModelDropdownOpen(false);
+      setThinkingDropdownOpen(false);
+      setControlsMenuOpen(false);
+      setSlashMenuOpen(false);
+      setAtMenuOpen(false);
+      setAtQuery(null);
+    } else {
+      shell.hidden = false;
+      shell.inert = false;
+      shell.removeAttribute("aria-hidden");
+      if (textareaRef.current) resizeComposerTextarea(textareaRef.current);
+      const target = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      const active = document.activeElement;
+      if (target?.isConnected && !window.getSelection()?.toString() &&
+          (!active || active === document.body || active.closest("[data-session-interaction]"))) {
+        target.focus({ preventScroll: true });
+      }
+    }
+  }, [suspended]);
+
+  useEffect(() => {
+    if (!suspended) return;
+    const moved = (event: Event) => {
+      if (event.target instanceof Element && !event.target.closest("[data-session-interaction]")) restoreFocusRef.current = null;
+    };
+    document.addEventListener("pointerdown", moved, true);
+    document.addEventListener("focusin", moved, true);
+    return () => {
+      document.removeEventListener("pointerdown", moved, true);
+      document.removeEventListener("focusin", moved, true);
+    };
+  }, [suspended]);
+
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -327,7 +377,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setValue(text);
       setAtQuery(null);
       requestAnimationFrame(() => {
-        if (!ta) return;
+        if (!ta || suspendedRef.current) return;
         ta.focus();
         resizeComposerTextarea(ta);
       });
@@ -343,9 +393,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAtQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
-        ta.focus();
+        if (!suspendedRef.current) ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        resizeComposerTextarea(ta);
+        if (!suspendedRef.current) resizeComposerTextarea(ta);
       });
     },
     insertText(text: string) {
@@ -366,8 +416,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
-        ta.focus();
-        resizeComposerTextarea(ta);
+        if (!suspendedRef.current) { ta.focus(); resizeComposerTextarea(ta); }
       });
     },
     addFiles(files: File[]) {
@@ -468,7 +517,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // insert an "uploading" placeholder card and upload as-is, then swap in
   // the result. Send stays disabled until every attachment is ready.
   const addFiles = useCallback(async (files: File[]) => {
-    if (isStreaming) return;
+    if (isStreaming || suspendedRef.current) return;
     for (const file of files) {
       if (!file || file.size === 0) continue;
       if (file.size > maxAttachmentBytes) {
@@ -572,7 +621,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     const ta = textareaRef.current;
-    if (!ta) return;
+    if (!ta || suspendedRef.current) return;
     resizeComposerTextarea(ta);
   }, [value]);
 
@@ -615,7 +664,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachments.length) return;
-    if (isStreaming || isInputSending || composerSendRef.current || !attachmentsReady) return;
+    if (suspendedRef.current || isStreaming || isInputSending || composerSendRef.current || !attachmentsReady) return;
     composerSendRef.current = true;
     const submittedValue = valueRef.current;
     const submittedAttachments = attachmentsRef.current;
@@ -660,7 +709,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashSuggestionsLoading = slashArgumentName ? !currentArgumentResult : slashCommandsLoading;
 
   useEffect(() => {
-    if (!slashArgumentName || slashArgumentPrefix === null || !onLoadSlashArgumentCompletions) return;
+    if (suspended || !slashArgumentName || slashArgumentPrefix === null || !onLoadSlashArgumentCompletions) return;
     let cancelled = false;
     const input = value;
     // Providers own filtering and ordering, including multi-level arguments.
@@ -672,7 +721,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     }, 100);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [slashArgumentName, slashArgumentPrefix, value, draftKey, cwd, onLoadSlashArgumentCompletions, slashCommands]);
+  }, [suspended, slashArgumentName, slashArgumentPrefix, value, draftKey, cwd, onLoadSlashArgumentCompletions, slashCommands]);
 
   const filteredSlashCommands: SlashCommandPaletteItem[] = (() => {
     if (slashQuery === null) return [];
@@ -716,13 +765,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (slashQuery ? "1 match" : "1 command")
     : `${filteredSlashCommands.length} ${slashQuery ? "matches" : "commands"}`;
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText && attachments.length === 0 && !isInputSending;
+  const canQueueStreamingMessage = !suspended && hasInputText && attachments.length === 0 && !isInputSending;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
   // Disabled entirely when there is no cwd (new session without a directory).
   const updateAtQuery = useCallback((text: string, cursor: number | null) => {
-    if (!cwd) {
+    if (!cwd || suspendedRef.current) {
       setAtQuery(null);
       return;
     }
@@ -833,9 +882,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
-      el.focus();
+      if (!suspendedRef.current) el.focus();
       el.setSelectionRange(newPos, newPos);
-      resizeComposerTextarea(el);
+      if (!suspendedRef.current) resizeComposerTextarea(el);
     });
   }, [atQuery, value]);
 
@@ -865,15 +914,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus();
+      if (!suspendedRef.current) ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      resizeComposerTextarea(ta);
+      if (!suspendedRef.current) resizeComposerTextarea(ta);
     });
   }, []);
 
   const sendQueued = useCallback(async (mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg || attachments.length || isInputSending || composerSendRef.current) return;
+    if (suspendedRef.current || !msg || attachments.length || isInputSending || composerSendRef.current) return;
     const handler = msg.startsWith("/") && onPromptWithStreamingBehavior
       ? () => onPromptWithStreamingBehavior(msg, mode === "steer" ? "steer" : "followUp")
       : mode === "steer" && onSteer ? () => onSteer(msg)
@@ -937,6 +986,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (suspendedRef.current) { e.preventDefault(); return; }
       const nativeEvent = e.nativeEvent;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
       const isComposing =
@@ -1039,6 +1089,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (suspendedRef.current) { e.preventDefault(); return; }
     const items = Array.from(e.clipboardData?.items ?? []);
     const fileItems = items.filter((item) => item.kind === "file");
     if (!fileItems.length) return;
@@ -1048,6 +1099,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [addFiles]);
 
   useEffect(() => {
+    if (suspended) { setSlashMenuOpen(false); return; }
     if (slashQuery === null) {
       setSlashMenuOpen(false);
       setSlashActiveIndex(0);
@@ -1064,7 +1116,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         slashCommandsRequestedRef.current = false;
       });
     }
-  }, [slashQuery, slashDiscoveryActive, value, onLoadSlashCommands]);
+  }, [suspended, slashQuery, slashDiscoveryActive, value, onLoadSlashCommands]);
 
   useEffect(() => {
     if (slashActiveIndex >= filteredSlashCommands.length) {
@@ -1155,6 +1207,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   return (
     <div
+      ref={shellRef}
       className="chat-input-shell"
       style={{
         flexShrink: 0,

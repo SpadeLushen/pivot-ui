@@ -21,6 +21,8 @@ import { readInputReceipt, sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { NestedToolState, type NestedCallGroup } from "@/lib/nested-tool-state";
 import { clearDraft } from "@/lib/draft-store";
+import { useExtensionInteractions } from "@/hooks/useExtensionInteractions";
+import type { ExtensionUiSnapshot } from "@/lib/types";
 import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
 import { getSessionDocumentTitle } from "@/lib/background-title";
@@ -101,8 +103,6 @@ function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] 
   return { steering: q?.steering ?? [], followUp: q?.followUp ?? [] };
 }
 
-type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
-type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
 
 export type NoticeItem = {
@@ -432,14 +432,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
-  const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
-  const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const { items: extensionInteractions, active: extensionInteraction, applySnapshot: applyExtensionUiSnapshot,
+    setValue: setExtensionInteractionValue, respond: respondToExtensionUi,
+    sendCustomInput: sendExtensionCustomInput } = useExtensionInteractions(sessionIdRef);
+  const extensionDialog = extensionInteraction?.request.method !== "custom" ? extensionInteraction?.request ?? null : null;
+  const extensionCustomUi = extensionInteraction?.request.method === "custom" ? extensionInteraction.request : null;
+  const extensionUiPendingRef = useRef(false);
+  extensionUiPendingRef.current = extensionInteractions.length > 0;
   const timings = useTimings(sessionIdRef);
   const recordTimingEvent = timings.recordEvent;
   const stopActiveTimings = timings.stopActive;
@@ -796,10 +801,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // auto-reconnect. Settle the Promise and manually reconnect for
           // already-running sessions.
           settle("closed");
-          if (eventSourceRef.current === es && agentRunRef.current.running) {
+          if (eventSourceRef.current === es && (agentRunRef.current.running || extensionUiPendingRef.current)) {
             eventSourceRef.current = null;
             setTimeout(() => {
-              if (eventConnectionEpochRef.current === connectionEpoch && sessionIdRef.current === sid && agentRunRef.current.running && !eventSourceRef.current) void connectEvents(sid);
+              if (eventConnectionEpochRef.current === connectionEpoch && sessionIdRef.current === sid &&
+                  (agentRunRef.current.running || extensionUiPendingRef.current) && !eventSourceRef.current) void connectEvents(sid);
             }, 1000);
           }
         }
@@ -817,38 +823,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     result.source.close();
     throw new EventStreamConnectionError(result.status);
   }, [connectEvents]);
-
-  const respondToExtensionUi = useCallback(async (
-    request: ExtensionUiDialogRequest,
-    response: { value: string } | { confirmed: boolean } | { cancelled: true },
-  ) => {
-    const sid = sessionIdRef.current;
-    setExtensionDialog((current) => current?.id === request.id ? null : current);
-    if (!sid) return;
-    try {
-      await sendAgentCommand(sid, {
-        type: "extension_ui_response",
-        id: request.id,
-        ...response,
-      });
-    } catch (e) {
-      console.error("Failed to send extension UI response:", e);
-    }
-  }, []);
-
-  const sendExtensionCustomInput = useCallback(async (request: ExtensionUiCustomRequest, data: string) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    try {
-      await sendAgentCommand(sid, {
-        type: "extension_ui_input",
-        id: request.id,
-        data,
-      });
-    } catch (e) {
-      console.error("Failed to send extension custom UI input:", e);
-    }
-  }, []);
 
   const addNotice = useCallback((notice: { id?: string; message: string; type?: NoticeType }) => {
     const message = notice.message.trim();
@@ -908,12 +882,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
     switch (request.method) {
-      case "select":
-      case "confirm":
-      case "input":
-      case "editor":
-        setExtensionDialog(request);
-        break;
       case "notify": {
         // Pivot already displays usage statistics; suppress extension TPS summaries only.
         if ((request.notifyType ?? "info") === "info"
@@ -949,12 +917,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       case "set_editor_text":
         opts.chatInputRef?.current?.insertText(request.text);
-        break;
-      case "custom":
-        setExtensionCustomUi((current) => {
-          if (request.closed) return current?.id === request.id ? null : current;
-          return request;
-        });
         break;
     }
   }, [addNotice, applyDocumentTitle, opts.chatInputRef]);
@@ -1351,11 +1313,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (sid) onSessionNameChange?.(sid, typeof event.name === "string" ? event.name : undefined);
         break;
       }
+      case "extension_ui_snapshot":
+        applyExtensionUiSnapshot(event as unknown as ExtensionUiSnapshot);
+        break;
       case "extension_ui_request":
+        // Interactive requests arrive in the ordered authoritative snapshot.
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLiveModels, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels, refreshSessionStats]);
+  }, [addNotice, applyLiveModels, applyExtensionUiSnapshot, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels, refreshSessionStats]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Sanitize a file name for embedding inside a <file name="..."> tag.
@@ -1950,7 +1916,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, selectedModelInfo, routedModel: routedModelInfo, selectionNotice, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionInteraction,
+    extensionInteractions, setExtensionInteractionValue, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase, timings, nestedCalls, partialToolResults,
     isNew,

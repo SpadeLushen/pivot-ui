@@ -275,6 +275,19 @@ export type ExtensionUiRequest =
       closed?: boolean;
     };
 
+export type ExtensionUiInteraction = Extract<ExtensionUiRequest, {
+  method: "select" | "confirm" | "input" | "editor" | "custom";
+}>;
+
+/** Authoritative pending interactions, ordered oldest first within one wrapper lifetime. */
+export interface ExtensionUiSnapshot {
+  type: "extension_ui_snapshot";
+  sessionId: string;
+  runtimeId: string;
+  revision: number;
+  requests: ExtensionUiInteraction[];
+}
+
 export type ExtensionUiResponse =
   | { type: "extension_ui_response"; id: string; value: string }
   | { type: "extension_ui_response"; id: string; confirmed: boolean }
