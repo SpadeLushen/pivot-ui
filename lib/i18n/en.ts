@@ -202,6 +202,7 @@ const en: Record<string, string> = {
   "models.addModel": "+ Model",
   "models.newModel": "New model",
   "models.selectProviderOrModel": "Select a Provider or Model",
+  "models.backToProviders": "Back to Providers",
   "models.closeConfiguration": "Close Models configuration",
   "models.searchProviders": "Search providers...",
 

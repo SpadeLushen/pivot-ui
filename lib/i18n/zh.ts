@@ -204,6 +204,7 @@ const zh: Record<string, string> = {
   "models.addModel": "+ Model",
   "models.newModel": "新建 Model",
   "models.selectProviderOrModel": "选择 Provider 或 Model",
+  "models.backToProviders": "返回 Provider 列表",
   "models.closeConfiguration": "关闭 Models 配置",
   "models.searchProviders": "搜索 Provider...",
 

@@ -5,6 +5,8 @@ import { Globe, Cpu, Database, ChartNoAxesCombined, GitFork, Keyboard, Clock, X 
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDirectionalTransition } from "@/hooks/useDirectionalTransition";
 import { usePreferences } from "@/lib/preferences-context";
 import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
@@ -29,9 +31,13 @@ interface SettingsModalProps {
 
 export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, showTurnTps, onTurnTpsToggle, showCost, onCostToggle, timeFormat, onTimeFormatChange, enterBehavior, onEnterBehaviorChange }: SettingsModalProps) {
   const backdrop = useBackdropDismiss(onClose);
+  const isMobile = useIsMobile();
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(["general"]);
+  const [tabDirection, setTabDirection] = useState<"forward" | "backward">("forward");
+  const tabContentRef = useDirectionalTransition(activeTab, tabDirection);
   const { preferences, updatePreferences } = usePreferences();
   const [forkHierarchyError, setForkHierarchyError] = useState(false);
   const [savingForkHierarchy, setSavingForkHierarchy] = useState(false);
@@ -52,6 +58,15 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
     { id: "storage", label: t("settings.storage"), icon: <Database size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "models", label: t("settings.models"), icon: <Cpu size={15} strokeWidth={1.8} aria-hidden="true" /> },
   ];
+
+  const selectTab = (next: SettingsTab) => {
+    if (next === activeTab) return;
+    const from = tabs.findIndex((tab) => tab.id === activeTab);
+    const to = tabs.findIndex((tab) => tab.id === next);
+    setTabDirection(to > from ? "forward" : "backward");
+    setVisitedTabs((visited) => visited.includes(next) ? visited : [...visited, next]);
+    setActiveTab(next);
+  };
 
   const handleLocaleChange = (newLocale: Locale) => {
     setLocale(newLocale);
@@ -83,7 +98,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
         className="modal-surface"
         style={{
           width: "min(720px, calc(100vw - 16px))",
-          height: "min(560px, calc(100dvh - 16px))",
+          height: isMobile ? "calc(100dvh - 16px)" : "min(560px, calc(100dvh - 16px))",
           background: "var(--bg)",
           border: "1px solid var(--border)",
           borderRadius: 10,
@@ -139,7 +154,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => selectTab(tab.id)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -171,9 +186,10 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
-          {activeTab === "general" && (
-            <div style={{ padding: 24, overflowY: "auto", height: "100%" }}>
+        <div ref={tabContentRef} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          {/* Keep visited panels mounted until Settings closes, including drafts and scroll positions. */}
+          {visitedTabs.includes("general") && (
+            <div hidden={activeTab !== "general"} style={{ padding: 24, overflowY: "auto", height: "100%" }}>
               {/* Language */}
               <section style={{ marginBottom: 0 }}>
                 <h3
@@ -522,12 +538,18 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
             </div>
           )}
 
-          {activeTab === "storage" && <StorageSettings />}
-          {activeTab === "models" && (
-            <ModelsConfigTab
-              onClose={onClose}
-              onChanged={onModelsChanged}
-            />
+          {visitedTabs.includes("storage") && (
+            <div hidden={activeTab !== "storage"} style={{ height: "100%", overflow: "hidden" }}>
+              <StorageSettings active={activeTab === "storage"} />
+            </div>
+          )}
+          {visitedTabs.includes("models") && (
+            <div hidden={activeTab !== "models"} style={{ height: "100%", overflow: "hidden" }}>
+              <ModelsConfigTab
+                onClose={onClose}
+                onChanged={onModelsChanged}
+              />
+            </div>
           )}
         </div>
       </div>

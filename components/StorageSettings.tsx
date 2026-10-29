@@ -6,7 +6,7 @@ import { usePreferences } from "@/lib/preferences-context";
 import { formatBytes } from "@/lib/types";
 import type { SessionSearchAction, SessionSearchStatus } from "@/lib/session-search-types";
 
-export function StorageSettings() {
+export function StorageSettings({ active = true }: { active?: boolean }) {
   const { t } = useI18n();
   const { preferences, updatePreferences, refresh } = usePreferences();
   const [status, setStatus] = useState<SessionSearchStatus | null>(null);
@@ -28,6 +28,10 @@ export function StorageSettings() {
   useEffect(() => setPickerStart(preferences["workspace-picker-start-directory"]), [preferences["workspace-picker-start-directory"]]);
   useEffect(() => {
     mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (!active) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
@@ -44,8 +48,8 @@ export function StorageSettings() {
       }
     };
     void load();
-    return () => { mounted.current = false; controller.abort(); clearTimeout(timer); };
-  }, []);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [active]);
 
   const post = async (action: SessionSearchAction) => {
     const response = await fetch("/api/session-search", {

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDirectionalTransition } from "@/hooks/useDirectionalTransition";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { CatalogModelType, ModelTypeCounts } from "@/lib/model-catalog";
@@ -1380,10 +1381,25 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [mobileDetail, setMobileDetail] = useState(false);
+  const mobileBodyRef = useDirectionalTransition(mobileDetail, mobileDetail ? "forward" : "backward", isMobile);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [catalogRevision, setCatalogRevision] = useState(0);
+
+  const openSelection = useCallback((sel: Selection) => {
+    setSelection(sel);
+    if (isMobile) setMobileDetail(true);
+  }, [isMobile]);
+
+  const selectOAuthProvider = useCallback((id: string) => {
+    openSelection({ type: "oauth", providerId: id });
+  }, [openSelection]);
+
+  const selectApiKeyProvider = useCallback((id: string) => {
+    openSelection({ type: "apikey", providerId: id });
+  }, [openSelection]);
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1419,8 +1435,8 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
-    setSelection({ type: "provider", name: finalName });
-  }, [config.providers]);
+    openSelection({ type: "provider", name: finalName });
+  }, [config.providers, openSelection]);
 
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
@@ -1456,20 +1472,18 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
       setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
       return prev;
     });
-  }, []);
+    if (isMobile) setMobileDetail(false);
+  }, [isMobile]);
 
   const addModel = useCallback((providerName: string) => {
+    const index = config.providers?.[providerName]?.models?.length ?? 0;
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? []), { id: "" }];
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
-    setConfig((prev) => {
-      const idx = (prev.providers?.[providerName]?.models?.length ?? 1) - 1;
-      setSelection({ type: "model", providerName, index: idx });
-      return prev;
-    });
-  }, []);
+    openSelection({ type: "model", providerName, index });
+  }, [config.providers, openSelection]);
 
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
     setConfig((prev) => {
@@ -1488,7 +1502,8 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
     });
     setSelection({ type: "provider", name: providerName });
-  }, []);
+    if (isMobile) setMobileDetail(false);
+  }, [isMobile]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -1576,24 +1591,25 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
         )}
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div ref={mobileBodyRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
 
           {/* Left: tree */}
+          {(!isMobile || !mobileDetail) && (
           <div style={{
             width: isMobile ? "100%" : 210,
-            maxHeight: isMobile ? "40vh" : undefined,
+            flex: isMobile ? 1 : "0 0 210px",
+            minHeight: 0,
             borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
+            display: "flex", flexDirection: "column", background: "var(--bg-panel)",
           }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 6px" }}>
               {/* Active OAuth accounts */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (
                   <div
                     key={p.id}
-                    onClick={() => setSelection({ type: "oauth", providerId: p.id })}
+                    onClick={() => selectOAuthProvider(p.id)}
                     style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
@@ -1610,7 +1626,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
                 return (
                   <div
                     key={p.id}
-                    onClick={() => setSelection({ type: "apikey", providerId: p.id })}
+                    onClick={() => selectApiKeyProvider(p.id)}
                     style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
@@ -1636,7 +1652,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
                   <div key={pName} style={{ marginBottom: 2 }}>
                     {/* Provider row */}
                     <div
-                      onClick={() => setSelection({ type: "provider", name: pName })}
+                      onClick={() => openSelection({ type: "provider", name: pName })}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
                       onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
@@ -1653,7 +1669,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
                       return (
                         <div
                           key={i}
-                          onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
+                          onClick={() => openSelection({ type: "model", providerName: pName, index: i })}
                           style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
                           onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
@@ -1683,7 +1699,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
             </div>
 
             {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
+            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px", flexShrink: 0 }}>
               <button onClick={() => setPickerOpen(true)} style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
@@ -1697,14 +1713,32 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
             </div>
           </div>
 
+          )}
+
           {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {loading ? null : detailContent ?? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                {t("models.selectProviderOrModel")}
+          {(!isMobile || (mobileDetail && selection)) && (
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            {isMobile && (
+              <div style={{ flexShrink: 0, padding: "4px 12px", borderBottom: "1px solid var(--border)" }}>
+                <button
+                  type="button"
+                  onClick={() => setMobileDetail(false)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 44, padding: "6px 0", background: "none", border: "none", color: "var(--text)", cursor: "pointer", fontSize: 13 }}
+                >
+                  <ArrowLeft size={16} aria-hidden="true" />
+                  {t("models.backToProviders")}
+                </button>
               </div>
             )}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 20 }}>
+              {loading ? null : detailContent ?? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+                  {t("models.selectProviderOrModel")}
+                </div>
+              )}
+            </div>
           </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -1742,8 +1776,8 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
           <AddProviderPicker
             oauthProviders={oauthProviders}
             apiKeyProviders={apiKeyProviders}
-            onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-            onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
+            onSelectOAuth={selectOAuthProvider}
+            onSelectApiKey={selectApiKeyProvider}
             onAddCustom={addCustomProvider}
             onClose={() => setPickerOpen(false)}
           />
@@ -1762,8 +1796,8 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
       <AddProviderPicker
         oauthProviders={oauthProviders}
         apiKeyProviders={apiKeyProviders}
-        onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-        onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
+        onSelectOAuth={selectOAuthProvider}
+        onSelectApiKey={selectApiKeyProvider}
         onAddCustom={addCustomProvider}
         onClose={() => setPickerOpen(false)}
       />
