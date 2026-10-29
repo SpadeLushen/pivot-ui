@@ -24,9 +24,16 @@ export function workspaceFile(cwd: string, name: string): string {
 export interface PackFile { path: string; before: string | null; value: Record<string, unknown> }
 export function readPackFile(path: string): PackFile {
   const before = existsSync(path) ? readFileSync(path, "utf8") : null;
-  const value = before === null ? {} : JSON.parse(before);
+  const value = before === null ? {} : JSON.parse(before.replace(/^\uFEFF/, ""));
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Pack configuration object");
   return { path, before, value };
+}
+/** Preserve source encoding marker and newline style; before remains byte-for-byte rollback data. */
+export function formatPackFile(file: PackFile, value: Record<string, unknown>): string {
+  const indent = file.before?.match(/^([ \t]+)\S/m)?.[1] ?? "  ";
+  let text = `${JSON.stringify(value, null, indent)}\n`;
+  if (file.before?.includes("\r\n")) text = text.replace(/\n/g, "\r\n");
+  return (file.before?.startsWith("\uFEFF") ? "\uFEFF" : "") + text;
 }
 export function savePackFile(path: string, text: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });

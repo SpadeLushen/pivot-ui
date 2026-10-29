@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { NativeMcpEditorSnapshot, NativeMcpEditorServer, NativeMcpScope } from "./api-types";
 import { requirePackWorkspace } from "./workspace-pack-access";
-import { readPackFile, savePackFile, workspaceFile, workspaceKey, type PackFile } from "./workspace-pack-files";
+import { readPackFile, savePackFile, formatPackFile, workspaceFile, workspaceKey, type PackFile } from "./workspace-pack-files";
 import { withWorkspaceLock } from "./skill-pack-apply";
 import { collectActiveNativeMcpServers, readWorkspaceState } from "./workspace-packs";
 import { getDefaultConfigPath, readConfig } from "./skill-packs-store";
@@ -169,9 +169,7 @@ export async function editNativeMcpServer(action: "create" | "update" | "delete"
     // Recheck just before the atomic write; preserve all other entries/top-level settings.
     if ((await context(edit.scope, edit.cwd)).revision !== ctx.revision) throw new NativeMcpEditorError("MCP configuration changed; reload before saving", 409);
     const value = { ...ctx.target.value, mcpServers: next };
-    const indent = ctx.target.before?.match(/^([ \t]+)\S/m)?.[1] ?? "  ";
-    let text = `${JSON.stringify(value, null, indent)}\n`;
-    if (ctx.target.before?.includes("\r\n")) text = text.replace(/\n/g, "\r\n");
+    const text = formatPackFile(ctx.target, value);
     const mode = existsSync(ctx.target.path) ? statSync(ctx.target.path).mode & 0o777 : 0o600;
     savePackFile(ctx.target.path, text, mode);
     notifyMcpConfigurationChanged(ctx.scope === "project" ? ctx.cwd : undefined);

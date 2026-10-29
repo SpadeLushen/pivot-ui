@@ -6,7 +6,7 @@ import { preview, copyPlanSkills, withWorkspaceLock, WorkspaceRevisionConflict, 
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 import { loadNativeMcpConfig } from "./native-mcp-config";
 import { NativeMcpConfigurationUnavailable } from "./mcp-config-phase";
-import { canonicalWorkspace, workspaceKey, workspaceFile, readPackFile, savePackFile, type PackFile } from "./workspace-pack-files";
+import { canonicalWorkspace, workspaceKey, workspaceFile, readPackFile, savePackFile, formatPackFile, type PackFile } from "./workspace-pack-files";
 
 const nativeSnapshots = new WeakMap<WorkspacePackPlan, PackFile>();
 function nativeNames(pack: SkillPack): string[] {
@@ -71,9 +71,6 @@ export async function previewWorkspacePackSwitch(cwd: string, libraryRoot: strin
   return buildPlan(cwd, libraryRoot, ids, config, readWorkspaceState({ cwd }));
 }
 
-function jsonText(file: PackFile, value: Record<string, unknown>): string {
-  return `${JSON.stringify(value, null, file.before?.match(/^([ \t]+)\S/m)?.[1] ?? "  ")}\n`;
-}
 function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], managedSkills: string[], mcpNames: string[], nativeFile?: PackFile) {
   const settings = readPackFile(workspaceFile(cwd, "settings.json"));
   if (settings.value.skills !== undefined && (!Array.isArray(settings.value.skills) || settings.value.skills.some((p) => typeof p !== "string"))) {
@@ -127,7 +124,7 @@ function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePac
 }
 
 function commitFiles(changes: { file: PackFile; value: Record<string, unknown> }[], watched: PackFile[], beforeStateWrite?: () => void) {
-  const writes = changes.map(({ file, value }) => ({ file, text: jsonText(file, value) }));
+  const writes = changes.map(({ file, value }) => ({ file, text: formatPackFile(file, value) }));
   for (const file of [...writes.map((write) => write.file), ...watched]) {
     const current = existsSync(file.path) ? readFileSync(file.path, "utf8") : null;
     if (current !== file.before) throw new Error("Workspace configuration changed; retry the Pack switch");
