@@ -686,6 +686,22 @@ const zh: Record<string, string> = {
   "message.invalidArguments": "工具参数无效",
   "message.codemodeCapacity": "codemode 容量已满；请等待运行中或退出中的 worker 释放名额后重试。",
 
+  "message.codemodeWaitCapacity": "等待 60 秒仍无可用的 codemode worker，脚本未开始执行。",
+  "message.codemodeWaitTimeout": "等待 codemode worker 时超时，脚本未开始执行。",
+  "message.codemodeWaitAborted": "等待 codemode worker 时已取消，脚本未开始执行。",
+  "interaction.request": "扩展询问",
+  "interaction.panel": "扩展面板",
+  "interaction.pending": "${count} 项待处理",
+  "interaction.submitting": "提交中…",
+  "interaction.submitFailed": "回复发送失败，已保留输入，请重试。",
+  "interaction.submit": "提交",
+  "interaction.confirm": "确认",
+  "interaction.cancel": "取消",
+  "interaction.stop": "停止生成",
+  "interaction.stopCompaction": "停止压缩",
+  "interaction.queued": "${count} 条排队消息",
+  "interaction.customInputFailed": "面板输入发送失败，请检查面板状态后再操作。",
+
   // Nested tool calls
   "nested.title": "子调用",
   "nested.count": "子调用 ${count}",

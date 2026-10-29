@@ -953,9 +953,14 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
   const usage = result?.usage ? summarizeUsage(result.usage) : null;
   const cost = recordedCost(result?.usage);
   const isError = Boolean(block.argumentsError) || (result?.isError ?? false);
-  const workerLimitReached = isCodemode && result?.isError && result.content.some(
-    (item) => item.type === "text" && item.text.includes("Codemode worker limit reached ("),
-  );
+  const codemodeError = isCodemode && result?.isError
+    ? result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") : "";
+  const admissionMessage = codemodeError.includes("Codemode worker limit reached (") ? "message.codemodeCapacity"
+    : codemodeError.includes("The script did not start.")
+      ? codemodeError.includes("No codemode worker became free within") ? "message.codemodeWaitCapacity"
+        : codemodeError.includes("while waiting for a free codemode worker") ? "message.codemodeWaitTimeout"
+          : codemodeError.includes("Script aborted:") ? "message.codemodeWaitAborted" : null
+      : null;
   const isPending = !result || result.isPartial === true;
 
   return (
@@ -990,8 +995,8 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
         <span style={{ color: isError ? "#f87171" : isPending ? "var(--text-muted)" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
-        {block.argumentsError ? <span style={{ color: "#f87171", flex: 1 }}>{t("message.invalidArguments")}</span> : workerLimitReached ? (
-          <span style={{ color: "#f87171", flex: 1 }}>{t("message.codemodeCapacity")}</span>
+        {block.argumentsError ? <span style={{ color: "#f87171", flex: 1 }}>{t("message.invalidArguments")}</span> : admissionMessage ? (
+          <span style={{ color: "#f87171", flex: 1 }}>{t(admissionMessage)}</span>
         ) : isCodemode ? <NestedCallTrail group={group} /> : (
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {getToolPreview(block)}

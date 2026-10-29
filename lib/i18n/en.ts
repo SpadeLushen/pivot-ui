@@ -684,6 +684,22 @@ const en: Record<string, string> = {
   "message.invalidArguments": "Invalid tool arguments",
   "message.codemodeCapacity": "Codemode capacity reached; wait for running or shutting-down workers to exit, then retry.",
 
+  "message.codemodeWaitCapacity": "No codemode worker became available within 60 seconds. The script did not start.",
+  "message.codemodeWaitTimeout": "Timed out waiting for a codemode worker. The script did not start.",
+  "message.codemodeWaitAborted": "Cancelled while waiting for a codemode worker. The script did not start.",
+  "interaction.request": "Extension request",
+  "interaction.panel": "Extension panel",
+  "interaction.pending": "${count} pending",
+  "interaction.submitting": "Submitting…",
+  "interaction.submitFailed": "Could not send the response. Your input was kept; please try again.",
+  "interaction.submit": "Submit",
+  "interaction.confirm": "Confirm",
+  "interaction.cancel": "Cancel",
+  "interaction.stop": "Stop generation",
+  "interaction.stopCompaction": "Stop compaction",
+  "interaction.queued": "${count} queued messages",
+  "interaction.customInputFailed": "Could not send panel input. Check the panel state before trying again.",
+
   // Nested tool calls
   "nested.title": "Child calls",
   "nested.count": "${count} child calls",
