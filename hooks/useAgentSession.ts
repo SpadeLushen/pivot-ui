@@ -13,6 +13,7 @@ import type {
   ToolResultMessage,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { buildAmbiguousModelProviders } from "@/lib/model-display";
 import type { ModelScopeDiagnosticDto } from "@/lib/models-cache";
 import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session-models";
 import type { TypedModelEntry } from "@/lib/model-catalog";
@@ -404,6 +405,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const agentEventRevisionRef = useRef(0);
   const [promptGeneration, setPromptGeneration] = useState(0);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
+  const modelProviders = useMemo(() => buildAmbiguousModelProviders(modelNames), [modelNames]);
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelCatalog, setModelCatalog] = useState<TypedModelEntry[]>([]);
   const [catalogUnavailable, setCatalogUnavailable] = useState(true);
@@ -1911,7 +1913,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, inputSending: inputPending, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
+    agentRunning, inputSending: inputPending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
     openRouterCatalog, modelCatalogError, modelScopeDiagnostics, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, selectedModelInfo, routedModel: routedModelInfo, selectionNotice, sessionStats,

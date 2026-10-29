@@ -196,7 +196,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, inputSending, promptGeneration, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
+    agentRunning, inputSending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
     openRouterCatalog, modelCatalogError, modelScopeDiagnostics, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, selectedModelInfo, routedModel, selectionNotice, sessionStats,
@@ -497,6 +497,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     toolResults={toolResultsMap}
                     nestedCalls={nestedCalls}
                     modelNames={modelNames}
+                    modelProviders={modelProviders}
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
@@ -639,7 +640,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               );
             })()}
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={session?.id ?? sessionIdRef.current ?? undefined} timingRevision={timings.revision} liveThinking={timings.liveThinking} runningThinking={timings.runningThinking} liveTools={timings.liveTools} runningTools={timings.runningTools} />
+              <MessageView key={`stream-${promptGeneration}`} message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} modelProviders={modelProviders} cwd={messageCwd} onOpenFile={onOpenFile} showTps={showTps} showCost={showCost} hour12={hour12} sessionId={session?.id ?? sessionIdRef.current ?? undefined} timingRevision={timings.revision} liveThinking={timings.liveThinking} runningThinking={timings.runningThinking} liveTools={timings.liveTools} runningTools={timings.runningTools} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (

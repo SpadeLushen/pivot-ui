@@ -3,6 +3,7 @@
 import { memo, useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { ArrowDown, Check, ChevronDown, Copy, File as FileIcon, FileText, GitFork, Undo2 } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
+import { ModelLabel } from "./ModelLabel";
 import { ToolResultContent } from "./ToolResultContent";
 import { NestedCallSummary, NestedCallTrail, NestedToolCalls } from "./NestedToolCalls";
 import { displayedNestedGroup, type NestedCallGroup } from "@/lib/nested-tool-state";
@@ -67,6 +68,7 @@ interface Props {
   toolResults?: Map<string, ToolResultMessage>;
   nestedCalls?: Map<string, NestedCallGroup>;
   modelNames?: Record<string, string>;
+  modelProviders?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   entryId?: string;
@@ -123,12 +125,12 @@ function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string
   return message.content.every((block) => block.type !== "toolCall" || previous?.get(block.toolCallId) === next?.get(block.toolCallId));
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showTurnTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, modelProviders, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showTurnTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showTurnTps={showTurnTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} modelProviders={modelProviders} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showTurnTps={showTurnTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -147,6 +149,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && haveSameRelevantNestedCalls(prev.message, prev.nestedCalls, next.nestedCalls)
     && prev.modelNames === next.modelNames
+    && prev.modelProviders === next.modelProviders
     && prev.cwd === next.cwd
     && prev.onOpenFile === next.onOpenFile
     && prev.entryId === next.entryId
@@ -555,6 +558,7 @@ function AssistantMessageView({
   toolResults,
   nestedCalls,
   modelNames,
+  modelProviders,
   cwd,
   onOpenFile,
   showTimestamp,
@@ -580,6 +584,7 @@ function AssistantMessageView({
   toolResults?: Map<string, ToolResultMessage>;
   nestedCalls?: Map<string, NestedCallGroup>;
   modelNames?: Record<string, string>;
+  modelProviders?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
@@ -698,7 +703,10 @@ function AssistantMessageView({
         }}
       >
         {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
+          <ModelLabel
+            name={modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}
+            provider={modelProviders?.[`${message.provider}:${message.model}`]}
+          />
         )}
         {isStreaming && (() => {
           let chars = 0;

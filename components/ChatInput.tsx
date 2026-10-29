@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { EnterBehavior } from "@/lib/preferences-types";
 import { usePreferences } from "@/lib/preferences-context";
 import { modelVisibilityKey } from "@/lib/model-visibility";
+import { buildAmbiguousModelProviders } from "@/lib/model-display";
+import { ModelLabel } from "./ModelLabel";
 import { clearDraft, getDraft, setDraft, type ChatDraftAttachment } from "@/lib/draft-store";
 import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
@@ -1137,7 +1139,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [slashActiveIndex, slashMenuOpen]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const allModelOptions: ModelOption[] = (() => {
+  const allModelOptions: ModelOption[] = useMemo(() => {
     if (modelList && modelList.length > 0) {
       return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name, virtual: m.virtual })).sort(compareModelOptions);
     }
@@ -1149,7 +1151,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         name,
       };
     }).sort(compareModelOptions);
-  })();
+  }, [modelList, modelNames, model?.provider]);
+  const modelProviders = useMemo(() => buildAmbiguousModelProviders(Object.fromEntries(
+    allModelOptions.map((option) => [`${option.provider}:${option.modelId}`, option.name]),
+  )), [allModelOptions]);
 
   // Filter only picker choices: hidden models can remain active in existing sessions.
   const hiddenModels = new Set(preferences["hidden-models"]);
@@ -1168,6 +1173,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (allModelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : null;
   const currentName = displayModelName;
+  const currentProvider = model ? modelProviders[`${model.provider}:${model.modelId}`] : undefined;
+  const currentDisplayName = currentProvider ? `${currentName} (${currentProvider})` : currentName;
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -1925,6 +1932,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       setModelDropdownOpen((v) => !v);
                     }}
                     disabled={isStreaming}
+                    title={currentDisplayName ?? t("models.selectModel")}
+                    aria-label={currentDisplayName ?? t("models.selectModel")}
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
                       justifyContent: isMobile ? "flex-start" : undefined,
@@ -1952,8 +1961,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       e.currentTarget.style.color = "var(--text-muted)";
                     }}
                   >
-                    <Cpu size={11} strokeWidth={2} aria-hidden="true" />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName || t("models.selectModel")}{model?.virtual ? ` · ${t("chat.virtualModel")}` : ""}</span>
+                    <Cpu size={11} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0 }} />
+                    <ModelLabel
+                      name={`${currentName || t("models.selectModel")}${model?.virtual ? ` · ${t("chat.virtualModel")}` : ""}`}
+                      provider={currentProvider}
+                      compactProvider={isMobile}
+                    />
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -1985,7 +1998,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             <div style={{
                               padding: "6px 12px 4px",
                               fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                              textTransform: "uppercase", letterSpacing: "0.07em",
+                              letterSpacing: "0.07em",
                               borderTop: gi > 0 ? "1px solid var(--border)" : "none",
                             }}>
                               {group.provider}
