@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AnyModel } from "@earendil-works/pi-ai";
+import type { AnyModel, SystemOneCompat } from "@earendil-works/pi-ai";
 import type { InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { typesafeSystemOneApi } from "@earendil-works/pi-ai/api/typesafe-system-one.lazy";
 import { openAIDecisionsApi } from "@earendil-works/pi-ai/api/openai-decisions.lazy";
@@ -48,9 +48,31 @@ export function clearPivotTypedModels(runtime: ModelRuntime) {
   signatures.delete(runtime);
 }
 
-function definition(model: SavedModel, base?: AnyModel) {
+function systemOneCompat(value: unknown): SystemOneCompat {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ModelConfigurationError("Classifier compat must be an object");
+  const fields = value as Record<string, unknown>;
+  const imageInput = fields.imageInput;
+  const sendImageOptInHeader = fields.sendImageOptInHeader;
+  if (imageInput !== undefined && imageInput !== "assets" && imageInput !== "images" && imageInput !== "state-image-urls") {
+    throw new ModelConfigurationError("Invalid classifier image input format");
+  }
+  if (sendImageOptInHeader !== undefined && typeof sendImageOptInHeader !== "boolean") {
+    throw new ModelConfigurationError("Invalid classifier image opt-in setting");
+  }
+  return { ...(imageInput !== undefined ? { imageInput } : {}),
+    ...(sendImageOptInHeader !== undefined ? { sendImageOptInHeader } : {}) };
+}
+
+function definition(model: SavedModel, base: AnyModel | undefined, providerCompat: unknown) {
+  const systemOne = model.type === "classifier" &&
+    (model.api === "typesafe-system-one" || model.api === "cloudflare-workers-ai-system-one");
   return {
     ...base, ...model, name: model.name ?? base?.name ?? model.id,
+    ...(systemOne ? { compat: {
+      ...systemOneCompat(base?.type === "classifier" ? base.compat : undefined),
+      ...systemOneCompat(providerCompat), ...systemOneCompat(model.compat),
+    } } : {}),
     input: model.input ?? base?.input ?? ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, ...base?.cost, ...model.cost },
     ...(model.type === "image" ? { output: model.output ?? ["image"] }
@@ -91,7 +113,7 @@ export async function installPivotTypedModels(runtime: ModelRuntime, config: Mod
         const models = new Map<string, NonNullable<ProviderConfigInput["models"]>[number]>(baseModels.map((model) => [identity(model), { ...model }]));
         for (const model of provider.models ?? []) {
           if (model.type !== "classifier" && model.type !== "image") continue;
-          models.set(identity(model), definition(model, baseModels.find((base) => identity(base) === identity(model))));
+          models.set(identity(model), definition(model, baseModels.find((base) => identity(base) === identity(model)), provider.compat));
         }
         return [...models.values()];
       };
