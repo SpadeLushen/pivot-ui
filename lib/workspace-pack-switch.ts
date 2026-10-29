@@ -71,23 +71,17 @@ export async function previewWorkspacePackSwitch(cwd: string, libraryRoot: strin
   return buildPlan(cwd, libraryRoot, ids, config, readWorkspaceState({ cwd }));
 }
 
-function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], managedSkills: string[], mcpNames: string[], nativeFile?: PackFile) {
+function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], mcpNames: string[], nativeFile?: PackFile) {
   const settings = readPackFile(workspaceFile(cwd, "settings.json"));
   if (settings.value.skills !== undefined && (!Array.isArray(settings.value.skills) || settings.value.skills.some((p) => typeof p !== "string"))) {
     throw new Error("Invalid workspace skills settings");
   }
-  const activeSkills = new Set(packs.flatMap((pack) => pack.skills.map((ref) => ref.skillKey.toLowerCase())));
+  // Release only exclusions recorded by Packs; leave user exclusions and installed Skills alone.
   const patterns = ((settings.value.skills ?? []) as string[]).filter((p) => !state.skillExclusions?.includes(p));
-  const exclusions: string[] = [];
-  for (const key of managedSkills) {
-    validSkillKey(key);
-    workspaceFile(cwd, `skills/${key}`);
-    const pattern = `-skills/${key}`;
-    if (!activeSkills.has(key.toLowerCase()) && !patterns.includes(pattern)) exclusions.push(pattern);
-  }
-  const nextSettings = { ...settings.value, skills: [...patterns, ...exclusions] };
+  const nextSettings: Record<string, unknown> = { ...settings.value, skills: patterns };
+  if (!patterns.length) delete nextSettings.skills;
   const changes: { file: PackFile; value: Record<string, unknown> }[] = [];
-  if (JSON.stringify(nextSettings.skills) !== JSON.stringify(settings.value.skills ?? [])) changes.push({ file: settings, value: nextSettings });
+  if (JSON.stringify(patterns) !== JSON.stringify(settings.value.skills ?? [])) changes.push({ file: settings, value: nextSettings });
   if (mcpNames.length) {
     const mcp = nativeFile ?? readPackFile(workspaceFile(cwd, "mcp.json"));
     const servers = mcp.value.mcpServers ?? {};
@@ -97,15 +91,23 @@ function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], m
     for (const name of mcpNames) {
       const previous = nextServers.get(name) ?? {};
       if (!previous || typeof previous !== "object" || Array.isArray(previous)) throw new Error("Invalid native MCP entry");
-      nextServers.set(name, { ...previous, enabled: active.has(name) });
+      if (active.has(name)) {
+        nextServers.set(name, { ...previous, enabled: true });
+      } else {
+        // Release the enabled override, not the user's definition or other override fields.
+        const inherited: Record<string, unknown> = { ...previous };
+        delete inherited.enabled;
+        if (Object.keys(inherited).length) nextServers.set(name, inherited);
+        else nextServers.delete(name);
+      }
     }
     const nextMcp = { ...mcp.value, mcpServers: Object.fromEntries(nextServers) };
     if (JSON.stringify(nextMcp) !== JSON.stringify(mcp.value)) changes.push({ file: mcp, value: nextMcp });
   }
-  return { changes, exclusions, watched: [settings, ...(nativeFile ? [nativeFile] : [])] };
+  return { changes, watched: [settings, ...(nativeFile ? [nativeFile] : [])] };
 }
 
-function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePackPlan, managedSkills: string[], names: string[], exclusions: string[]): WorkspaceState {
+function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePackPlan, managedSkills: string[], names: string[]): WorkspaceState {
   const saved = [...state.appliedPacks, ...(state.disabledPacks ?? [])];
   const appliedPacks: AppliedPack[] = packs.map((pack) => {
     const prior = saved.find((p) => p.packId === pack.id);
@@ -120,7 +122,7 @@ function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePac
     skippedConflicts: plan.skipped.filter((ref) => !managedSkills.includes(ref.skillKey)).flatMap((ref) => packs
       .filter((pack) => pack.skills.some((s) => s.skillKey === ref.skillKey))
       .map((pack) => ({ packId: pack.id, ...ref }))),
-    managedSkillKeys: managedSkills, managedNativeMcpServers: names, skillExclusions: exclusions };
+    managedSkillKeys: managedSkills, managedNativeMcpServers: names, skillExclusions: [] };
 }
 
 function commitFiles(changes: { file: PackFile; value: Record<string, unknown> }[], watched: PackFile[], beforeStateWrite?: () => void) {
@@ -162,8 +164,8 @@ export async function applyWorkspacePackSwitch(cwd: string, libraryRoot: string,
     const managed = [...new Set([...(state.managedSkillKeys ?? []), ...[...state.appliedPacks, ...(state.disabledPacks ?? [])].flatMap((p) => p.receipt.installed.map((s) => s.skillKey)),
       ...plan.toInstall.map((s) => s.skillKey)])];
     const names = [...new Set([...collectActiveNativeMcpServers(state, config), ...packs.flatMap(nativeNames)])];
-    const resources = resourceFiles(cwd, state, packs, managed, plan.mcp.toConfigure.map((s) => s.serverKey), nativeSnapshots.get(plan));
-    const next = makeState(state, packs, plan, managed, names, resources.exclusions);
+    const resources = resourceFiles(cwd, state, packs, plan.mcp.toConfigure.map((s) => s.serverKey), nativeSnapshots.get(plan));
+    const next = makeState(state, packs, plan, managed, names);
     const copied = copyPlanSkills(cwd, libraryRoot, plan, deps);
     try {
       commitFiles([...resources.changes, { file: stateFile, value: { ...stateFile.value, ...next } }], resources.watched, deps.beforeStateWrite);

@@ -6,7 +6,7 @@ Packs 是工作目录级的启停开关，不是 session 的工具预设。同�
 
 - 全局定义：`~/.pi/agent/skill-packs.json`，包含名称、描述、Skills 快照 `{ skillKey, contentHash }` 和 `nativeMcpServers: string[]`。
 - Skills Library：统一使用 `<libraryRoot>/.pi/skills/<skillKey>/`；默认根目录为 `~/.pivot-ui/lib/skills`。相对根目录以全局配置文件所在目录解析，不重写原始文本。在线安装在临时目录中运行 `npx skills add --agent pi --copy`，仅在临时目录识别 CLI 的 `.agents/skills`／旧 `.pi/skills` 输出，再将实际文件导入库的 `.pi/skills`，结束后清理临时目录。导入拒绝符号链接及同名已有技能，复制失败不留下半成品；批量失败撤回本次新建副本，不覆盖原有技能或 Pack 快照。安装记录按技能合并到库根目录的 `skills-lock.json`，保留无关条目。库的列表、详情、工作区复制和删除只查找 `.pi/skills`，不自动迁移或清理已有 `.agents` 内容。删除仍受 Pack 引用保护，会清理对应安装记录，不删除工作区已有副本。在线安装仅进入库；需在工作区「添加 Skill」或启用 Pack 才加入工作区。
-- 工作空间状态：`<cwd>/.pi/skill-packs.json`，保留 revision、启用/停用记录、receipt、受管理资源名称及本次生成的 Skills 排除项。
+- 工作空间状态：`<cwd>/.pi/skill-packs.json`，保留 revision、启用/停用记录、receipt 及受管理资源名称；旧版记录的 Skills 排除项在下一次显式切换时移除。
 - Native MCP 定义仅来自 pi 原生的 `<agentDir>/mcp.json` 和受信任的 `<cwd>/.pi/mcp.json`。Packs 引用已配置的服务器名称，不保存、复制或部署定义。
 
 旧 Library MCP 定义、`configHash`、adapter 文件、OAuth 凭据、migration markers 和备份不自动导入、转换或清理。含旧 MCP 引用且未显式保存 `nativeMcpServers` 的 Pack 不能直接切换；在 Packs 编辑器中选择原生服务器或明确取消 MCP 引用后保存。旧数据仍保留。原生定义可通过 MCP 编辑器显式修改全局／受信任工作区配置；旧 Library/adapter 写接口继续返回 `501 NATIVE_MCP_CONFIGURATION_UNAVAILABLE`。编辑器不部署 Library 定义，工作区 Pack 管理的启用状态仍只能通过 Pack 开关修改。Tools 的 MCP 页仅保留工作区列表／详情，添加／编辑通过弹框进行，新增默认全局且禁用；工作区开关不复制全局凭据。定义保存后通知相关会话在空闲时重载 SDK 资源，运行中的任务延后；全局变更通知全部 wrapper，项目变更仅通知同目录。工具标签页的内建／扩展工具规则独立保存在受信任工作区 `.pi/pivot-tools.json`，不改变 Pack receipt 或旧预设。
@@ -15,9 +15,9 @@ Packs 是工作目录级的启停开关，不是 session 的工具预设。同�
 
 `Pack managed` 仅对应当前 `appliedPacks` 的原生 MCP 引用并集，而不是历史 `managedNativeMcpServers` 清单。优先使用启用 receipt 的 `nativeMcpServers` 快照（显式空数组也有效）；旧 receipt 缺少该字段时，回查对应 Pack 定义中已明确配置的原生绑定。不推测或转换旧 Library 引用，也不因信任工作区而改写 Packs 状态或 MCP 配置。
 
-未启用或已禁用的 Pack 不占用管理权；最后一个引用停用后，MCP 按实际配置来源归入 Global、Workspace override 或 Workspace，仍保留禁用覆盖和定义。其他启用 Pack 仍引用该 MCP 时，继续保持 Pack managed。分类和 MCP 编辑器的启停／删除保护使用同一管理关系，项目编辑与 Pack 切换共用 canonical cwd 锁。Tools 订阅 Pack revision，自动刷新分类并忽略迟到响应。
+未启用或已禁用的 Pack 不占用管理权；最后一个引用停用后，MCP 移除工作区 `enabled` 覆盖，并删除因此变空的服务器条目，按实际配置来源归入 Global、Workspace override 或 Workspace；用户定义及其他覆盖字段保留。其他启用 Pack 仍引用该 MCP 时，继续保持 Pack managed。分类和 MCP 编辑器的启停／删除保护使用同一管理关系，项目编辑与 Pack 切换共用 canonical cwd 锁。Tools 订阅 Pack revision，自动刷新分类并忽略迟到响应。
 
-Native MCP 切换只涉及切换前的启用引用与切换后的目标引用；历史但已解除管理的 MCP 不再被无关 Pack 切换重新禁用。历史记录保留，不自动删除配置或进行迁移。
+Native MCP 切换只涉及切换前的启用引用与切换后的目标引用；历史但已解除管理的 MCP 不会被无关 Pack 切换改写；旧版已经留下的禁用覆盖不会自动批量清理，可重新启用再停用对应 Pack 以释放覆盖。历史记录保留，不自动删除配置或进行迁移。
 
 ## 工作区信任提示
 
@@ -31,9 +31,9 @@ Tools 窗口与聊天栏 Workspace Packs 选框共用工作区信任提示和显
 2. 聊天输入栏的 Workspace Packs 复选框直接切换当前工作目录；Skills 的 Workspace 页也可预览后启用或停用。
 3. 首次启用会复制缺少的 Skills 到 `.pi/skills/`。哈希缺失、过期、同名不同版本冲突、缺少/无效原生服务器或项目不受信任时阻止整个变更，不静默改成纯 Skills。
 4. 已有同名 Skills 不覆盖、不接管，记录为 partial；停用不删除它们。
-5. 停用保留已安装 Skills，使用项目 `.pi/settings.json` 的 `skills` 排除项 `-skills/<key>` 停止 SDK 发现。重新启用只移除 Pivot 自己记录的排除项，不修改用户已有设置、技能正文或 frontmatter。
-6. Native MCP 仅修改当前 `.pi/mcp.json` 的 `enabled`。全局服务器采用项目局部覆盖；已有项目定义保留 command/url/env/auth 等原始内容。不同工作目录不会修改同一份全局定义。
-7. 任何仍启用的 Pack 引用同一资源时，该资源继续启用；最后一个引用关闭才停用。
+5. 停用保留已安装 Skills，不再添加 `.pi/settings.json` 的 `skills` 禁用排除项。每次显式切换只清除 Pivot 自己记录的旧排除项，清空后移除 `skills` 字段；用户已有设置、技能正文及 frontmatter 不变。因此已安装 Skills 仍按 SDK 正常发现规则加载，不会因 Pack 停用而强制禁用。
+6. Native MCP 启用时仅写入当前 `.pi/mcp.json` 的 `enabled: true`。最后一个引用停用后移除该 `enabled` 覆盖；若条目因此为空则移除条目，全局服务器的启用状态恢复继承全局配置。已有项目定义及其他覆盖字段（command/url/env/auth 等）保留；项目独有服务器回到其自身默认启用行为。不同工作目录不会修改同一份全局定义。
+7. 其他已启用 Pack 仍引用同一 MCP 时，继续保留 `enabled: true`；最后一个引用关闭才释放覆盖，而不是强制禁用资源。
 8. 删除全局 Pack 定义不遍历工作空间。工作空间 receipt 保留必要快照，允许之后停用已删除的 Pack。
 
 Skills 的哈希为目录内容的确定性 SHA-256；库内容变化须显式更新引用，不能静默升级。单项库技能安装不创建 Pack receipt，仍属用户独立管理资源。已有用户排除项及 frontmatter 限制保持优先；Packs 不是文件访问权限边界。
@@ -41,14 +41,14 @@ Skills 的哈希为目录内容的确定性 SHA-256；库内容变化须显式�
 ## 提交与刷新
 
 - 按 canonical cwd 加锁（Windows key 不区分大小写），revision 过期返回 409。API 先校验允许访问的工作根目录，并拒绝配置/技能目标穿越 symlink。
-- Skills 复制、项目排除项、native enabled 覆盖及 receipt 一起提交。提交前比较原文件快照，失败回滚本次复制和已写文件；外部并发编辑不会被回滚覆盖，冲突明确报错，并继续恢复其他可恢复文件。
+- Skills 复制、旧项目排除项清理、native enabled 覆盖的写入/释放及 receipt 一起提交。提交前比较原文件快照，失败回滚本次复制和已写文件；外部并发编辑不会被回滚覆盖，冲突明确报错，并继续恢复其他可恢复文件。
 - 服务端按目录通知全部活跃 wrapper。空闲会话重载；运行、压缩或存在待处理工作时延后，当前操作结束再重载，下一次 prompt 前等待同一重载 Promise。SDK 重载按 revision 去重。
 - 客户端 `useWorkspacePackRevision` 合并同目录订阅，焦点/每 3 秒刷新，并响应本页变更事件。会话 hook 更新 `get_commands`；不得在 ChatWindow 增加另一套 SDK reload。
 - 新会话第一次发送直接使用该目录已有状态，没有 Pack 准备或继承发送门禁。全局定义编辑不会立即遍历已有目录；下一次显式目录切换按当前定义计算并集。
 
 ## 代码与验证
 
-- `lib/workspace-pack-switch.ts`：并集、校验、非删除启停及回滚。
+- `lib/workspace-pack-switch.ts`：并集、校验、覆盖释放及回滚，保留 Skills 文件和 native 定义。
 - `lib/workspace-pack-files.ts` / `workspace-pack-access.ts`：canonical key、路径及访问约束。
 - `lib/native-mcp-config.ts`：复用当前安装的 SDK 原生配置验证器，支持 npm hoist / pnpm；不执行凭据命令。
 - `lib/workspace-pack-events.ts` / `lib/rpc-manager.ts`：跨会话通知、安全边界重载。
