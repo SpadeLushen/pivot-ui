@@ -85,6 +85,12 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
         if (typeof item !== "boolean") return { error: `Invalid preference: ${key}` };
         patch[key] = item;
         break;
+      case "hidden-models":
+        if (!Array.isArray(item) || !item.every((key): key is string => typeof key === "string")) {
+          return { error: `Invalid preference: ${key}` };
+        }
+        patch["hidden-models"] = [...new Set(item)];
+        break;
       case "enter-behavior":
         if (item !== "steer" && item !== "followUp") return { error: `Invalid preference: ${key}` };
         patch["enter-behavior"] = item;

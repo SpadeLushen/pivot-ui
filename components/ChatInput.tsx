@@ -4,6 +4,8 @@ import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useIm
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { EnterBehavior } from "@/lib/preferences-types";
+import { usePreferences } from "@/lib/preferences-context";
+import { modelVisibilityKey } from "@/lib/model-visibility";
 import { clearDraft, getDraft, setDraft, type ChatDraftAttachment } from "@/lib/draft-store";
 import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
@@ -272,6 +274,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 }: Props, ref) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const { preferences } = usePreferences();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -1134,16 +1137,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [slashActiveIndex, slashMenuOpen]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const modelOptions: ModelOption[] = (() => {
+  const allModelOptions: ModelOption[] = (() => {
     if (modelList && modelList.length > 0) {
       return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name, virtual: m.virtual })).sort(compareModelOptions);
     }
-    return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
-      provider: model?.provider ?? "unknown",
-      modelId,
-      name,
-    })).sort(compareModelOptions);
+    return Object.entries(modelNames ?? {}).map(([key, name]) => {
+      const separator = key.indexOf(":");
+      return {
+        provider: separator < 0 ? model?.provider ?? "unknown" : key.slice(0, separator),
+        modelId: separator < 0 ? key : key.slice(separator + 1),
+        name,
+      };
+    }).sort(compareModelOptions);
   })();
+
+  // Filter only picker choices: hidden models can remain active in existing sessions.
+  const hiddenModels = new Set(preferences["hidden-models"]);
+  const modelOptions = allModelOptions.filter((option) =>
+    !hiddenModels.has(modelVisibilityKey(option.provider, option.modelId)));
 
   // Group options by provider, preserving insertion order
   const modelsByProvider: { provider: string; options: ModelOption[] }[] = [];
@@ -1154,7 +1165,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }
 
   const displayModelName = model
-    ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
+    ? (allModelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : null;
   const currentName = displayModelName;
 

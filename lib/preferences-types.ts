@@ -13,6 +13,8 @@ export interface UserPreferences {
   "tps-enabled": boolean;
   "turn-tps-enabled": boolean;
   "cost-enabled": boolean;
+  /** JSON-encoded [provider, modelId] identities, affecting only the chat picker. */
+  "hidden-models": string[];
   "fork-hierarchy-enabled": boolean;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
@@ -32,6 +34,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "tps-enabled": false,
   "turn-tps-enabled": false,
   "cost-enabled": true,
+  "hidden-models": [],
   "fork-hierarchy-enabled": false,
   "enter-behavior": "followUp",
   "time-format": "24",
@@ -53,6 +56,9 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "tool-preset": raw["tool-preset"] === "none" || raw["tool-preset"] === "default" || raw["tool-preset"] === "full"
       ? raw["tool-preset"]
       : DEFAULT_PREFERENCES["tool-preset"],
+    "hidden-models": Array.isArray(raw["hidden-models"])
+      ? [...new Set(raw["hidden-models"].filter((key): key is string => typeof key === "string"))]
+      : [],
     "sound-enabled": raw["sound-enabled"] === true,
     "tps-enabled": raw["tps-enabled"] === true,
     "turn-tps-enabled": raw["turn-tps-enabled"] === true,

@@ -32,6 +32,7 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Windows service runtime files
+/winsw.yml
 /winsw.exe
 /winsw_logs/
 
