@@ -17,6 +17,7 @@ interface LiveTurn {
   lastOutputAt?: number;
   thinkingStarts: Map<number, number>;
   thinkingDone: Map<number, number>;
+  thinkingEnds: Map<number, number>;
 }
 
 export function useTimings(sessionIdRef: React.RefObject<string | null>) {
@@ -68,7 +69,7 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
       case "turn_start":
         flushPending(); // previous turn was interrupted without turn_end
         finishedTools.current.clear();
-        turn.current = { start: clock, assistant: null, thinkingStarts: new Map(), thinkingDone: new Map() };
+        turn.current = { start: clock, assistant: null, thinkingStarts: new Map(), thinkingDone: new Map(), thinkingEnds: new Map() };
         refresh();
         break;
       case "message_start": {
@@ -90,10 +91,18 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
           active.firstOutputAt ??= clock;
           active.lastOutputAt = clock;
         }
-        if (update.type === "thinking_start") active.thinkingStarts.set(update.contentIndex, clock);
+        if (update.type === "thinking_start") {
+          // Adjacent thinking blocks share one displayed clock. Include the gap
+          // after the previous segment so the total runs from the first start.
+          const start = active.thinkingEnds.get(update.contentIndex - 1) ?? clock;
+          active.thinkingStarts.set(update.contentIndex, start);
+        }
         if (update.type === "thinking_end") {
           const start = active.thinkingStarts.get(update.contentIndex);
-          if (start !== undefined) active.thinkingDone.set(update.contentIndex, clock - start);
+          if (start !== undefined) {
+            active.thinkingDone.set(update.contentIndex, clock - start);
+            active.thinkingEnds.set(update.contentIndex, clock);
+          }
           active.thinkingStarts.delete(update.contentIndex);
         }
         if (update.type === "thinking_start" || update.type === "thinking_end") refresh();
@@ -152,7 +161,7 @@ export function useTimings(sessionIdRef: React.RefObject<string | null>) {
   }, [flushPending, refresh, sessionIdRef, stage, stopActive]);
 
   const liveThinking = new Map<number, number>();
-  for (const [index, start] of turn.current?.thinkingStarts ?? []) liveThinking.set(index, now - start);
+  for (const [index, start] of turn.current?.thinkingStarts ?? []) liveThinking.set(index, Math.max(0, now - start));
   for (const [index, ms] of turn.current?.thinkingDone ?? []) liveThinking.set(index, ms);
   const liveTools = new Map<string, number>();
   for (const [id, ms] of finishedTools.current) liveTools.set(id, ms);

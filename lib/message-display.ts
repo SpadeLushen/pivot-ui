@@ -18,12 +18,59 @@ export function getDisplayableAssistantBlocks(
   message: AssistantMessage,
   options: DisplayOptions = {},
 ): AssistantContentBlock[] {
-  return (message.content ?? []).filter((block) => !isEmptyThinkingBlock(block, options));
+  const blocks = message.content ?? [];
+  const visible: AssistantContentBlock[] = [];
+  for (let index = 0; index < blocks.length;) {
+    if (blocks[index].type !== "thinking") {
+      visible.push(blocks[index++]);
+      continue;
+    }
+    const start = index;
+    while (index < blocks.length && blocks[index].type === "thinking") index++;
+    const group = blocks.slice(start, index);
+    // Keep source objects (including empty segments) for index mapping and the
+    // full timer, but hide a completed thinking run that is entirely empty.
+    if (group.some((block) => !isEmptyThinkingBlock(block, options))) visible.push(...group);
+  }
+  return visible;
 }
 
 export interface StreamingAssistantBlockItem {
   block: AssistantContentBlock;
   originalIndex: number;
+  /** Source indices retained for grouped timing and deferred history loading. */
+  originalIndices?: number[];
+}
+
+export function joinThinkingContent(parts: string[]): string {
+  return parts.filter((part) => part.length > 0).join("\n\n");
+}
+
+/** Presentation-only: never rewrite the transcript or its block indices. */
+export function mergeConsecutiveThinkingBlocks(items: StreamingAssistantBlockItem[]): StreamingAssistantBlockItem[] {
+  const merged: StreamingAssistantBlockItem[] = [];
+  for (const item of items) {
+    const previous = merged.at(-1);
+    if (previous?.block.type === "thinking" && item.block.type === "thinking") {
+      merged[merged.length - 1] = {
+        ...previous,
+        originalIndices: [
+          ...(previous.originalIndices ?? [previous.originalIndex]),
+          ...(item.originalIndices ?? [item.originalIndex]),
+        ],
+        block: {
+          type: "thinking",
+          thinking: joinThinkingContent([previous.block.thinking, item.block.thinking]),
+          thinkingPreview: getLastThinkingLine(item.block.thinkingPreview ?? item.block.thinking)
+            || previous.block.thinkingPreview || getLastThinkingLine(previous.block.thinking),
+          deferred: previous.block.deferred || item.block.deferred,
+        },
+      };
+    } else {
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 export interface StreamingAssistantBlocks {
@@ -39,7 +86,7 @@ export interface StreamingAssistantBlocks {
 export function getStreamingAssistantBlockItems(message: AssistantMessage): StreamingAssistantBlocks {
   const rawBlockItems = (message.content ?? []).map((block, originalIndex) => ({ block, originalIndex }));
   const hasNextContent = rawBlockItems.some(({ block }) => block.type !== "thinking");
-  const displayBlockItems = rawBlockItems.filter(({ block }) => (
+  const displayBlockItems = mergeConsecutiveThinkingBlocks(rawBlockItems).filter(({ block }) => (
     block.type !== "thinking"
       || !hasNextContent
       || block.deferred

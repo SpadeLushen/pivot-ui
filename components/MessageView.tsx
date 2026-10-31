@@ -11,7 +11,7 @@ import { imageSource } from "@/lib/message-images";
 import { recordedCost, summarizeUsage } from "@/lib/session-usage";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock } from "@/lib/message-display";
+import { getLastThinkingLine, getStreamingAssistantBlockItems, isEmptyThinkingBlock, joinThinkingContent, mergeConsecutiveThinkingBlocks } from "@/lib/message-display";
 import { appendElapsedToUsage, formatDisplayedElapsed, formatTurnTps, readTiming, recordedDuration } from "@/lib/timing-store";
 import { useI18n } from "@/lib/i18n";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
@@ -608,8 +608,8 @@ function AssistantMessageView({
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp, hour12) : null;
   const streamingBlockItems = isStreaming ? getStreamingAssistantBlockItems(message).blockItems : null;
-  const blockItems = streamingBlockItems ?? (message.content ?? [])
-    .map((block, originalIndex) => ({ block, originalIndex }))
+  const blockItems = streamingBlockItems ?? mergeConsecutiveThinkingBlocks((message.content ?? [])
+    .map((block, originalIndex) => ({ block, originalIndex })))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }));
   const blocks = blockItems.map(({ block }) => block);
   const [hovered, setHovered] = useState(false);
@@ -741,9 +741,25 @@ function AssistantMessageView({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} nestedCalls={nestedCalls} isStreaming={isStreaming} streamingDuration={block.type === "thinking" ? (isStreaming ? liveThinking?.get(originalIndex) : (liveThinking?.get(timingBlockIndices?.[originalIndex] ?? originalIndex) ?? (timingRevision && sessionId && timingMessageId ? readTiming(`thinking:${sessionId}:${timingMessageId}:${timingBlockIndices?.[originalIndex] ?? originalIndex}`) : undefined))) : undefined} runningThinking={runningThinking?.has(timingBlockIndices?.[originalIndex] ?? originalIndex)} toolCallDurations={liveTools} runningTools={runningTools} sessionTimingId={timingRevision ? sessionId : undefined} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
-        ))}
+        {blockItems.map(({ block, originalIndex, originalIndices }) => {
+          const sourceIndices = (originalIndices ?? [originalIndex])
+            .map((index) => timingBlockIndices?.[index] ?? index);
+          const durations = block.type === "thinking" ? sourceIndices.map((index) => (
+            liveThinking?.get(index) ?? (!isStreaming && timingRevision && sessionId && timingMessageId
+              ? readTiming(`thinking:${sessionId}:${timingMessageId}:${index}`) : undefined)
+          )) : [];
+          const duration = durations.length > 0 && durations.every((value) => value !== undefined)
+            ? durations.reduce<number>((total, value) => total + value!, 0) : undefined;
+          return (
+            <BlockView
+              key={`${entryId ?? "stream"}-${originalIndex}`}
+              block={block} toolResults={toolResults} nestedCalls={nestedCalls} isStreaming={isStreaming}
+              streamingDuration={duration} runningThinking={sourceIndices.some((index) => runningThinking?.has(index))}
+              toolCallDurations={liveTools} runningTools={runningTools} sessionTimingId={timingRevision ? sessionId : undefined}
+              cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndices={sourceIndices}
+            />
+          );
+        })}
       </div>
 
       <div style={{
@@ -788,12 +804,12 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, nestedCalls, isStreaming, streamingDuration, runningThinking, toolCallDurations, runningTools, sessionTimingId, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; nestedCalls?: Map<string, NestedCallGroup>; isStreaming?: boolean; streamingDuration?: number; runningThinking?: boolean; toolCallDurations?: Map<string, number>; runningTools?: Set<string>; sessionTimingId?: string; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, nestedCalls, isStreaming, streamingDuration, runningThinking, toolCallDurations, runningTools, sessionTimingId, cwd, onOpenFile, sessionId, entryId, blockIndices }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; nestedCalls?: Map<string, NestedCallGroup>; isStreaming?: boolean; streamingDuration?: number; runningThinking?: boolean; toolCallDurations?: Map<string, number>; runningTools?: Set<string>; sessionTimingId?: string; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndices: number[] }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} durationRunning={Boolean(runningThinking)} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} durationRunning={Boolean(runningThinking)} isLive={Boolean(isStreaming)} sessionId={sessionId} entryId={entryId} blockIndices={blockIndices} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -809,14 +825,14 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, entryId, blockIndex, cwd, onOpenFile }: {
+function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, entryId, blockIndices, cwd, onOpenFile }: {
   block: ThinkingContent;
   duration?: number;
   durationRunning: boolean;
   isLive?: boolean;
   sessionId?: string;
   entryId?: string;
-  blockIndex: number;
+  blockIndices: number[];
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
 }) {
@@ -839,7 +855,8 @@ function ThinkingBlock({ block, duration, durationRunning, isLive, sessionId, en
     setLoading(true);
     setError(null);
     try {
-      setContent(await loadThinkingContent(sessionId, entryId, blockIndex));
+      const parts = await Promise.all(blockIndices.map((index) => loadThinkingContent(sessionId, entryId, index)));
+      setContent(joinThinkingContent(parts));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
