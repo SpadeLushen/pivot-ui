@@ -497,6 +497,8 @@ const en: Record<string, string> = {
   "chat.regenerate": "Regenerate",
   "chat.model": "Model",
   "chat.thinkingLevel": "Thinking level",
+  "chat.modelThinkingLoadFailed": "Could not load saved model thinking levels",
+  "chat.modelThinkingSaveFailed": "Message sent, but its model thinking level could not be saved",
   "chat.tools": "Tools",
   "chat.compact": "Compact",
   "chat.newSessionCreated": "New session created",

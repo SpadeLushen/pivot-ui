@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { AgentBusyError, startRpcSession, getRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -17,7 +18,7 @@ export async function POST(
     const existing = getRpcSession(id);
     if (existing?.isAlive()) {
       const result = await existing.send(body);
-      return NextResponse.json({ success: true, data: result });
+      return NextResponse.json({ success: true, data: await recordSentThinkingPreference(body, result) });
     }
 
     // Argument suggestions use the runtime already loaded by get_commands.
@@ -40,7 +41,7 @@ export async function POST(
     const { session } = await startRpcSession(id, filePath, cwd, undefined, undefined, requestedModel);
     const result = await session.send(body);
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({ success: true, data: await recordSentThinkingPreference(body, result) });
   } catch (error) {
     if (error instanceof AgentBusyError || (error instanceof Error && error.name === "AgentBusyError")) {
       return NextResponse.json({ error: error.message }, { status: 409 });

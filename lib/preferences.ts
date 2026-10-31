@@ -14,6 +14,7 @@ import {
   type PreferencePatch,
   type UserPreferences,
 } from "./preferences-types";
+import type { ThinkingLevelOption } from "./thinking-levels";
 
 export function getPreferencesPath(): string {
   return join(getPivotUiConfigDir(), "preferences.json");
@@ -42,16 +43,27 @@ async function writePreferences(preferences: UserPreferences): Promise<void> {
 
 // Serialize read-modify-write operations so simultaneous browser updates do
 // not overwrite a field changed by another request in this Node process.
-let writeChain: Promise<void> = Promise.resolve();
+const preferenceGlobals = globalThis as typeof globalThis & { __pivotPreferencesWriteChain?: Promise<void> };
 
-export function updatePreferences(patch: PreferencePatch): Promise<UserPreferences> {
-  const run = writeChain.then(async () => {
-    const next = normalizePreferences({ ...readPreferences(), ...patch });
+function mutatePreferences(mutate: (current: UserPreferences) => UserPreferences): Promise<UserPreferences> {
+  const run = (preferenceGlobals.__pivotPreferencesWriteChain ?? Promise.resolve()).then(async () => {
+    const next = normalizePreferences(mutate(readPreferences()));
     await writePreferences(next);
     return next;
   });
-  writeChain = run.then(() => undefined, () => undefined);
+  preferenceGlobals.__pivotPreferencesWriteChain = run.then(() => undefined, () => undefined);
   return run;
+}
+
+export function updatePreferences(patch: PreferencePatch): Promise<UserPreferences> {
+  return mutatePreferences(current => ({ ...current, ...patch }));
+}
+
+export function recordModelThinkingLevel(modelId: string, level: ThinkingLevelOption): Promise<UserPreferences> {
+  return mutatePreferences(current => ({
+    ...current,
+    "model-thinking-levels": { ...current["model-thinking-levels"], [modelId]: level },
+  }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

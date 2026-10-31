@@ -34,6 +34,7 @@ export interface Props {
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   isStreaming: boolean;
   isInputSending?: boolean;
+  isModelSelectionPending?: boolean;
   /** Keep draft/upload state mounted while an extension owns the composer slot. */
   suspended?: boolean;
   model?: SelectedModel | null;
@@ -258,7 +259,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, isModelSelectionPending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
   onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -277,6 +278,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const { preferences } = usePreferences();
+  const modelControlsDisabled = isStreaming || isInputSending || isModelSelectionPending;
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -669,7 +671,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachments.length) return;
-    if (suspendedRef.current || isStreaming || isInputSending || composerSendRef.current || !attachmentsReady) return;
+    if (suspendedRef.current || isStreaming || isInputSending || isModelSelectionPending || composerSendRef.current || !attachmentsReady) return;
     composerSendRef.current = true;
     const submittedValue = valueRef.current;
     const submittedAttachments = attachmentsRef.current;
@@ -694,7 +696,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       submittedInputRef.current = null;
       composerSendRef.current = false;
     }
-  }, [value, attachments, attachmentsReady, isStreaming, isInputSending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachments, attachmentsReady, isStreaming, isInputSending, isModelSelectionPending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashNameQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1856,7 +1858,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               className="chat-send-button"
               onClick={handleSend}
-              disabled={isInputSending || (!value.trim() && !attachments.length) || !attachmentsReady}
+              disabled={isInputSending || isModelSelectionPending || (!value.trim() && !attachments.length) || !attachmentsReady}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
@@ -1922,7 +1924,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
             {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
 
-            {/* Model selector — visible always, disabled during streaming */}
+            {/* Keep model and thinking selection stable while input or a selection is pending. */}
             {onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
                   <button
@@ -1931,7 +1933,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
                       setModelDropdownOpen((v) => !v);
                     }}
-                    disabled={isStreaming}
+                    disabled={modelControlsDisabled}
                     title={currentDisplayName ?? t("models.selectModel")}
                     aria-label={currentDisplayName ?? t("models.selectModel")}
                     style={{
@@ -1946,13 +1948,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       border: "none",
                       borderRadius: 9,
                       color: "var(--text-muted)",
-                      cursor: isStreaming ? "not-allowed" : "pointer",
+                      cursor: modelControlsDisabled ? "not-allowed" : "pointer",
                       fontSize: 12,
-                      opacity: isStreaming ? 0.5 : 1,
+                      opacity: modelControlsDisabled ? 0.5 : 1,
                       transition: "background 0.12s, color 0.12s",
                     }}
                     onMouseEnter={(e) => {
-                      if (isStreaming) return;
+                      if (modelControlsDisabled) return;
                       e.currentTarget.style.background = "var(--bg-hover)";
                       e.currentTarget.style.color = "var(--text)";
                     }}
@@ -1968,7 +1970,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       compactProvider={isMobile}
                     />
                   </button>
-                  {modelDropdownOpen && modelDropdownRect && (() => {
+                  {modelDropdownOpen && modelDropdownRect && !modelControlsDisabled && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
                     const bottom = viewportHeight - modelDropdownRect.top + 6;
                     const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
@@ -2126,8 +2128,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
+                  onClick={() => !modelControlsDisabled && setThinkingDropdownOpen((v) => !v)}
+                  disabled={modelControlsDisabled}
                   title={`Change reasoning level: ${thinkingDisplayLabel}`}
                   aria-label="Change reasoning level"
                   style={{
@@ -2139,13 +2141,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: modelControlsDisabled ? "not-allowed" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
+                    opacity: modelControlsDisabled ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (modelControlsDisabled) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
@@ -2157,7 +2159,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <Lightbulb size={11} strokeWidth={2} aria-hidden="true" />
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
-                {thinkingDropdownOpen && !isStreaming && (
+                {thinkingDropdownOpen && !modelControlsDisabled && (
                   <div className="overlay-surface" style={{
                     position: "absolute", bottom: "calc(100% + 6px)", right: 0,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",

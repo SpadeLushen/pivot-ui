@@ -499,6 +499,8 @@ const zh: Record<string, string> = {
   "chat.regenerate": "重新生成",
   "chat.model": "模型",
   "chat.thinkingLevel": "思考级别",
+  "chat.modelThinkingLoadFailed": "无法读取已保存的模型思考强度",
+  "chat.modelThinkingSaveFailed": "消息已发送，但无法保存该模型的思考强度",
   "chat.tools": "工具",
   "chat.compact": "压缩",
   "chat.newSessionCreated": "新会话已创建",

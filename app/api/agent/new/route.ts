@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
 // type:"ensure_session" only creates the runtime so clients can query commands.
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
 
     const result = await session.send(promptCommand);
 
-    return NextResponse.json({ success: true, sessionId: realSessionId, data: result });
+    return NextResponse.json({ success: true, sessionId: realSessionId, data: await recordSentThinkingPreference(promptCommand, result) });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

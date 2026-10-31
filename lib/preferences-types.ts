@@ -1,4 +1,5 @@
 import type { ToolPreset } from "./tool-presets";
+import { isThinkingLevelOption, type ThinkingLevelOption } from "./thinking-levels";
 
 export type Theme = "light" | "dark" | "eye";
 export type Locale = "en" | "zh";
@@ -15,6 +16,8 @@ export interface UserPreferences {
   "cost-enabled": boolean;
   /** JSON-encoded [provider, modelId] identities, affecting only the chat picker. */
   "hidden-models": string[];
+  /** Last accepted message's selected level, keyed by model ID (not provider). */
+  "model-thinking-levels": Record<string, ThinkingLevelOption>;
   "fork-hierarchy-enabled": boolean;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
@@ -35,6 +38,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "turn-tps-enabled": false,
   "cost-enabled": true,
   "hidden-models": [],
+  "model-thinking-levels": {},
   "fork-hierarchy-enabled": false,
   "enter-behavior": "followUp",
   "time-format": "24",
@@ -59,6 +63,10 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "hidden-models": Array.isArray(raw["hidden-models"])
       ? [...new Set(raw["hidden-models"].filter((key): key is string => typeof key === "string"))]
       : [],
+    "model-thinking-levels": isRecord(raw["model-thinking-levels"])
+      ? Object.fromEntries(Object.entries(raw["model-thinking-levels"])
+        .filter((entry): entry is [string, ThinkingLevelOption] => !!entry[0] && isThinkingLevelOption(entry[1])))
+      : {},
     "sound-enabled": raw["sound-enabled"] === true,
     "tps-enabled": raw["tps-enabled"] === true,
     "turn-tps-enabled": raw["turn-tps-enabled"] === true,

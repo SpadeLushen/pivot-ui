@@ -186,8 +186,9 @@ hooks/
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
-- The nine persisted preference keys live in `~/.pivot-ui/preferences.json`: `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `cost-enabled` (defaults to `true` and controls turn-footer/top-bar cost display), `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
+- Shared preferences live in `~/.pivot-ui/preferences.json`, including `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `cost-enabled` (defaults to `true` and controls turn-footer/top-bar cost display), `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
 - The browser reads and updates them through `/api/preferences`; updates are serialized server-side, and open clients refresh on focus and periodically. Device-local UI state such as panel tabs remains in `localStorage`.
+- `model-thinking-levels` records the selected thinking option for each model ID (independent of provider) only after a message is accepted or queued. Model selection refreshes this shared map and restores the saved option, clamped to the selected provider's supported levels. `auto` remains a distinct option; handled commands do not update the map.
 
 ### Shared workspace registry
 - `~/.pivot-ui/workspaces.json` stores `{ version: 1, workspaces: [{ path, tag, removed }] }`. The UI calls this Archive/Archived; `removed` remains the persisted/API field for compatibility. Archiving hides a workspace and can be undone with Restore. `lib/workspace-store.ts` serializes field-level updates and writes atomically; `/api/workspaces` exposes GET/PATCH only; there is no legacy browser import endpoint. Metadata never grants filesystem access or deletes directories/sessions.

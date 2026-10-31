@@ -196,7 +196,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, inputSending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
+    agentRunning, inputSending, modelSelectionPending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, thinkingLevel,
     openRouterCatalog, modelCatalogError, modelScopeDiagnostics, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, selectedModelInfo, routedModel, selectionNotice, sessionStats,
@@ -333,6 +333,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       enterBehavior={enterBehavior}
       isStreaming={agentRunning}
       isInputSending={inputSending}
+      isModelSelectionPending={modelSelectionPending}
       model={selectedModelInfo}
       routedModel={routedModel}
       selectionNotice={selectionNotice}

@@ -33,6 +33,9 @@ import { useModelCatalogRefresh } from "@/hooks/useModelCatalogRefresh";
 import type { ModelCatalogRefreshStatus } from "@/lib/model-refresh-types";
 import type { SlashArgumentCompletion } from "@/lib/pi-types";
 import type { ChatInputHandle } from "@/components/ChatInput";
+import { usePreferences } from "@/lib/preferences-context";
+import { useI18n } from "@/lib/i18n";
+import { supportedThinkingLevel, type ThinkingLevelOption } from "@/lib/thinking-levels";
 
 export interface SessionData {
   sessionId: string;
@@ -87,6 +90,7 @@ type AgentStateResponse = {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
   thinkingLevel?: string;
+  selectedThinkingLevel?: "auto";
   isStreaming?: boolean;
   isPromptRunning?: boolean;
   isCompacting?: boolean;
@@ -172,7 +176,7 @@ export interface UseAgentSessionOptions {
   onSessionStatsPanelOpen?: () => void;
 }
 
-export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type { ThinkingLevelOption } from "@/lib/thinking-levels";
 
 function normalizeThinkingLevel(value: string | null | undefined): ThinkingLevelOption {
   switch (value) {
@@ -382,6 +386,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const previousWorkspacePacks = useRef({ cwd: workspaceCwd, revision: -1 });
 
   const isNew = session === null && newSessionCwd !== null;
+  const { preferences, refresh: refreshPreferences } = usePreferences();
+  const { t } = useI18n();
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
+  const [modelSelectionPending, setModelSelectionPending] = useState(isNew);
+  const modelSelectionPendingRef = useRef(isNew);
+  const initialModelSelectionRef = useRef(false);
+  const autoThinkingModelRef = useRef<SelectedModel | null>(null);
 
   const notifyUserMessageSent = useCallback(() => {
     const cwd = session?.cwd ?? newSessionCwd;
@@ -551,6 +563,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (state.routedModel !== undefined) setRoutedModel(state.routedModel);
   }, []);
 
+  const applyLiveThinkingLevel = useCallback((state: AgentStateResponse) => {
+    if (state.thinkingLevel === undefined) return;
+    autoThinkingModelRef.current = state.selectedThinkingLevel === "auto" ? state.selectedModel ?? null : null;
+    setThinkingLevel(state.selectedThinkingLevel === "auto" ? "auto" : normalizeThinkingLevel(state.thinkingLevel));
+  }, []);
+
   const { stats: sessionStats, refresh: refreshSessionStats } = useSessionStatistics(
     sessionIdRef.current ?? session?.id ?? null,
     agentRunning ? null : activeLeafId,
@@ -592,7 +610,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCurrentModelOverride(null);
       setRoutedModel(d.context.routedModel ?? null);
       setError(null);
-      setThinkingLevel(normalizeThinkingLevel(d.context.thinkingLevel));
+      const loadedModel = d.context.selectedModel ?? d.context.model;
+      const autoModel = autoThinkingModelRef.current;
+      setThinkingLevel(autoModel && loadedModel?.provider === autoModel.provider && loadedModel.modelId === autoModel.modelId
+        ? "auto" : normalizeThinkingLevel(d.context.thinkingLevel));
 
       messagesLoaded = true;
       if (showLoading) setLoading(false);
@@ -611,7 +632,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           applyLiveModels(liveState);
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
-          if (liveState.thinkingLevel !== undefined) setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
+          applyLiveThinkingLevel(liveState);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
@@ -629,7 +650,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, [applyLiveModels, publishNested]);
+  }, [applyLiveModels, applyLiveThinkingLevel, publishNested]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     const revision = ++contextRequestRevisionRef.current;
@@ -646,6 +667,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setData(previous => previous ? { ...previous, context: d.context } : previous);
       setCurrentModelOverride(null);
       setRoutedModel(d.context.routedModel ?? null);
+      autoThinkingModelRef.current = null;
       setThinkingLevel(normalizeThinkingLevel(d.context.thinkingLevel));
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
@@ -696,6 +718,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
+    if (modelSelectionPendingRef.current) return null;
     if (!isNew || !newSessionCwd) return sessionIdRef.current;
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
@@ -710,7 +733,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           cwd: newSessionCwd,
           type: "ensure_session",
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
-          ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
+          thinkingLevel,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1360,7 +1383,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleSend = useCallback(async (message: string, attachments?: ChatAttachment[]) => {
     const trimmedMessage = message.trim();
-    if ((!trimmedMessage && !attachments?.length) || agentRunRef.current.running || inputRequestRef.current) return false;
+    if ((!trimmedMessage && !attachments?.length) || agentRunRef.current.running || inputRequestRef.current || modelSelectionPendingRef.current) return false;
+    const thinkingSelection = displayModel ? { modelId: displayModel.modelId, level: thinkingLevel } : undefined;
     const requestId = createNoticeId();
     const epoch = inputEpochRef.current;
     const promptRunId = agentRunRef.current.start(); // Reserve dispatch, not execution.
@@ -1381,17 +1405,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!sid) throw new Error("No session available for this input");
       if (isNew && newSessionModel) {
         setPendingModel(newSessionModel);
-        if (existingSid) await sendAgentCommand(sid, {
-          type: "set_model", provider: newSessionModel.provider, modelId: newSessionModel.modelId,
-        });
+        if (existingSid) {
+          await sendAgentCommand(sid, {
+            type: "set_model", provider: newSessionModel.provider, modelId: newSessionModel.modelId, thinkingLevel,
+          });
+        }
       }
       await ensureEventsConnected(sid);
       if (!ownsRequest() || sessionIdRef.current !== sid) return false;
       const receipt = readInputReceipt(await sendAgentCommand(sid, {
-        type: "prompt", requestId, message: fullMessage,
+        type: "prompt", requestId, message: fullMessage, thinkingSelection,
         ...(piImages.length ? { images: piImages } : {}),
       }));
       if (!ownsRequest() || sessionIdRef.current !== sid) return true;
+      if (receipt?.thinkingPreferenceError) addNotice({ type: "warning", message: t(receipt.thinkingPreferenceError) });
       // Fast SSE may have already settled this run. Never revive it from HTTP.
       if (agentRunRef.current.isCurrent(promptRunId)) {
         if (receipt?.disposition === "started" && !agentRunRef.current.started
@@ -1431,9 +1458,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setInputSending(false);
       }
     }
-  }, [beginNested, isNew, newSessionModel, ensureNewSession, ensureEventsConnected, notifyUserMessageSent,
+  }, [beginNested, displayModel, thinkingLevel, isNew, newSessionModel, ensureNewSession, ensureEventsConnected, notifyUserMessageSent,
     promoteNewSession, reconcileAgentState, waitForPromptSettlement, addNotice, dismissErrorNotices,
-    ensurePackSkillsReloaded, prepareAttachments]);
+    ensurePackSkillsReloaded, prepareAttachments, t]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1509,35 +1536,47 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [newSessionCwd]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
-    if (isNew) {
-      setNewSessionModel({ provider, modelId });
-      setPendingModel({ provider, modelId });
-      try {
-        await persistNewSessionDefault({ provider, modelId });
-      } catch (e) {
-        console.error("Failed to save default model:", e);
-        addNotice({ type: "error", message: "Failed to save default model" });
-      }
+    if (modelSelectionPendingRef.current || inputRequestRef.current || agentRunRef.current.running) return;
+    modelSelectionPendingRef.current = true;
+    setModelSelectionPending(true);
+    try {
+      const shared = await refreshPreferences();
+      if (!shared) throw new Error(t("chat.modelThinkingLoadFailed"));
+      const remembered = Object.hasOwn(shared["model-thinking-levels"], modelId)
+        ? shared["model-thinking-levels"][modelId] : undefined;
+      let nextLevel = supportedThinkingLevel(remembered ?? thinkingLevel, modelThinkingLevels[`${provider}:${modelId}`]);
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
       if (sid) {
-        try {
-          await sendAgentCommand(sid, { type: "set_model", provider, modelId });
-        } catch (e) {
-          console.error("Failed to set model:", e);
-        }
+        const result = await sendAgentCommand<{ thinkingLevel: string }>(sid, {
+          type: "set_model", provider, modelId, persist: !isNew, thinkingLevel: nextLevel,
+        });
+        if (nextLevel !== "auto") nextLevel = normalizeThinkingLevel(result.thinkingLevel);
+      } else if (!isNew) {
+        throw new Error("No active session");
       }
-      return;
-    }
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    try {
-      await sendAgentCommand(sid, { type: "set_model", provider, modelId, persist: true });
-      setCurrentModelOverride({ provider, modelId });
+      thinkingLevelUserSelectedRef.current = true;
+      autoThinkingModelRef.current = nextLevel === "auto" ? { provider, modelId } : null;
+      setThinkingLevel(nextLevel);
+      if (isNew) {
+        setNewSessionModel({ provider, modelId });
+        setPendingModel({ provider, modelId });
+        try {
+          await persistNewSessionDefault({ provider, modelId });
+        } catch (e) {
+          console.error("Failed to save default model:", e);
+          addNotice({ type: "error", message: "Failed to save default model" });
+        }
+      } else {
+        setCurrentModelOverride({ provider, modelId });
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
-      addNotice({ type: "error", message: "Failed to save default model" });
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to set model" });
+    } finally {
+      modelSelectionPendingRef.current = false;
+      setModelSelectionPending(false);
     }
-  }, [isNew, persistNewSessionDefault, addNotice]);
+  }, [isNew, thinkingLevel, modelThinkingLevels, persistNewSessionDefault, refreshPreferences, addNotice, t]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1561,32 +1600,51 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const revision = ++modelsReadRevision.current;
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
-    const res = await fetch(modelsUrl, signal ? { signal } : undefined);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const d = await res.json() as ModelsResponse;
-    signal?.throwIfAborted();
-    if (revision !== modelsReadRevision.current) return;
-    setModelCatalogError(d.catalogError ?? null);
-    setModelScopeDiagnostics(d.modelScopeDiagnostics ?? []);
-    setOpenRouterCatalog(d.openRouterCatalog ?? null);
-    setModelNames(d.models);
-    setModelCatalog(d.typedCatalog ?? []);
-    setCatalogUnavailable(d.catalogUnavailable !== false);
-    setModelThinkingLevels(d.thinkingLevels ?? {});
-    setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
-    const nextModelList = d.modelList ?? [];
-    setModelList(nextModelList);
-    if (isNew && !thinkingLevelUserSelectedRef.current) {
-      setThinkingLevel(normalizeThinkingLevel(d.defaultThinkingLevel));
+    const initializing = isNew && !initialModelSelectionRef.current;
+    try {
+      const [res, shared] = await Promise.all([
+        fetch(modelsUrl, signal ? { signal } : undefined),
+        initializing ? refreshPreferences() : Promise.resolve(null),
+      ]);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json() as ModelsResponse;
+      signal?.throwIfAborted();
+      if (revision !== modelsReadRevision.current) return;
+      setModelCatalogError(d.catalogError ?? null);
+      setModelScopeDiagnostics(d.modelScopeDiagnostics ?? []);
+      setOpenRouterCatalog(d.openRouterCatalog ?? null);
+      setModelNames(d.models);
+      setModelCatalog(d.typedCatalog ?? []);
+      setCatalogUnavailable(d.catalogUnavailable !== false);
+      setModelThinkingLevels(d.thinkingLevels ?? {});
+      setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
+      const nextModelList = d.modelList ?? [];
+      setModelList(nextModelList);
+      if (isNew) {
+        const match = d.defaultModel
+          ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
+          : undefined;
+        const defaultModel = match ?? nextModelList[0];
+        setNewSessionDefaultModel(defaultModel ? { provider: defaultModel.provider, modelId: defaultModel.id } : null);
+        if (initializing && !thinkingLevelUserSelectedRef.current) {
+          const saved = (shared ?? preferencesRef.current)["model-thinking-levels"];
+          const remembered = defaultModel && Object.hasOwn(saved, defaultModel.id) ? saved[defaultModel.id] : undefined;
+          const nextLevel = supportedThinkingLevel(remembered ?? normalizeThinkingLevel(d.defaultThinkingLevel),
+            defaultModel ? d.thinkingLevels?.[`${defaultModel.provider}:${defaultModel.id}`] : null);
+          autoThinkingModelRef.current = nextLevel === "auto" && defaultModel
+            ? { provider: defaultModel.provider, modelId: defaultModel.id } : null;
+          setThinkingLevel(nextLevel);
+          if (!shared) addNotice({ type: "warning", message: t("chat.modelThinkingLoadFailed") });
+        }
+      }
+    } finally {
+      if (initializing && revision === modelsReadRevision.current && !signal?.aborted) {
+        initialModelSelectionRef.current = true;
+        modelSelectionPendingRef.current = false;
+        setModelSelectionPending(false);
+      }
     }
-    if (isNew) {
-      const match = d.defaultModel
-        ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
-        : undefined;
-      const displayModel = match ?? nextModelList[0];
-      setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
-    }
-  }, [isNew, newSessionCwd, session?.cwd]);
+  }, [isNew, newSessionCwd, session?.cwd, refreshPreferences, addNotice, t]);
 
   const { refresh: refreshOpenRouterModels, refreshing: modelsRefreshing, refreshError: modelsRefreshError } =
     useModelCatalogRefresh("openrouter", workspaceCwd ?? undefined, loadModels);
@@ -1679,6 +1737,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const submitQueuedInput = useCallback(async (command: Record<string, unknown>) => {
     const sid = sessionIdRef.current;
     if (!sid || inputRequestRef.current) return false;
+    const thinkingSelection = displayModel ? { modelId: displayModel.modelId, level: thinkingLevel } : undefined;
     const requestId = createNoticeId();
     const epoch = inputEpochRef.current;
     inputRequestRef.current = requestId;
@@ -1686,8 +1745,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     dismissErrorNotices();
     setRetryInfo(null);
     try {
-      const receipt = readInputReceipt(await sendAgentCommand(sid, { ...command, requestId }));
+      const receipt = readInputReceipt(await sendAgentCommand(sid, { ...command, requestId, thinkingSelection }));
       if (inputEpochRef.current !== epoch || sessionIdRef.current !== sid) return true;
+      if (receipt?.thinkingPreferenceError) addNotice({ type: "warning", message: t(receipt.thinkingPreferenceError) });
       if (receipt?.disposition === "started") activePromptRequestIdRef.current = requestId;
       notifyUserMessageSent();
       inputRequestRef.current = null;
@@ -1707,7 +1767,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setInputSending(false);
       }
     }
-  }, [addNotice, dismissErrorNotices, loadSession, notifyUserMessageSent, reconcileAgentState]);
+  }, [addNotice, dismissErrorNotices, displayModel, thinkingLevel, loadSession, notifyUserMessageSent, reconcileAgentState, t]);
 
   const handleSteer = useCallback((message: string) => submitQueuedInput({
     type: "steer", message,
@@ -1776,26 +1836,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [opts.chatInputRef, addNotice]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
+    if (modelSelectionPendingRef.current || inputRequestRef.current || agentRunRef.current.running) return;
+    modelSelectionPendingRef.current = true;
+    setModelSelectionPending(true);
     thinkingLevelUserSelectedRef.current = true;
-    setThinkingLevel(level);
-    if (level === "auto") return; // "auto" leaves pi's current setting untouched
-    if (isNew) {
-      try {
-        await persistNewSessionDefault({ thinkingLevel: level });
-      } catch (e) {
-        console.error("Failed to save default thinking level:", e);
-        addNotice({ type: "error", message: "Failed to save default thinking level" });
-      }
-    }
-    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level, persist: !isNew });
+      if (isNew && level !== "auto") {
+        try {
+          await persistNewSessionDefault({ thinkingLevel: level });
+        } catch (e) {
+          console.error("Failed to save default thinking level:", e);
+          addNotice({ type: "error", message: "Failed to save default thinking level" });
+        }
+      }
+      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+      let selectedLevel = level;
+      if (sid) {
+        const result = await sendAgentCommand<{ level: string }>(sid, { type: "set_thinking_level", level, persist: !isNew && level !== "auto", returnEffective: true });
+        if (level !== "auto") selectedLevel = normalizeThinkingLevel(result.level);
+      }
+      autoThinkingModelRef.current = selectedLevel === "auto" ? displayModel : null;
+      setThinkingLevel(selectedLevel);
     } catch (e) {
       console.error("Failed to set thinking level:", e);
       addNotice({ type: "error", message: "Failed to save default thinking level" });
+    } finally {
+      modelSelectionPendingRef.current = false;
+      setModelSelectionPending(false);
     }
-  }, [isNew, persistNewSessionDefault, addNotice]);
+  }, [isNew, displayModel, persistNewSessionDefault, addNotice]);
 
   // Load session on mount. Restore a deterministic browser title when
   // switching away from a session whose extension set a custom title. The
@@ -1835,7 +1904,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
           if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
           if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
-          if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
+          applyLiveThinkingLevel(agentState.state);
           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
@@ -1913,7 +1982,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, entryTimestamps, streamState,
-    agentRunning, inputSending: inputPending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
+    agentRunning, inputSending: inputPending, modelSelectionPending, promptGeneration, modelNames, modelProviders, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, thinkingLevel,
     openRouterCatalog, modelCatalogError, modelScopeDiagnostics, modelsRefreshing, modelsRefreshError, refreshOpenRouterModels,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, selectedModelInfo, routedModel: routedModelInfo, selectionNotice, sessionStats,

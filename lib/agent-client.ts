@@ -5,7 +5,11 @@ export function readInputReceipt(value: unknown): InputReceipt | null {
   if (value == null) return null;
   if (typeof value === "object" && "disposition" in value
     && (value.disposition === "started" || value.disposition === "queued" || value.disposition === "handled")) {
-    return { disposition: value.disposition };
+    return {
+      disposition: value.disposition,
+      ...("thinkingPreferenceError" in value && typeof value.thinkingPreferenceError === "string"
+        ? { thinkingPreferenceError: value.thinkingPreferenceError } : {}),
+    };
   }
   throw new Error("Invalid input receipt");
 }

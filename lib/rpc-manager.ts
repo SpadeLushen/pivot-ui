@@ -29,6 +29,7 @@ import { nativeProjectTrusted, publishMcpLoad } from "./native-mcp-runtime";
 import { join } from "node:path";
 import { clearPivotTypedModels, reloadSessionTypedModels } from "./typed-model-runtime";
 import { assertSdkChatConfiguration, withModelConfigLock } from "./model-config-store";
+import { isThinkingLevelOption } from "./thinking-levels";
 
 // ============================================================================
 // Types
@@ -181,6 +182,7 @@ export class AgentSessionWrapper {
   private hasExtensionTitle = false;
   private extensionTitle = "";
   private promptRunning = false;
+  private autoThinkingSelection: { provider: string; modelId: string; effectiveLevel: string } | null = null;
   private pendingInputRejections = new Set<(error: Error) => void>();
   private settledInputCompletions = new Set<() => void>();
   private extensionsBound = false;
@@ -347,6 +349,7 @@ export class AgentSessionWrapper {
       this.refreshWorkspacePacksInBackground();
     });
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      if (event.type === "thinking_level_changed") this.autoThinkingSelection = null;
       this.resetIdleTimer();
       if (this.isModelProgress(event)) this.clearModelStartTimer();
       if (event.type === "agent_end" || event.type === "session_info_changed" ||
@@ -720,6 +723,9 @@ export class AgentSessionWrapper {
             : null,
           systemPrompt: this.inner.systemPrompt ?? this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          selectedThinkingLevel: model && this.autoThinkingSelection?.provider === model.provider
+            && this.autoThinkingSelection.modelId === model.id
+            && this.autoThinkingSelection.effectiveLevel === this.inner.agent.state?.thinkingLevel ? "auto" : undefined,
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
           extensionUi: this.getExtensionUiSnapshot(),
@@ -728,11 +734,15 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
+        if (command.thinkingLevel !== undefined && !isThinkingLevelOption(command.thinkingLevel)) {
+          throw new Error("Invalid thinking level");
+        }
         const registry = this.inner.modelRuntime;
         if (provider === LEGACY_AZURE_PROVIDER) await enableLegacyAzure(registry, true);
         const model = registry.getModel(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model, { persist: command.persist === true });
+        this.autoThinkingSelection = null;
         if (command.persist === true) {
           await this.inner.settingsManager.flush();
           const errors = this.inner.settingsManager.drainErrors();
@@ -740,6 +750,10 @@ export class AgentSessionWrapper {
         }
         invalidateModelsCache();
         invalidateSessionListCache();
+        if (command.thinkingLevel !== undefined) {
+          const result = await this.send({ type: "set_thinking_level", level: command.thinkingLevel, returnEffective: true }) as { level: string };
+          return { id: model.id, provider: model.provider, thinkingLevel: result.level };
+        }
         return { id: model.id, provider: model.provider };
       }
 
@@ -795,22 +809,30 @@ export class AgentSessionWrapper {
       }
 
       case "set_thinking_level": {
-        const level = command.level as string;
-        this.inner.setThinkingLevel(level, { persist: command.persist === true });
+        const requestedLevel = command.level as string;
+        const model = this.inner.model;
+        const level = requestedLevel === "auto"
+          ? (model ? this.inner.settingsManager.getModelThinkingLevel(model.provider, model.id) : undefined)
+            ?? this.inner.settingsManager.getDefaultThinkingLevel() ?? "medium"
+          : requestedLevel;
+        this.inner.setThinkingLevel(level, { persist: command.persist === true && requestedLevel !== "auto" });
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
         // force the state back so the compat layer can use it correctly.
         if (level === "xhigh" && (this.inner.model as { compat?: { thinkingFormat?: string } } | null)?.compat?.thinkingFormat === "deepseek" && this.inner.agent?.state) {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
-        if (command.persist === true) {
+        const effectiveLevel = this.inner.agent.state?.thinkingLevel ?? level;
+        this.autoThinkingSelection = requestedLevel === "auto" && model
+          ? { provider: model.provider, modelId: model.id, effectiveLevel } : null;
+        if (command.persist === true && requestedLevel !== "auto") {
           await this.inner.settingsManager.flush();
           const errors = this.inner.settingsManager.drainErrors();
           if (errors.length) throw errors[0];
         }
         invalidateModelsCache();
         invalidateSessionListCache();
-        return null;
+        return command.returnEffective === true ? { level: effectiveLevel } : null;
       }
 
       case "compact": {

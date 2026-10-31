@@ -14,6 +14,7 @@ export type SlashArgumentCompletion = import("@earendil-works/pi-tui").Autocompl
 export type InputDisposition = "started" | "queued" | "handled";
 export interface InputReceipt {
   disposition: InputDisposition;
+  thinkingPreferenceError?: string;
 }
 
 export interface ContextUsage {
