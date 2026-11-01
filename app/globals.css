@@ -3552,6 +3552,10 @@ html.dark .user-message-bubble {
     gap: 1px;
     margin-top: 0;
   }
+  /* Limit the scrollable rows separately so See all stays visible. */
+  .sidebar-container .sidebar-workspace-overflow-list {
+    max-height: var(--more-workspaces-list-max-height, calc(278px - 45px));
+  }
   .sidebar-container .sidebar-project-row {
     min-height: 36px;
     gap: 0;

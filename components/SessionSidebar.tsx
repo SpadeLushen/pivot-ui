@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, ScrollText, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
@@ -269,8 +269,17 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
 }
 
 const DROPDOWN_ANIMATION_MS = 140;
+const MOBILE_MORE_MENU_MAX_HEIGHT = 280;
 
-function AnimatedDropdown({ open, children, style, slide = "down" }: { open: boolean; children: ReactNode; style: CSSProperties; slide?: "down" | "right" }) {
+function AnimatedDropdown({
+  open, children, style, slide = "down", reverseVertical = false,
+}: {
+  open: boolean;
+  children: ReactNode;
+  style: CSSProperties;
+  slide?: "down" | "right";
+  reverseVertical?: boolean;
+}) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(open);
 
@@ -307,8 +316,10 @@ function AnimatedDropdown({ open, children, style, slide = "down" }: { open: boo
           ? "translate(0, 0) scale(1)"
           : slide === "right"
             ? "translateX(-8px) scale(0.96)"
-            : "translateY(-8px) scale(0.96)",
-        transformOrigin: slide === "right" ? "center left" : "top center",
+            : reverseVertical
+              ? "translateY(8px) scale(0.96)"
+              : "translateY(-8px) scale(0.96)",
+        transformOrigin: slide === "right" ? "center left" : reverseVertical ? "bottom center" : "top center",
         transition: `opacity ${DROPDOWN_ANIMATION_MS}ms ease, transform ${DROPDOWN_ANIMATION_MS}ms ease`,
         pointerEvents: open ? "auto" : "none",
       }}
@@ -496,6 +507,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const moreWorkspacesCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [moreWorkspacesOpen, setMoreWorkspacesOpen] = useState(false);
+  const moreWorkspacesAnchorRef = useRef<HTMLDivElement>(null);
+  const [moreWorkspacesMenu, setMoreWorkspacesMenu] = useState<HTMLDivElement | null>(null);
+  const [moreMenuPlacement, setMoreMenuPlacement] = useState({ above: false, maxHeight: MOBILE_MORE_MENU_MAX_HEIGHT, listMaxHeight: 233 });
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const newWorkspaceMenuRef = useRef<HTMLDivElement>(null);
@@ -605,11 +619,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
 
   const closeMoreWorkspacesSoon = useCallback(() => {
     cancelMoreWorkspacesClose();
+    if (isMobile) return;
     moreWorkspacesCloseTimerRef.current = setTimeout(() => {
       moreWorkspacesCloseTimerRef.current = null;
       setMoreWorkspacesOpen(false);
     }, 200);
-  }, [cancelMoreWorkspacesClose]);
+  }, [cancelMoreWorkspacesClose, isMobile]);
 
   // Live running status via SSE — no polling. The server pushes the current
   // set of running session ids whenever any session starts/stops working.
@@ -838,12 +853,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   // Clicking a session moves the effective cwd to that session's worktree.
   // Done on the click path (not via the selectedCwd prop sync) so it also
   // works when the prop value won't change — e.g. re-clicking the already
-  // open session after manually switching worktrees.
+  // open session after manually switching worktrees. Unlike a workspace's
+  // remembered-session restore, an explicit pick closes the mobile drawer.
   const handleSelectSessionFromList = useCallback((s: SessionInfo) => {
     workspaceSelectionGeneration.current++;
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s);
-  }, [onSelectSession]);
+    if (isMobile) onClose?.();
+  }, [isMobile, onClose, onSelectSession]);
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
@@ -854,7 +871,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     workspaceSelectionGeneration.current++;
     onNewSession?.(tempId, selectedCwd, projectRootFor(selectedCwd) ?? selectedCwd);
-  }, [selectedCwd, onNewSession, projectRootFor]);
+    if (isMobile && onNewSession) onClose?.();
+  }, [selectedCwd, onNewSession, projectRootFor, isMobile, onClose]);
 
   const handleNewWorkspace = useCallback(() => {
     setMoreWorkspacesOpen(false);
@@ -870,6 +888,57 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const workspaceProjects = workspacesReady ? getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces) : [];
   const selectedProject = projectRootFor(selectedCwd);
   const { resident: residentWorkspaceProjects, overflow: overflowWorkspaceProjects } = getWorkspaceDisplayGroups(workspaceProjects, selectedProject);
+
+  const updateMoreWorkspacesPlacement = useCallback(() => {
+    const anchor = moreWorkspacesAnchorRef.current;
+    if (!anchor || !moreWorkspacesMenu) return;
+    const list = moreWorkspacesMenu.querySelector<HTMLElement>(".sidebar-workspace-overflow-list");
+    const footer = moreWorkspacesMenu.querySelector<HTMLElement>(".sidebar-workspace-overflow-footer");
+    if (!list || !footer) return;
+
+    const { top, bottom } = anchor.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+    const roomBelow = Math.max(0, Math.floor(viewportBottom - bottom - 8));
+    const roomAbove = Math.max(0, Math.floor(top - viewportTop - 8));
+    // scrollHeight includes rows hidden by the current list cap.
+    const preferredHeight = Math.min(MOBILE_MORE_MENU_MAX_HEIGHT, list.scrollHeight + footer.offsetHeight + 2);
+    // If neither side fits, use the roomier side and cap the scrolling list.
+    const above = roomBelow < preferredHeight && roomAbove > roomBelow;
+    const maxHeight = Math.min(MOBILE_MORE_MENU_MAX_HEIGHT, above ? roomAbove : roomBelow);
+    const listMaxHeight = Math.max(0, maxHeight - footer.offsetHeight - 2);
+    setMoreMenuPlacement((current) =>
+      current.above === above && current.maxHeight === maxHeight && current.listMaxHeight === listMaxHeight
+        ? current
+        : { above, maxHeight, listMaxHeight },
+    );
+  }, [moreWorkspacesMenu]);
+
+  useLayoutEffect(() => {
+    if (isMobile && moreWorkspacesOpen) updateMoreWorkspacesPlacement();
+  }, [isMobile, moreWorkspacesOpen, overflowWorkspaceProjects.length, updateMoreWorkspacesPlacement]);
+
+  useEffect(() => {
+    if (!isMobile || !moreWorkspacesOpen || !moreWorkspacesMenu) return;
+    const observer = new ResizeObserver(updateMoreWorkspacesPlacement);
+    observer.observe(moreWorkspacesMenu);
+    if (moreWorkspacesAnchorRef.current) observer.observe(moreWorkspacesAnchorRef.current);
+    const footer = moreWorkspacesMenu.querySelector(".sidebar-workspace-overflow-footer");
+    if (footer) observer.observe(footer);
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", updateMoreWorkspacesPlacement);
+    window.addEventListener("scroll", updateMoreWorkspacesPlacement, { passive: true });
+    viewport?.addEventListener("resize", updateMoreWorkspacesPlacement);
+    viewport?.addEventListener("scroll", updateMoreWorkspacesPlacement);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateMoreWorkspacesPlacement);
+      window.removeEventListener("scroll", updateMoreWorkspacesPlacement);
+      viewport?.removeEventListener("resize", updateMoreWorkspacesPlacement);
+      viewport?.removeEventListener("scroll", updateMoreWorkspacesPlacement);
+    };
+  }, [isMobile, moreWorkspacesOpen, moreWorkspacesMenu, updateMoreWorkspacesPlacement]);
 
   useEffect(() => {
     if (overflowWorkspaceProjects.length === 0) setMoreWorkspacesOpen(false);
@@ -1136,8 +1205,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
             })}
             {overflowWorkspaceProjects.length > 0 && (
               <div
+                ref={moreWorkspacesAnchorRef}
                 style={{ position: "relative" }}
                 onMouseEnter={() => {
+                  // Touch browsers can synthesize mouseenter before a tap's click.
+                  if (isMobile) return;
                   cancelMoreWorkspacesClose();
                   setMoreWorkspacesOpen(true);
                 }}
@@ -1147,7 +1219,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                   <button
                     type="button"
                     className="sidebar-project-select"
-                    onClick={() => setMoreWorkspacesOpen(true)}
+                    onClick={() => {
+                      cancelMoreWorkspacesClose();
+                      setMoreWorkspacesOpen((open) => isMobile ? !open : true);
+                    }}
                     title={t("app.moreWorkspaces")}
                     aria-label={t("app.moreWorkspaces")}
                     aria-haspopup="menu"
@@ -1160,6 +1235,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                 <AnimatedDropdown
                   open={moreWorkspacesOpen}
                   slide={isMobile ? "down" : "right"}
+                  reverseVertical={isMobile && moreMenuPlacement.above}
                   style={{
                     position: "absolute",
                     zIndex: 110,
@@ -1168,7 +1244,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                     boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
                     overflow: "hidden",
                     ...(isMobile
-                      ? { top: "100%", left: 0, right: 0, maxHeight: 280 }
+                      ? ({
+                          ...(moreMenuPlacement.above ? { bottom: "100%" } : { top: "100%" }),
+                          left: 0,
+                          right: 0,
+                          maxHeight: moreMenuPlacement.maxHeight,
+                          "--more-workspaces-list-max-height": `${moreMenuPlacement.listMaxHeight}px`,
+                        } as CSSProperties & { "--more-workspaces-list-max-height": string })
                       : {
                           top: 0,
                           left: "100%",
@@ -1178,7 +1260,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                         }),
                   }}
                 >
-                  <div role="menu" className="sidebar-workspace-overflow-menu" style={{ maxHeight: isMobile ? 278 : 318 }}>
+                  <div role="menu" ref={isMobile ? setMoreWorkspacesMenu : undefined} className="sidebar-workspace-overflow-menu" style={{ maxHeight: isMobile ? 278 : 318 }}>
                     <div className="sidebar-workspace-overflow-list">
                       {overflowWorkspaceProjects.map((project) => {
                         const isSelected = project === selectedProject;

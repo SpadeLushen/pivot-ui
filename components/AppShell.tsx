@@ -489,8 +489,6 @@ export function AppShell() {
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
     setInitialSessionRestored(true);
-    // On mobile, collapse the overlay drawer so the chat is revealed after pick.
-    if (isMobile && !isRestore) setSidebarOpen(false);
     if (isRestore) {
       // Suppress the redundant sessionKey bump that would come from the
       // onCwdChange effect firing after setSelectedCwd in the sidebar
@@ -499,7 +497,7 @@ export function AppShell() {
     // Also update the URL when restoring a remembered session from the homepage.
     // Native history avoids resetting the session's document title.
     replaceSessionUrl(session.id);
-  }, [isMobile]);
+  }, []);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string, projectRoot?: string) => {
     setActiveCwd(cwd);
@@ -515,9 +513,8 @@ export function AppShell() {
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
-    if (isMobile) setSidebarOpen(false);
     replaceSessionUrl(null);
-  }, [isMobile]);
+  }, []);
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectRoot, which the same-project check in
