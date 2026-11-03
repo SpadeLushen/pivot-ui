@@ -16,7 +16,7 @@ function authUrl(value: string): string {
 
 // Ephemeral registry: each provider-bound prompt owns a one-use token.
 declare global {
-  var __piLoginCallbacks: Map<string, { provider: string; allowedValues?: ReadonlySet<string>; resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
+  var __piLoginCallbacks: Map<string, { provider: string; allowedValues?: ReadonlySet<string>; allowEmpty?: boolean; resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
 }
 
 function getCallbackRegistry() {
@@ -32,7 +32,7 @@ export async function POST(
   const { provider } = await params;
   const body = await req.json().catch(() => null) as { token?: unknown; code?: unknown } | null;
   const token = body?.token, code = body?.code;
-  if (typeof token !== "string" || typeof code !== "string" || !token || !code || code.length > 16384) {
+  if (typeof token !== "string" || typeof code !== "string" || !token || code.length > 16384) {
     return Response.json({ error: "token and code required" }, { status: 400 });
   }
 
@@ -43,6 +43,10 @@ export async function POST(
   }
   if (callbacks.provider !== provider) {
     return Response.json({ error: "Token does not match provider" }, { status: 400 });
+  }
+  // Only optional text prompts (e.g. Copilot's "blank for github.com") accept an empty value.
+  if (!code && !callbacks.allowEmpty) {
+    return Response.json({ error: "token and code required" }, { status: 400 });
   }
 
   if (callbacks.allowedValues && !callbacks.allowedValues.has(code)) {
@@ -212,6 +216,8 @@ export async function GET(
               return request.promise;
             }
             const request = getManualInputRequest();
+            const pending = registry.get(request.token);
+            if (pending && prompt.type === "text") pending.allowEmpty = true;
             bindPromptSignal(request, prompt.signal);
             send(controller, {
               type: "prompt_request",

@@ -747,8 +747,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const [loginLink, setLoginLink] = useState<{ url: string; instructions?: string } | null>(null);
   const [progress, setProgress] = useState("");
   const [info, setInfo] = useState<{ message: string; links?: { url: string; label?: string }[] }[]>([]);
-  const popupRef = useRef<Window | null>(null);
-  const popupOpened = useRef(false);
+  const [codeCopy, setCodeCopy] = useState<"idle" | "copied" | "failed">("idle");
   const eventSourceRef = useRef<EventSource | null>(null);
   const submissionRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -793,8 +792,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 
   const stopLogin = useCallback(() => {
     eventSourceRef.current?.close(); eventSourceRef.current = null; submissionRef.current = null;
-    if (!popupOpened.current) popupRef.current?.close();
-    popupRef.current = null;
+    setCodeCopy("idle");
   }, []);
 
   // Reset state when provider changes
@@ -812,8 +810,8 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     stopLogin(); setLoginLink(null); setProgress(""); setInfo([]);
     setLoginState({ phase: "connecting" });
     setInputValue("");
-    popupOpened.current = false;
-    try { popupRef.current = window.open("about:blank", "_blank"); if (popupRef.current) popupRef.current.opener = null; } catch { popupRef.current = null; }
+    // No blank window is pre-opened: a flow may first ask for input or use a device
+    // code, so every browser page is opened by an explicit user click instead.
     const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}${provider.storedType === "api_key" ? "?replace=api_key" : ""}`);
     eventSourceRef.current = es;
 
@@ -826,15 +824,11 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         options?: { id: string; label: string }[];
         inputType?: string; links?: { url: string; label?: string }[];
       };
-      const open = (value: string) => {
-        const url = new URL(value); if (!["http:", "https:"].includes(url.protocol)) return;
-        try { if (popupRef.current && !popupRef.current.closed) { popupRef.current.location.replace(url.href); popupOpened.current = true; } } catch { /* A link is always shown. */ }
-      };
       if (data.type === "auth") {
         setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
         setLoginLink({ url: data.url!, instructions: data.instructions ?? undefined });
-        open(data.url!);
       } else if (data.type === "device_code") {
+        setCodeCopy("idle");
         setLoginState({
           phase: "device_code",
           userCode: data.userCode!,
@@ -842,7 +836,6 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           intervalSeconds: data.intervalSeconds ?? null,
           expiresInSeconds: data.expiresInSeconds ?? null,
         });
-        open(data.verificationUri!);
       } else if (data.type === "prompt_request") {
         setLoginState({ phase: "prompt", message: data.message!, placeholder: data.placeholder ?? null, token: data.token!, inputType: data.inputType });
       } else if (data.type === "select_request") {
@@ -879,9 +872,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     } catch { setLoginState({ phase: "error", message: t("auth.disconnectFailed") }); }
   }, [provider.id, onRefresh, stopLogin, t]);
 
-  const submitCode = useCallback(async (token: string, value: string) => {
+  const submitCode = useCallback(async (token: string, value: string, allowEmpty = false) => {
     const es = eventSourceRef.current;
-    if (!es || submissionRef.current === es || !value.trim()) return;
+    if (!es || submissionRef.current === es || (!allowEmpty && !value.trim())) return;
     submissionRef.current = es;
     setLoginState({ phase: "progress", message: t("auth.verifying") }); setProgress("");
     try {
@@ -902,6 +895,29 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     } finally { if (submissionRef.current === es) submissionRef.current = null; }
   }, [provider.id, stopLogin, t]);
   const submitSelection = submitCode;
+  // Optional text prompts (e.g. GitHub Enterprise domain, blank for github.com) may be submitted empty.
+  const allowEmptyInput = loginState.phase === "prompt" && loginState.inputType === "text";
+  const canSubmitInput = allowEmptyInput || !!inputValue.trim();
+
+  const copyDeviceCode = useCallback((userCode: string) => {
+    // Starts while this page still has focus; the link then opens the page in a new tab.
+    setCodeCopy("idle");
+    const fallback = () => {
+      try {
+        const area = document.createElement("textarea");
+        area.value = userCode; area.setAttribute("readonly", "");
+        area.style.position = "fixed"; area.style.opacity = "0";
+        document.body.appendChild(area); area.select();
+        const ok = document.execCommand("copy");
+        area.remove();
+        return ok;
+      } catch { return false; }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(userCode)
+        .then(() => setCodeCopy("copied"), () => setCodeCopy(fallback() ? "copied" : "failed"));
+    } else setCodeCopy(fallback() ? "copied" : "failed");
+  }, []);
 
   const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
     loginState.phase === "auth" || loginState.phase === "device_code" ||
@@ -930,7 +946,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </p>
         )}
         {loginState.phase === "connecting" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>Opening browser…</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("auth.startingLogin")}</p>
         )}
         {loginState.phase === "select" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -954,7 +970,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {loginState.phase === "auth"
-                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                ? t("auth.authUrlInstructions")
                 : loginState.message}
             </p>
             {loginState.phase === "auth" && !loginLink && (
@@ -973,14 +989,14 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 autoComplete="off" spellCheck={false}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
+                onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue, allowEmptyInput); }}
                 placeholder={loginState.phase === "auth" ? t("auth.fullCallback") : (loginState.placeholder ?? "Enter value…")}
                 style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
               />
               <button
-                onClick={() => submitCode(loginState.token, inputValue)}
-                disabled={!inputValue.trim()}
-                style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: inputValue.trim() ? "#fff" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                onClick={() => submitCode(loginState.token, inputValue, allowEmptyInput)}
+                disabled={!canSubmitInput}
+                style={{ padding: "6px 12px", background: canSubmitInput ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: canSubmitInput ? "#fff" : "var(--text-dim)", cursor: canSubmitInput ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
               >
                 Submit
               </button>
@@ -990,10 +1006,21 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         {loginState.phase === "device_code" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Open the verification page and enter this code:
+              {t("auth.deviceCodeInstructions")}
             </p>
-            <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
+            <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0, userSelect: "all" }}>
               {loginState.userCode}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <a
+                href={loginState.verificationUri} target="_blank" rel="noopener noreferrer"
+                onClick={() => copyDeviceCode(loginState.userCode)}
+                style={{ padding: "6px 12px", background: "var(--accent)", borderRadius: 5, color: "#fff", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
+              >
+                {t("auth.copyCodeAndOpen")}
+              </a>
+              {codeCopy === "copied" && <span role="status" style={{ fontSize: 12, color: "#4ade80" }}>{t("auth.codeCopied")}</span>}
+              {codeCopy === "failed" && <span role="status" style={{ fontSize: 12, color: "#f87171" }}>{t("auth.copyCodeFailed")}</span>}
             </div>
             <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
               <a href={loginState.verificationUri} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
