@@ -17,6 +17,10 @@ export function ProviderModelCatalog({ providerId }: { providerId: string }) {
   const [savingVisibility, setSavingVisibility] = useState(false);
   const [visibilityError, setVisibilityError] = useState(false);
   const hiddenModels = new Set(preferences["hidden-models"]);
+  const hiddenModelsRef = useRef(preferences["hidden-models"]);
+  useEffect(() => {
+    hiddenModelsRef.current = preferences["hidden-models"];
+  }, [preferences]);
   const toggleVisibility = async (model: TypedModelEntry) => {
     const key = modelVisibilityKey(model.provider, model.id);
     const next = new Set(hiddenModels);
@@ -45,19 +49,25 @@ export function ProviderModelCatalog({ providerId }: { providerId: string }) {
       catalogError?: string; openRouterCatalog?: ModelCatalogRefreshStatus };
     signal.throwIfAborted();
     if (revision !== readRevision.current) return;
-    setModels((data.typedCatalog ?? []).filter((model) => model.provider === providerId));
+    // Sort only when loading the catalog so visibility edits keep rows in place.
+    const hidden = new Set(hiddenModelsRef.current);
+    const isHidden = (model: TypedModelEntry) => model.type === "chat"
+      && hidden.has(modelVisibilityKey(model.provider, model.id));
+    setModels((data.typedCatalog ?? []).filter((model) => model.provider === providerId)
+      .sort((a, b) => Number(isHidden(a)) - Number(isHidden(b))));
     setUnavailable(!!data.catalogUnavailable || !Array.isArray(data.typedCatalog));
     setError(data.catalogError ?? null);
     setStatus(providerId === "openrouter" ? data.openRouterCatalog ?? null : null);
   }, [providerId]);
   const { refresh, refreshing, refreshError } = useModelCatalogRefresh(providerId, undefined, reload);
   useEffect(() => {
+    if (!ready) return;
     const controller = new AbortController();
     setModels([]); setStatus(null);
     setUnavailable(false); setError(null);
     void reload(controller.signal).catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
     return () => controller.abort();
-  }, [reload]);
+  }, [reload, ready]);
   useEffect(() => {
     if (status?.state === "refreshing") void refresh(false);
   }, [status?.state, refresh]);
