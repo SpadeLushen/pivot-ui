@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Package, PackagePlus, TriangleAlert } from "lucide-react";
 import type { AppliedPackInfo, SkillPackInfo, WorkspaceSkillPacksResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
-import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
+import { useWorkspacePackState, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
 import { requiresWorkspaceTrust, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
 import { useWorkspaceTrust } from "@/hooks/useWorkspaceTrust";
 import { WorkspaceTrustNotice } from "./WorkspaceTrustNotice";
+import { WorkspacePackSyncNotice } from "./WorkspacePackSyncNotice";
 
 type JsonResponse = WorkspacePackErrorResponse;
 
@@ -23,7 +24,7 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const loadGeneration = useRef(0);
-  const workspaceRevision = useWorkspacePackRevision(cwd);
+  const packState = useWorkspacePackState(cwd);
   const [open, setOpen] = useState(false);
   const trust = useWorkspaceTrust(cwd);
   const untrusted = trust.trusted === false;
@@ -59,7 +60,7 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
     reload();
     const generationRef = loadGeneration;
     return () => { generationRef.current++; };
-  }, [reload, refreshKey, workspaceRevision, open]);
+  }, [reload, refreshKey, packState.revision, packState.definitionsRevision, open]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -120,7 +121,8 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
             {(loading || busy) && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("general.loading")}</span>}
           </div>
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("packs.workspaceScope")}</span>
-          <WorkspaceTrustNotice trust={trust} onTrusted={() => { reload(); onChanged?.(); }} />
+          <WorkspaceTrustNotice trust={trust} onTrusted={() => { announceWorkspacePackChange(cwd); reload(); onChanged?.(); }} />
+          <WorkspacePackSyncNotice cwd={cwd} />
           {!loading && packs.length === 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>No packs available</span>}
           {packs.map((pack) => (
             <label key={pack.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: 5, borderRadius: 6, cursor: busy || loading || trust.trusted !== true ? "not-allowed" : "pointer", color: "var(--text)", fontSize: 12 }}>

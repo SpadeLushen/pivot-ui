@@ -7,11 +7,13 @@ import { requirePackWorkspace } from "./workspace-pack-access";
 import { readPackFile, savePackFile, formatPackFile, workspaceFile, workspaceKey, type PackFile } from "./workspace-pack-files";
 import { withWorkspaceLock } from "./skill-pack-apply";
 import { collectActiveNativeMcpServers, readWorkspaceState } from "./workspace-packs";
-import { getDefaultConfigPath, readConfig } from "./skill-packs-store";
+import { readConfig } from "./skill-packs-store";
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 import { validateNativeMcpDefinition } from "./native-mcp-config";
 import { isMcpObject, redactMcpDefinition, restoreMcpSecrets } from "./native-mcp-editor-secrets";
 import { notifyMcpConfigurationChanged } from "./session-resource-events";
+import { reconcileWorkspacePackMcpLocked } from "./workspace-pack-mcp-sync";
+import { schedulePackMcpSync } from "./workspace-pack-mcp-scheduler";
 
 export class NativeMcpEditorError extends Error {
   constructor(message: string, public readonly status = 400) { super(message); }
@@ -54,10 +56,9 @@ async function context(scope: NativeMcpScope, cwd?: string): Promise<EditorConte
     }
     target = readFile(workspaceFile(cwd, "mcp.json"));
     try {
-      // These readers otherwise treat malformed JSON as empty; ownership checks must fail closed.
+      // Ownership follows the live definition; malformed data must fail closed.
       readPackFile(workspaceFile(cwd, "skill-packs.json"));
-      readPackFile(getDefaultConfigPath());
-      for (const name of collectActiveNativeMcpServers(readWorkspaceState({ cwd }), readConfig())) managed.add(name);
+      for (const name of collectActiveNativeMcpServers(readWorkspaceState({ cwd, strict: true }), readConfig({ strict: true }))) managed.add(name);
     } catch { throw new NativeMcpEditorError("mcp.packOwnershipReadFailed", 409); }
   }
   const revision = createHash("sha256").update(JSON.stringify([scope, target.path, global.before, target.before, [...managed].sort()])).digest("hex");
@@ -112,12 +113,7 @@ export async function readNativeMcpEditor(scope: NativeMcpScope, cwd?: string): 
 /** Change only the workspace switch; inherited definitions/credentials stay global. */
 export async function setNativeMcpWorkspaceEnabled(edit: NativeMcpEdit, enabled: boolean): Promise<NativeMcpEditorSnapshot> {
   if (edit.scope !== "project") throw new NativeMcpEditorError("Workspace switches require project scope");
-  const ctx = await context("project", edit.cwd);
-  const local = entries(ctx.target), exists = Object.hasOwn(local, edit.serverKey);
-  const raw = exists ? local[edit.serverKey] : undefined;
-  if (exists && !isMcpObject(raw)) throw new NativeMcpEditorError("Repair the invalid workspace entry before changing its switch", 409);
-  if (!exists && !Object.hasOwn(entries(ctx.global), edit.serverKey)) throw new NativeMcpEditorError("Server no longer exists", 409);
-  return editNativeMcpServer(exists ? "update" : "create", { ...edit, definition: { ...(isMcpObject(raw) ? raw : {}), enabled } });
+  return editNativeMcpServer("setEnabled", { ...edit, definition: { enabled } });
 }
 
 export interface NativeMcpEdit {
@@ -128,17 +124,27 @@ export interface NativeMcpEdit {
   definition?: Record<string, unknown>;
 }
 
-export async function editNativeMcpServer(action: "create" | "update" | "delete", edit: NativeMcpEdit): Promise<NativeMcpEditorSnapshot> {
+export async function editNativeMcpServer(action: "create" | "update" | "delete" | "setEnabled", edit: NativeMcpEdit): Promise<NativeMcpEditorSnapshot> {
   if (action !== "delete" && !/^[A-Za-z0-9_-]+$/.test(edit.serverKey)) throw new NativeMcpEditorError('Server names may contain only letters, digits, "_" and "-"');
   const initial = await context(edit.scope, edit.cwd);
   const lock = initial.scope === "project" ? workspaceKey(initial.cwd!) : resolve(getAgentDir());
   return withWorkspaceLock(lock, async () => {
+    const beforeSync = await context(edit.scope, edit.cwd);
+    if (!edit.revision || beforeSync.revision !== edit.revision) throw new NativeMcpEditorError("MCP configuration changed; reload the editor before saving", 409);
+    if (beforeSync.cwd && beforeSync.scope === "project") await reconcileWorkspacePackMcpLocked(beforeSync.cwd);
     const ctx = await context(edit.scope, edit.cwd);
-    if (!edit.revision || ctx.revision !== edit.revision) throw new NativeMcpEditorError("MCP configuration changed; reload the editor before saving", 409);
     const old = entries(ctx.target);
     const exists = Object.hasOwn(old, edit.serverKey);
     const stored = exists ? old[edit.serverKey] : undefined;
     const original = isMcpObject(stored) ? stored : {};
+    if (action === "setEnabled") {
+      if (exists && !isMcpObject(stored)) throw new NativeMcpEditorError("Repair the invalid workspace entry before changing its switch", 409);
+      if (!exists && !Object.hasOwn(entries(ctx.global), edit.serverKey)) throw new NativeMcpEditorError("Server no longer exists", 409);
+      edit = { ...edit, definition: { ...original, enabled: edit.definition?.enabled } };
+      action = exists ? "update" : "create";
+    }
+    // Reconciliation may already have removed the now-unmanaged enabled-only override.
+    if (action === "delete" && !exists && Object.hasOwn(entries(beforeSync.target), edit.serverKey)) return snapshot(ctx);
     if (action === "create" && exists) throw new NativeMcpEditorError("This server already exists in this scope", 409);
     if (action !== "create" && !exists) throw new NativeMcpEditorError("This server no longer exists in this scope", 409);
     const next = { ...old };
@@ -173,6 +179,7 @@ export async function editNativeMcpServer(action: "create" | "update" | "delete"
     const mode = existsSync(ctx.target.path) ? statSync(ctx.target.path).mode & 0o777 : 0o600;
     savePackFile(ctx.target.path, text, mode);
     notifyMcpConfigurationChanged(ctx.scope === "project" ? ctx.cwd : undefined);
+    schedulePackMcpSync(ctx.scope === "project" ? ctx.cwd : undefined);
     return snapshot(await context(edit.scope, edit.cwd));
   });
 }

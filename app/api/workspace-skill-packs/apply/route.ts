@@ -20,14 +20,14 @@ export async function POST(req: Request) {
     const cwd = body.cwd?.trim();
     if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     const workspace = await requirePackWorkspace(cwd);
-    const config = ensureLibraryRoot(readConfig());
+    const config = ensureLibraryRoot(readConfig({ strict: true }));
     const libraryRoot = resolveLibraryRoot(config);
     if (!libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
     const packIds = Array.isArray(body.packIds) ? body.packIds : [];
     if (!Array.isArray(body.packIds) || packIds.some((id) => typeof id !== "string" || !id.trim()) || typeof body.workspaceRevision !== "number" || !Number.isInteger(body.workspaceRevision) || body.workspaceRevision < 0) {
       return NextResponse.json({ error: "packIds and workspaceRevision required" }, { status: 400 });
     }
-    const result = await applyWorkspacePackSwitch(workspace, libraryRoot, packIds, body.workspaceRevision, config);
+    const result = await applyWorkspacePackSwitch(workspace, libraryRoot, packIds, body.workspaceRevision, config, { readCurrentConfig: () => readConfig({ strict: true }) });
     notifyWorkspacePacks(workspace);
     return NextResponse.json({ success: true, installed: result.installed, skipped: result.plan.skipped, workspaceRevision: result.plan.workspaceRevision + 1 });
   } catch (e: unknown) {

@@ -44,6 +44,7 @@ export interface WorkspaceState {
   managedSkillKeys?: string[];
   managedNativeMcpServers?: string[];
   skillExclusions?: string[];
+  nativeMcpSync?: { definitionRevision: string; pendingServers: string[] };
 }
 
 export interface SkillRefConflict {
@@ -60,6 +61,7 @@ export interface UnionResult {
 interface PathOpts {
   cwd?: string;
   statePath?: string;
+  strict?: boolean;
 }
 
 function emptyState(): WorkspaceState {
@@ -82,9 +84,21 @@ function resolvePath(opts: PathOpts): string {
 
 export function readWorkspaceState(opts: PathOpts): WorkspaceState {
   const path = resolvePath(opts);
-  if (!existsSync(path)) return emptyState();
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<WorkspaceState>;
+    const parsed = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Partial<WorkspaceState>;
+    if (opts.strict) {
+      if (!parsed || !Array.isArray(parsed.appliedPacks)) throw new Error("Invalid workspace Pack receipts");
+      const ids = new Set<string>();
+      for (const pack of parsed.appliedPacks) {
+        const names = pack?.receipt?.nativeMcpServers;
+        if (!pack || typeof pack.packId !== "string" || !pack.packId || ids.has(pack.packId)
+          || !pack.receipt || typeof pack.receipt !== "object" || Array.isArray(pack.receipt)
+          || (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name)))) {
+          throw new Error("Invalid workspace Pack receipts");
+        }
+        ids.add(pack.packId);
+      }
+    }
     return {
       version: 2,
       revision: Number.isInteger(parsed.revision) && (parsed.revision ?? 0) >= 0 ? parsed.revision! : 0,
@@ -95,8 +109,12 @@ export function readWorkspaceState(opts: PathOpts): WorkspaceState {
       ...(Array.isArray(parsed.managedSkillKeys) ? { managedSkillKeys: parsed.managedSkillKeys.filter((key) => typeof key === "string") } : {}),
       ...(Array.isArray(parsed.managedNativeMcpServers) ? { managedNativeMcpServers: parsed.managedNativeMcpServers.filter((key) => typeof key === "string") } : {}),
       ...(Array.isArray(parsed.skillExclusions) ? { skillExclusions: parsed.skillExclusions.filter((key) => typeof key === "string") } : {}),
+      ...(typeof parsed.nativeMcpSync?.definitionRevision === "string" && Array.isArray(parsed.nativeMcpSync.pendingServers)
+        ? { nativeMcpSync: { definitionRevision: parsed.nativeMcpSync.definitionRevision,
+          pendingServers: parsed.nativeMcpSync.pendingServers.filter((name) => typeof name === "string") } } : {}),
     };
-  } catch {
+  } catch (error) {
+    if (opts.strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return emptyState();
   }
 }
@@ -258,12 +276,36 @@ export function collectRequiredSkillKeys(state: WorkspaceState, packsConfig: { p
   return required;
 }
 
-/** Current ownership, not the historical managed-name ledger. Never infer native names from Library references. */
+/** Current ownership follows live definitions; receipts never grant management rights. */
 export function collectActiveNativeMcpServers(state: WorkspaceState, config: SkillPacksConfig): Set<string> {
+  const activeIds = new Set(state.appliedPacks.map((pack) => pack.packId));
+  return new Set(config.packs.filter((pack) => activeIds.has(pack.id)).flatMap((pack) => pack.nativeMcpServers ?? []));
+}
+
+/** Only the native membership relevant to this workspace; unrelated Pack edits do not reload it. */
+export function activeNativeMcpReferences(state: WorkspaceState, config: SkillPacksConfig): Map<string, string[]> {
+  const definitions = new Map(config.packs.map((pack) => [pack.id, pack.nativeMcpServers ?? []]));
+  return new Map(state.appliedPacks.map((pack) => [pack.packId, [...new Set(definitions.get(pack.packId) ?? [])].sort()]));
+}
+
+export function nativeMcpDefinitionRevision(references: Map<string, string[]>): string {
+  return JSON.stringify([...references].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export function workspacePackMcpNeedsSync(state: WorkspaceState, config: SkillPacksConfig): boolean {
+  if (!state.appliedPacks.length) return false;
+  const references = activeNativeMcpReferences(state, config);
+  return state.nativeMcpSync?.definitionRevision !== nativeMcpDefinitionRevision(references)
+    || !!state.nativeMcpSync?.pendingServers.length
+    || state.appliedPacks.some((pack) => JSON.stringify(pack.receipt.nativeMcpServers) !== JSON.stringify(references.get(pack.packId)));
+}
+
+/** Previous application is cleanup evidence only. Never use the historical managed-name ledger. */
+export function collectAppliedNativeMcpServers(state: WorkspaceState): Set<string> {
   const names = new Set<string>();
   for (const applied of state.appliedPacks) {
-    // An applied snapshot (including []) wins; only older receipts need explicit native bindings from the definition.
-    const refs = applied.receipt.nativeMcpServers ?? config.packs.find(pack => pack.id === applied.packId)?.nativeMcpServers ?? [];
+    // Missing snapshots are not evidence that a native override was ever written.
+    const refs = applied.receipt.nativeMcpServers ?? [];
     for (const name of refs) if (name) names.add(name);
   }
   return names;

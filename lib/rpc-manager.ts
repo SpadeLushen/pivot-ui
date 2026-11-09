@@ -24,6 +24,7 @@ import { resourceRevision, subscribeResourceChanges } from "./session-resource-e
 import { persistEmptySession } from "./session-persistence";
 import { readWorkspaceState } from "./workspace-packs";
 import { subscribeWorkspacePacks } from "./workspace-pack-events";
+import { reconcileWorkspacePackMcp } from "./workspace-pack-mcp-sync";
 import { createPivotAgentSessionServices, enableLegacyAzure, LEGACY_AZURE_PROVIDER } from "./model-runtime";
 import { nativeProjectTrusted, publishMcpLoad } from "./native-mcp-runtime";
 import { join } from "node:path";
@@ -223,7 +224,8 @@ export class AgentSessionWrapper {
 
   getExtensionApplicationState() {
     const cwd = this.workspaceCwd();
-    const pending = cwd !== undefined && resourceRevision(cwd) !== this.workspaceResourceRevision;
+    const pending = cwd !== undefined && (resourceRevision(cwd) !== this.workspaceResourceRevision
+      || readWorkspaceState({ cwd }).revision !== this.workspacePackRevision);
     const state = this.resourceReloadFailed || this.extensionBindingError ? "failed" as const
       : this.resourceReloadPromise || !this.extensionsBound ? "applying" as const
       : pending ? "pending" as const : "applied" as const;
@@ -268,15 +270,17 @@ export class AgentSessionWrapper {
     if (this.workspacePackReload) return this.workspacePackReload;
     const cwd = this.workspaceCwd();
     if (!cwd || !this._alive || this.isRunning()) return;
-    if (readWorkspaceState({ cwd }).revision === this.workspacePackRevision && resourceRevision(cwd) === this.workspaceResourceRevision) return;
-    const task = (async () => {
+    // Set the shared promise before reconciliation can emit notifications back to this wrapper.
+    const task = Promise.resolve().then(async () => {
+      try { await reconcileWorkspacePackMcp(cwd); }
+      catch (error) { this.emit({ type: "workspace_packs_reload_error", errorMessage: String(error) }); }
       while (this._alive && !this.isRunning()) {
         const revision = readWorkspaceState({ cwd }).revision;
         if (revision === this.workspacePackRevision && resourceRevision(cwd) === this.workspaceResourceRevision) return;
         await this.reloadResources();
         this.emit({ type: "workspace_packs_reloaded", revision: this.workspacePackRevision });
       }
-    })();
+    });
     this.workspacePackReload = task;
     try { await task; } finally { this.workspacePackReload = null; }
   }
@@ -1471,6 +1475,18 @@ export function getToolManagementSession(cwd: string, preferredId?: string): Age
   return preferred && matches(preferred) ? preferred : undefined;
 }
 
+/** Read existing sessions only; polling Pack status must never create an AgentSession. */
+export function getWorkspacePackApplication(cwd: string): "applied" | "pending" | "failed" {
+  let application: "applied" | "pending" = "applied";
+  for (const session of globalThis.__piSessions?.values() ?? []) {
+    if (!session.isAlive() || workspaceKey(session.inner.sessionManager.getCwd()) !== workspaceKey(cwd)) continue;
+    const state = session.getExtensionApplicationState().state;
+    if (state === "failed") return "failed";
+    if (state !== "applied") application = "pending";
+  }
+  return application;
+}
+
 export function getRunningRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
@@ -1588,6 +1604,9 @@ export async function startRpcSession(
     // before the SDK restores the saved model from the session file.
     const savedModel = sessionManager.buildSessionContext().model;
     const legacyAzure = savedModel?.provider === LEGACY_AZURE_PROVIDER;
+    // Offline workspaces catch up before any project resources are loaded. Failures remain retryable.
+    try { await reconcileWorkspacePackMcp(cwd); }
+    catch (error) { console.warn("[packs] MCP synchronization deferred", cwd, String(error)); }
     const initialPackRevision = readWorkspaceState({ cwd }).revision;
     const services = await createPivotAgentSessionServices({ cwd, agentDir }, legacyAzure || requestedModel?.provider === LEGACY_AZURE_PROVIDER);
     const desired = requestedModel ?? (legacyAzure ? savedModel : undefined);

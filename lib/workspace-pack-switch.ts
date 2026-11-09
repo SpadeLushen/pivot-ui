@@ -1,12 +1,12 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { SkillPack, SkillPacksConfig } from "./skill-packs-store";
-import { collectActiveNativeMcpServers, readWorkspaceState, unionSkillRefs, type WorkspaceState, type AppliedPack } from "./workspace-packs";
+import { collectAppliedNativeMcpServers, nativeMcpDefinitionRevision, readWorkspaceState, unionSkillRefs, type WorkspaceState, type AppliedPack } from "./workspace-packs";
 import { preview, copyPlanSkills, withWorkspaceLock, WorkspaceRevisionConflict, WorkspacePlanBlocked, type WorkspacePackPlan } from "./skill-pack-apply";
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 import { loadNativeMcpConfig } from "./native-mcp-config";
 import { NativeMcpConfigurationUnavailable } from "./mcp-config-phase";
-import { canonicalWorkspace, workspaceKey, workspaceFile, readPackFile, savePackFile, formatPackFile, type PackFile } from "./workspace-pack-files";
+import { canonicalWorkspace, workspaceKey, workspaceFile, readPackFile, commitPackFiles, releasePackMcpEnabled, type PackFile } from "./workspace-pack-files";
 
 const nativeSnapshots = new WeakMap<WorkspacePackPlan, PackFile>();
 function nativeNames(pack: SkillPack): string[] {
@@ -20,7 +20,7 @@ function resolvePacks(config: SkillPacksConfig, ids: string[], state: WorkspaceS
     const saved = [...state.appliedPacks, ...(state.disabledPacks ?? [])].find((pack) => pack.packId === id);
     if (!saved) throw new Error(`Unknown Pack: ${id}`);
     return { id, name: id, description: "", skills: saved.receipt.installed,
-      mcpServers: saved.receipt.mcpServers, nativeMcpServers: saved.receipt.nativeMcpServers };
+      mcpServers: saved.receipt.mcpServers, nativeMcpServers: [] };
   });
 }
 function validSkillKey(key: string): void {
@@ -32,9 +32,10 @@ async function buildPlan(cwd: string, libraryRoot: string, ids: string[], config
   const packs = resolvePacks(config, targetPackIds, state);
   const touched = resolvePacks(config, [...new Set([...targetPackIds, ...state.appliedPacks.map((p) => p.packId)])], state);
   for (const pack of touched) nativeNames(pack); // Preserve the explicit native-binding requirement for legacy Packs.
-  const names = [...new Set([...collectActiveNativeMcpServers(state, config), ...packs.flatMap(nativeNames)])];
+  const names = [...new Set([...collectAppliedNativeMcpServers(state), ...packs.flatMap(nativeNames)])];
   for (const pack of packs) for (const ref of pack.skills) validSkillKey(ref.skillKey);
   const newIds = targetPackIds.filter((id) => !state.appliedPacks.some((p) => p.packId === id));
+  const disablingOnly = !newIds.length && targetPackIds.length < state.appliedPacks.length;
   const effectiveConfig = { ...config, packs };
   const skillPlan = preview(cwd, libraryRoot, newIds, effectiveConfig);
   skillPlan.versionConflicts = unionSkillRefs(packs).conflicts;
@@ -49,12 +50,18 @@ async function buildPlan(cwd: string, libraryRoot: string, ids: string[], config
   if (names.length) {
     nativeFile = readPackFile(workspaceFile(cwd, "mcp.json"));
     const entries = nativeFile.value.mcpServers;
-    const native = await loadNativeMcpConfig(cwd);
-    for (const name of names) {
-      const configured = native.servers.find((server) => server.name === name);
+    const desired = new Set(packs.flatMap(nativeNames));
+    let native: Awaited<ReturnType<typeof loadNativeMcpConfig>> | undefined;
+    if (desired.size) {
+      try { native = await loadNativeMcpConfig(cwd); }
+      catch (error) { if (!disablingOnly) throw error; }
+    }
+    for (const name of desired) {
+      const configured = native?.servers.find((server) => server.name === name);
       const hasProjectEntry = entries && typeof entries === "object" && Object.hasOwn(entries, name);
-      if (!configured || (hasProjectEntry && configured.scope !== "project" && configured.override !== native.projectConfig)) {
-        if (configured || packs.some((pack) => nativeNames(pack).includes(name))) mcp.blocked.push({ serverKey: name, reason: "missing_native_server" });
+      if (!configured || (hasProjectEntry && configured.scope !== "project" && configured.override !== native?.projectConfig)) {
+        if (disablingOnly) mcp.skipped.push({ serverKey: name, reason: "missing_native_server" });
+        else mcp.blocked.push({ serverKey: name, reason: "missing_native_server" });
       } else mcp.toConfigure.push({ serverKey: name, configHash: "" });
     }
   }
@@ -68,10 +75,10 @@ async function buildPlan(cwd: string, libraryRoot: string, ids: string[], config
 export async function previewWorkspacePackSwitch(cwd: string, libraryRoot: string, ids: string[], config: SkillPacksConfig) {
   cwd = canonicalWorkspace(cwd);
   readPackFile(workspaceFile(cwd, "skill-packs.json"));
-  return buildPlan(cwd, libraryRoot, ids, config, readWorkspaceState({ cwd }));
+  return buildPlan(cwd, libraryRoot, ids, config, readWorkspaceState({ cwd, strict: true }));
 }
 
-function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], mcpNames: string[], nativeFile?: PackFile) {
+function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], mcpNames: string[], enabledNames: Set<string>, nativeFile?: PackFile) {
   const settings = readPackFile(workspaceFile(cwd, "settings.json"));
   if (settings.value.skills !== undefined && (!Array.isArray(settings.value.skills) || settings.value.skills.some((p) => typeof p !== "string"))) {
     throw new Error("Invalid workspace skills settings");
@@ -89,16 +96,12 @@ function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], m
     const nextServers = new Map(Object.entries(servers as Record<string, unknown>));
     const active = new Set(packs.flatMap(nativeNames));
     for (const name of mcpNames) {
-      const previous = nextServers.get(name) ?? {};
-      if (!previous || typeof previous !== "object" || Array.isArray(previous)) throw new Error("Invalid native MCP entry");
-      if (active.has(name)) {
+      if (!active.has(name)) {
+        releasePackMcpEnabled(nextServers, name);
+      } else if (enabledNames.has(name)) {
+        const previous = nextServers.get(name) ?? {};
+        if (!previous || typeof previous !== "object" || Array.isArray(previous)) throw new Error("Invalid native MCP entry");
         nextServers.set(name, { ...previous, enabled: true });
-      } else {
-        // Release the enabled override, not the user's definition or other override fields.
-        const inherited: Record<string, unknown> = { ...previous };
-        delete inherited.enabled;
-        if (Object.keys(inherited).length) nextServers.set(name, inherited);
-        else nextServers.delete(name);
       }
     }
     const nextMcp = { ...mcp.value, mcpServers: Object.fromEntries(nextServers) };
@@ -109,15 +112,20 @@ function resourceFiles(cwd: string, state: WorkspaceState, packs: SkillPack[], m
 
 function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePackPlan, managedSkills: string[], names: string[]): WorkspaceState {
   const saved = [...state.appliedPacks, ...(state.disabledPacks ?? [])];
+  const previousNative = collectAppliedNativeMcpServers(state);
+  const appliedNative = new Set([...previousNative, ...plan.mcp.toConfigure.map((server) => server.serverKey)]);
+  const references = new Map(packs.map((pack) => [pack.id, [...new Set(nativeNames(pack))].sort()]));
   const appliedPacks: AppliedPack[] = packs.map((pack) => {
     const prior = saved.find((p) => p.packId === pack.id);
     const installed = pack.skills.filter((ref) => managedSkills.some((key) => key.toLowerCase() === ref.skillKey.toLowerCase()));
     const skipped = plan.skipped.filter((ref) => pack.skills.some((s) => s.skillKey === ref.skillKey) && !managedSkills.includes(ref.skillKey));
     return { packId: pack.id, status: skipped.length ? "partial" : prior?.status ?? "full",
       receipt: { appliedAt: prior?.receipt.appliedAt ?? new Date().toISOString(), installed,
-        mcpServers: prior?.receipt.mcpServers ?? [], nativeMcpServers: nativeNames(pack) } };
+        mcpServers: prior?.receipt.mcpServers ?? [], nativeMcpServers: references.get(pack.id)!.filter((name) => appliedNative.has(name)) } };
   });
   return { ...state, revision: state.revision + 1, appliedPacks,
+    nativeMcpSync: { definitionRevision: nativeMcpDefinitionRevision(references),
+      pendingServers: plan.mcp.skipped.map((server) => server.serverKey).filter((name) => !previousNative.has(name)).sort() },
     disabledPacks: saved.filter((p) => !packs.some((pack) => pack.id === p.packId)),
     skippedConflicts: plan.skipped.filter((ref) => !managedSkills.includes(ref.skillKey)).flatMap((ref) => packs
       .filter((pack) => pack.skills.some((s) => s.skillKey === ref.skillKey))
@@ -125,50 +133,28 @@ function makeState(state: WorkspaceState, packs: SkillPack[], plan: WorkspacePac
     managedSkillKeys: managedSkills, managedNativeMcpServers: names, skillExclusions: [] };
 }
 
-function commitFiles(changes: { file: PackFile; value: Record<string, unknown> }[], watched: PackFile[], beforeStateWrite?: () => void) {
-  const writes = changes.map(({ file, value }) => ({ file, text: formatPackFile(file, value) }));
-  for (const file of [...writes.map((write) => write.file), ...watched]) {
-    const current = existsSync(file.path) ? readFileSync(file.path, "utf8") : null;
-    if (current !== file.before) throw new Error("Workspace configuration changed; retry the Pack switch");
-  }
-  const committed: typeof writes = [];
-  try {
-    for (const write of writes) {
-      if (write === writes.at(-1)) beforeStateWrite?.();
-      savePackFile(write.file.path, write.text);
-      committed.push(write);
-    }
-  } catch (error) {
-    const failures: unknown[] = [];
-    for (const { file, text } of committed.reverse()) {
-      try {
-        if (readFileSync(file.path, "utf8") !== text) throw new Error("Configuration was edited externally");
-        if (file.before === null) rmSync(file.path); else savePackFile(file.path, file.before);
-      } catch (failure) { failures.push(failure); }
-    }
-    if (failures.length) throw new AggregateError([error, ...failures], "Pack rollback conflict; external edits were preserved");
-    throw error;
-  }
-}
-
 export async function applyWorkspacePackSwitch(cwd: string, libraryRoot: string, ids: string[], revision: number, config: SkillPacksConfig,
-  deps: { copyFn?: (source: string, dest: string) => void; beforeStateWrite?: () => void } = {}) {
+  deps: { copyFn?: (source: string, dest: string) => void; beforeStateWrite?: () => void; readCurrentConfig?: () => SkillPacksConfig } = {}) {
   cwd = canonicalWorkspace(cwd);
   return withWorkspaceLock(workspaceKey(cwd), async () => {
     const stateFile = readPackFile(workspaceFile(cwd, "skill-packs.json"));
-    const state = readWorkspaceState({ cwd });
+    const state = readWorkspaceState({ cwd, strict: true });
+    config = deps.readCurrentConfig?.() ?? config;
+    const definitionSnapshot = JSON.stringify(config);
     if (state.revision !== revision) throw new WorkspaceRevisionConflict(state.revision);
     const plan = await buildPlan(cwd, libraryRoot, ids, config, state);
     if (!plan.canApply) throw new WorkspacePlanBlocked(plan);
     const packs = resolvePacks(config, plan.targetPackIds, state);
     const managed = [...new Set([...(state.managedSkillKeys ?? []), ...[...state.appliedPacks, ...(state.disabledPacks ?? [])].flatMap((p) => p.receipt.installed.map((s) => s.skillKey)),
       ...plan.toInstall.map((s) => s.skillKey)])];
-    const names = [...new Set([...collectActiveNativeMcpServers(state, config), ...packs.flatMap(nativeNames)])];
-    const resources = resourceFiles(cwd, state, packs, plan.mcp.toConfigure.map((s) => s.serverKey), nativeSnapshots.get(plan));
+    const names = [...new Set([...collectAppliedNativeMcpServers(state), ...packs.flatMap(nativeNames)])];
+    const enabledNames = new Set(plan.mcp.toConfigure.map((server) => server.serverKey));
+    const resources = resourceFiles(cwd, state, packs, names, enabledNames, nativeSnapshots.get(plan));
     const next = makeState(state, packs, plan, managed, names);
     const copied = copyPlanSkills(cwd, libraryRoot, plan, deps);
     try {
-      commitFiles([...resources.changes, { file: stateFile, value: { ...stateFile.value, ...next } }], resources.watched, deps.beforeStateWrite);
+      if (deps.readCurrentConfig && JSON.stringify(deps.readCurrentConfig()) !== definitionSnapshot) throw new Error("Pack definitions changed; retry the switch");
+      commitPackFiles([...resources.changes, { file: stateFile, value: { ...stateFile.value, ...next } }], resources.watched, deps.beforeStateWrite);
     } catch (error) {
       for (const path of copied.created) rmSync(path, { recursive: true, force: true });
       throw error;

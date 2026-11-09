@@ -146,10 +146,23 @@ export interface SkippedConflictInfo {
 
 export interface WorkspaceSkillPacksResponse {
   revision: number;
+  definitionsRevision?: string;
+  mcpSyncNeeded?: boolean;
+  application?: "applied" | "pending" | "failed";
+  pendingNativeMcpServers?: string[];
   configured: boolean;
   appliedPacks: AppliedPackInfo[];
   disabledPacks?: AppliedPackInfo[];
   skippedConflicts: SkippedConflictInfo[];
+}
+
+export interface WorkspacePackMcpSyncResponse {
+  revision: number;
+  definitionsRevision: string;
+  pendingServers: string[];
+  trusted: boolean;
+  changed: boolean;
+  application: "applied" | "pending" | "failed";
 }
 
 export interface McpAdapterStatusInfo {

@@ -6,7 +6,8 @@ import type { NativeMcpEditorServer, NativeMcpEditorSnapshot, NativeMcpScope } f
 import { ToolError, ToolSwitch } from "./ToolsControls";
 import { McpEditorDialog } from "./McpEditorDialog";
 import { McpRuntimeDetails } from "./McpRuntimeDetails";
-import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
+import { useWorkspacePackState } from "@/hooks/useWorkspacePackRevision";
+import { WorkspacePackSyncNotice } from "../WorkspacePackSyncNotice";
 
 export function McpPanel({ cwd }: { cwd: string }) {
   const { t } = useI18n();
@@ -14,7 +15,7 @@ export function McpPanel({ cwd }: { cwd: string }) {
   const [selected, setSelected] = useState(""), [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null), [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<{ scope: NativeMcpScope; serverKey?: string } | null>(null);
-  const packRevision = useWorkspacePackRevision(cwd), requestEpoch = useRef(0);
+  const packState = useWorkspacePackState(cwd), requestEpoch = useRef(0);
   useEffect(() => {
     let ignore = false; setError(null); setSnapshot(null);
     const epoch = ++requestEpoch.current, controller = new AbortController();
@@ -23,7 +24,7 @@ export function McpPanel({ cwd }: { cwd: string }) {
       .then((data) => { if (!ignore && epoch === requestEpoch.current) setSnapshot(data); })
       .catch((reason) => { if (!ignore && epoch === requestEpoch.current) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { ignore = true; requestEpoch.current++; controller.abort(); };
-  }, [cwd, refresh, packRevision]);
+  }, [cwd, refresh, packState.revision, packState.definitionsRevision]);
   const active = snapshot?.servers.find((server) => server.serverKey === selected) ?? snapshot?.servers[0];
   const activeOverride = !!active?.overridesGlobal && !active.managedByPack;
   const change = async (server: NativeMcpEditorServer, method: "PATCH" | "DELETE", enabled?: boolean) => {
@@ -56,6 +57,7 @@ export function McpPanel({ cwd }: { cwd: string }) {
       </div>)}
     </div><div className="tools-list-footer"><button type="button" onClick={() => setEditor({ scope: "global" })}><Plus size={13} />{t("mcp.addServer")}</button></div></aside>
     <div className="tools-details"><ToolError error={error} />
+      <WorkspacePackSyncNotice cwd={cwd} />
       {active ? <>
         <div className="tools-detail-heading"><h3>{active.serverKey}</h3>
           <span className={`tools-badge${activeOverride ? " tools-override-badge" : ""}`}>

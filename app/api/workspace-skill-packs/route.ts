@@ -1,21 +1,26 @@
 import { NextResponse } from "next/server";
-import { ensureLibraryRoot, getPackById, readConfig, resolveLibraryRoot } from "@/lib/skill-packs-store";
-import { readWorkspaceState, workspacePackStateExists } from "@/lib/workspace-packs";
+import { ensureLibraryRoot, getPackById, readConfig, resolveLibraryRoot, packDefinitionsRevision } from "@/lib/skill-packs-store";
+import { readWorkspaceState, workspacePackStateExists, workspacePackMcpNeedsSync } from "@/lib/workspace-packs";
 import { isWorkspacePlanBlocked, isWorkspaceRevisionConflict } from "@/lib/skill-pack-apply";
 import { applyWorkspacePackSwitch } from "@/lib/workspace-pack-switch";
 import { requirePackWorkspace, PackWorkspaceAccessError } from "@/lib/workspace-pack-access";
 import { notifyWorkspacePacks } from "@/lib/workspace-pack-events";
+import { getWorkspacePackApplication } from "@/lib/rpc-manager";
 import { isMcpConfigUnavailable, mcpConfigUnavailableResponse } from "@/lib/mcp-config-phase";
 import type { WorkspaceSkillPacksResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 
 function readState(cwd: string): WorkspaceSkillPacksResponse {
-  const config = readConfig();
-  const ws = readWorkspaceState({ cwd });
+  const config = readConfig({ strict: true });
+  const ws = readWorkspaceState({ cwd, strict: true });
   return {
     configured: workspacePackStateExists(cwd),
     revision: ws.revision,
+    definitionsRevision: packDefinitionsRevision(config),
+    mcpSyncNeeded: workspacePackMcpNeedsSync(ws, config),
+    application: getWorkspacePackApplication(cwd),
+    pendingNativeMcpServers: ws.nativeMcpSync?.pendingServers ?? [],
     appliedPacks: ws.appliedPacks.map((p) => ({
       ...p,
       packName: getPackById(config, p.packId)?.name ?? p.packId,
@@ -50,13 +55,13 @@ export async function DELETE(req: Request) {
   }
   try {
     const workspace = await requirePackWorkspace(cwd);
-    const config = ensureLibraryRoot(readConfig());
+    const config = ensureLibraryRoot(readConfig({ strict: true }));
     const libraryRoot = resolveLibraryRoot(config);
     if (!libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
-    const state = readWorkspaceState({ cwd: workspace });
+    const state = readWorkspaceState({ cwd: workspace, strict: true });
     if (!state.appliedPacks.some((pack) => pack.packId === packId)) return NextResponse.json({ error: "pack not applied" }, { status: 404 });
     const targetPackIds = state.appliedPacks.filter((pack) => pack.packId !== packId).map((pack) => pack.packId);
-    await applyWorkspacePackSwitch(workspace, libraryRoot, targetPackIds, workspaceRevision, config);
+    await applyWorkspacePackSwitch(workspace, libraryRoot, targetPackIds, workspaceRevision, config, { readCurrentConfig: () => readConfig({ strict: true }) });
     notifyWorkspacePacks(workspace);
     return NextResponse.json(readState(workspace));
   } catch (e) {

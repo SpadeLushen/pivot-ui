@@ -25,6 +25,7 @@ export interface SkillPack {
 
 export interface SkillPacksConfig {
   version: 2;
+  revision?: number;
   libraryRoot: string | null;
   packs: SkillPack[];
 }
@@ -36,6 +37,7 @@ export interface PackReference {
 
 interface PathOpts {
   configPath?: string;
+  strict?: boolean;
 }
 
 interface Deps {
@@ -89,15 +91,28 @@ export function ensureLibraryRoot(config: SkillPacksConfig, opts: PathOpts = {})
 /** Read the global config, returning an empty config when missing or malformed. */
 export function readConfig(opts: PathOpts = {}): SkillPacksConfig {
   const path = opts.configPath ?? getDefaultConfigPath();
-  if (!existsSync(path)) return emptyConfig();
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<SkillPacksConfig>;
+    const parsed = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Partial<SkillPacksConfig>;
+    if (opts.strict) {
+      const ids = new Set<string>();
+      if (!parsed || !Array.isArray(parsed.packs)) throw new Error("Invalid Pack definitions");
+      for (const pack of parsed.packs) {
+        if (!pack || typeof pack.id !== "string" || !pack.id || ids.has(pack.id)
+          || (pack.nativeMcpServers !== undefined && (!Array.isArray(pack.nativeMcpServers)
+            || pack.nativeMcpServers.some((name) => typeof name !== "string" || !/^[A-Za-z0-9_-]+$/.test(name))))) {
+          throw new Error("Invalid Pack definitions");
+        }
+        ids.add(pack.id);
+      }
+    }
     return {
       version: 2,
+      revision: Number.isSafeInteger(parsed.revision) && (parsed.revision ?? 0) >= 0 ? parsed.revision : 0,
       libraryRoot: typeof parsed.libraryRoot === "string" ? parsed.libraryRoot : null,
       packs: Array.isArray(parsed.packs) ? parsed.packs.map(normalizePack) : [],
     };
-  } catch {
+  } catch (error) {
+    if (opts.strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return emptyConfig();
   }
 }
@@ -133,11 +148,21 @@ function normalizeMcpRef(s: unknown): McpPackReference {
 /** Atomically write the config (temp file + rename), creating any missing dirs. */
 export function writeConfig(config: SkillPacksConfig, opts: PathOpts = {}): void {
   const path = opts.configPath ?? getDefaultConfigPath();
+  // Synchronous read/modify/rename serializes in-process saves. Reject stale writers.
+  const current = readConfig({ ...opts, strict: true });
+  if ((config.revision ?? 0) !== (current.revision ?? 0)) throw new Error("Pack definitions changed; reload before saving");
+  const revision = (current.revision ?? 0) + 1;
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  writeFileSync(tmp, `${JSON.stringify({ ...config, revision }, null, 2)}\n`, "utf8");
   renameSync(tmp, path);
+  config.revision = revision;
+}
+
+/** Include native membership as well as the persisted revision to notice external edits. */
+export function packDefinitionsRevision(config: SkillPacksConfig): string {
+  return JSON.stringify([config.revision ?? 0, config.packs.map((pack) => [pack.id, pack.name, pack.nativeMcpServers ?? []])]);
 }
 
 export function getPackById(config: SkillPacksConfig, id: string): SkillPack | null {

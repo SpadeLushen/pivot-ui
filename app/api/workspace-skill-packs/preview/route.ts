@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     if (!Array.isArray(body.packIds) || packIds.some((id) => typeof id !== "string" || !id.trim())) return NextResponse.json({ error: "packIds required" }, { status: 400 });
     const workspace = await requirePackWorkspace(cwd);
-    const config = ensureLibraryRoot(readConfig());
+    const config = ensureLibraryRoot(readConfig({ strict: true }));
     const libraryRoot = resolveLibraryRoot(config);
     if (!libraryRoot) return NextResponse.json({ error: "skill library not configured" }, { status: 400 });
     const plan = await previewWorkspacePackSwitch(workspace, libraryRoot, packIds, config);

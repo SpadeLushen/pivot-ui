@@ -3,6 +3,7 @@ import { getAgentDir, ProjectTrustStore, SettingsManager } from "@earendil-works
 import { requirePackWorkspace, PackWorkspaceAccessError } from "@/lib/workspace-pack-access";
 import { notifyMcpConfigurationChanged } from "@/lib/session-resource-events";
 import { nativeProjectTrusted } from "@/lib/native-mcp-runtime";
+import { schedulePackMcpSync } from "@/lib/workspace-pack-mcp-scheduler";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
     new ProjectTrustStore(getAgentDir()).set(cwd, true);
     // Same-cwd sessions reload at idle boundaries, including when the Pack retry fails.
     notifyMcpConfigurationChanged(cwd);
+    schedulePackMcpSync(cwd);
     return NextResponse.json({ cwd, trusted: true });
   } catch (error) {
     if (error instanceof PackWorkspaceAccessError) return NextResponse.json({ error: error.message }, { status: 403 });

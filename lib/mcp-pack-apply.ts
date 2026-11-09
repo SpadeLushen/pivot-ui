@@ -9,7 +9,7 @@ export type McpPreviewEntry = McpPackReference;
 
 export interface McpSkippedEntry {
   serverKey: string;
-  reason: "shadowed_by_team_config" | "same_name_exists_external" | "managed_entry_modified" | "disabled";
+  reason: "shadowed_by_team_config" | "same_name_exists_external" | "managed_entry_modified" | "disabled" | "missing_native_server";
 }
 
 export interface McpBlockedEntry {

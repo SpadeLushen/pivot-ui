@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getLibrarySkill } from "@/lib/skill-library";
 import { mcpConfigUnavailableResponse } from "@/lib/mcp-config-phase";
+import { schedulePackMcpSync } from "@/lib/workspace-pack-mcp-scheduler";
 import {
   deletePack,
-  ensureLibraryRoot,
+  getDefaultLibraryRoot,
   getPackById,
   readConfig,
   resolveLibraryRoot,
@@ -25,12 +26,12 @@ function toInfo(pack: SkillPack): SkillPackInfo {
 }
 
 function buildDetail(packId: string): SkillPackDetail | null {
-  const config = ensureLibraryRoot(readConfig());
+  const config = readConfig({ strict: true });
   const pack = getPackById(config, packId);
   if (!pack) return null;
   const skills: LibrarySkillInfo[] = [];
   const mcpServers: LibraryMcpServerInfo[] = [];
-  const libraryRoot = resolveLibraryRoot(config);
+  const libraryRoot = resolveLibraryRoot(config) ?? getDefaultLibraryRoot();
   if (libraryRoot) {
     for (const ref of pack.skills) {
       const lib = getLibrarySkill(libraryRoot, ref.skillKey);
@@ -83,7 +84,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       || body.nativeMcpServers.some((name) => typeof name !== "string" || !/^[A-Za-z0-9_-]+$/.test(name)))) {
       return NextResponse.json({ error: "nativeMcpServers must contain native server names" }, { status: 400 });
     }
-    const config = readConfig();
+    const config = readConfig({ strict: true });
     if (!getPackById(config, id)) {
       return NextResponse.json({ error: "pack not found" }, { status: 404 });
     }
@@ -94,6 +95,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (Array.isArray(body.nativeMcpServers)) patch.nativeMcpServers = body.nativeMcpServers as string[];
     const next = updatePack(config, id, patch);
     writeConfig(next);
+    schedulePackMcpSync();
     const updated = getPackById(next, id)!;
     return NextResponse.json({ pack: toInfo(updated) });
   } catch (e) {
@@ -105,12 +107,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 export async function DELETE(_req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const config = readConfig();
+    const config = readConfig({ strict: true });
     if (!getPackById(config, id)) {
       return NextResponse.json({ error: "pack not found" }, { status: 404 });
     }
     const next = deletePack(config, id);
     writeConfig(next);
+    schedulePackMcpSync();
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

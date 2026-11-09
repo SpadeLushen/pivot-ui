@@ -9,7 +9,8 @@ import type {
 } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
-import { useWorkspacePackRevision, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
+import { useWorkspacePackState, announceWorkspacePackChange } from "@/hooks/useWorkspacePackRevision";
+import { WorkspacePackSyncNotice } from "./WorkspacePackSyncNotice";
 import { confirmWorkspaceTrust, requiresWorkspaceTrust, workspacePackBlockMessages, WorkspacePackRequestError, type WorkspacePackErrorResponse } from "@/lib/workspace-pack-feedback";
 
 export function WorkspacePacks({
@@ -22,7 +23,7 @@ export function WorkspacePacks({
   refreshKey?: number;
 }) {
   const { t } = useI18n();
-  const revision = useWorkspacePackRevision(cwd);
+  const packState = useWorkspacePackState(cwd);
   const [applied, setApplied] = useState<AppliedPackInfo[]>([]);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [skipped, setSkipped] = useState<{ packId: string; skillKey?: string; serverKey?: string; reason: string }[]>([]);
@@ -61,7 +62,7 @@ export function WorkspacePacks({
     setLoading(true);
     setError(null);
     void load().finally(() => setLoading(false));
-  }, [load, refreshKey, revision]);
+  }, [load, refreshKey, packState.revision, packState.definitionsRevision]);
 
   const removeTag = async (packId: string) => {
     try {
@@ -133,6 +134,7 @@ export function WorkspacePacks({
         )}
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("packs.workspaceScope")}</span>
       </div>
+      <WorkspacePackSyncNotice cwd={cwd} />
       {error && <div role="alert" style={{ fontSize: 12, color: "#f87171", marginTop: 6, whiteSpace: "pre-line" }}>{error}</div>}
 
       {picking && (

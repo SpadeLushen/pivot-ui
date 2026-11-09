@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
+import { announcePackDefinitionChange } from "@/hooks/useWorkspacePackRevision";
 import type {
   LibrarySkillInfo,
   LibraryMcpServerInfo,
@@ -107,6 +108,7 @@ export function SkillPacksModal({
       });
       const data = (await res.json()) as { pack?: SkillPackInfo; error?: string };
       if (data.error) throw new Error(data.error);
+      announcePackDefinitionChange();
       if (data.pack) {
         setPacks((prev) => [...prev, data.pack!]);
         setSelectedId(data.pack.id);
@@ -129,6 +131,7 @@ export function SkillPacksModal({
       });
       const data = (await res.json()) as { pack?: SkillPackInfo; error?: string };
       if (data.error) throw new Error(data.error);
+      announcePackDefinitionChange();
       setPacks((prev) =>
         prev.map((p) =>
           p.id === selectedId
@@ -152,6 +155,7 @@ export function SkillPacksModal({
       const res = await fetch(`/api/skill-packs/${encodeURIComponent(selectedId)}`, { method: "DELETE" });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (data.error) throw new Error(data.error);
+      announcePackDefinitionChange();
       setPacks((prev) => prev.filter((p) => p.id !== selectedId));
       setSelectedId(null);
     } catch (e) {
