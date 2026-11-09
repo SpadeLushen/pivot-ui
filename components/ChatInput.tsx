@@ -29,6 +29,7 @@ import { AlertCircle, ArrowRight, Check, CornerUpLeft, CornerUpRight, Cpu, File 
 export interface Props {
   onSend: (message: string, attachments?: ChatAttachment[]) => Promise<boolean> | boolean | void;
   onAbort: () => void;
+  onInputActivity?: () => void;
   onSteer?: (message: string, attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   onFollowUp?: (message: string, attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
@@ -259,7 +260,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, isInputSending = false, isModelSelectionPending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  onSend, onAbort, onInputActivity, onSteer, onFollowUp, isStreaming, isInputSending = false, isModelSelectionPending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
   onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1757,7 +1758,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
+            onFocus={onInputActivity}
             onChange={(e) => {
+              onInputActivity?.();
               valueRef.current = e.target.value;
               setValue(e.target.value);
               updateAtQuery(e.target.value, e.target.selectionStart);

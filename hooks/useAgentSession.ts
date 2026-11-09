@@ -198,6 +198,7 @@ const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
+const PREWARM_ACTIVITY_INTERVAL_MS = 30_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -451,6 +452,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const lastPrewarmActivityRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const { items: extensionInteractions, active: extensionInteraction, applySnapshot: applyExtensionUiSnapshot,
     setValue: setExtensionInteractionValue, respond: respondToExtensionUi,
@@ -710,20 +712,47 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       name: undefined,
       created: now,
       modified: now,
-      lastUserMessageAt: now,
+      ...(messageCount > 0 ? { lastUserMessageAt: now } : {}),
       messageCount,
       firstMessage,
     });
   }, [isNew, newSessionCwd, onSessionCreated, opts.chatInputRef]);
 
+  const reusableNewSession = useCallback(async (epoch: number) => {
+    const previousId = sessionIdRef.current;
+    if (!previousId) return null;
+    const stateResponse = await fetch(`/api/agent/${encodeURIComponent(previousId)}`, { cache: "no-store" });
+    if (!stateResponse.ok) throw new Error(`HTTP ${stateResponse.status}`);
+    const state = await stateResponse.json() as { running?: boolean };
+    if (inputEpochRef.current !== epoch || sessionIdRef.current !== previousId) return null;
+    if (state.running) return previousId;
+
+    // A reclaimed wrapper may already have saved a message; preserve that chat.
+    const history = await fetch(`/api/sessions/${encodeURIComponent(previousId)}`, { cache: "no-store" });
+    if (inputEpochRef.current !== epoch || sessionIdRef.current !== previousId) return null;
+    if (history.ok) {
+      promoteNewSession();
+      return previousId;
+    }
+    if (history.status !== 404) throw new Error(`HTTP ${history.status}`);
+    sessionIdRef.current = null;
+    eventConnectionEpochRef.current += 1;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    return null;
+  }, [promoteNewSession]);
+
   const ensureNewSession = useCallback(async () => {
-    if (sessionIdRef.current) return sessionIdRef.current;
-    if (modelSelectionPendingRef.current) return null;
     if (!isNew || !newSessionCwd) return sessionIdRef.current;
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
+    if (modelSelectionPendingRef.current) return null;
 
     const epoch = inputEpochRef.current;
     const promise = (async () => {
+      const previousId = sessionIdRef.current;
+      const reusable = await reusableNewSession(epoch);
+      if (inputEpochRef.current !== epoch || (sessionIdRef.current && sessionIdRef.current !== previousId)) return null;
+      if (reusable) return reusable;
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
       const res = await fetch("/api/agent/new", {
@@ -750,11 +779,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel]);
+  }, [isNew, newSessionCwd, newSessionModel, newSessionDefaultModel, thinkingLevel, reusableNewSession]);
+
+  const sessionForSelection = useCallback(async () => {
+    if (!isNew) return sessionIdRef.current;
+    // A failed background start must not prevent choosing a different model.
+    await ensuringNewSessionRef.current?.catch(() => null);
+    return reusableNewSession(inputEpochRef.current);
+  }, [isNew, reusableNewSession]);
 
   const loadSlashCommands = useCallback(async () => {
     const epoch = inputEpochRef.current;
-    const sid = sessionIdRef.current ?? await ensureNewSession();
+    const sid = isNew ? await ensureNewSession() : sessionIdRef.current;
     if (inputEpochRef.current !== epoch) return [] as SlashCommandInfo[];
     if (!sid) {
       setSlashCommands([]);
@@ -774,7 +810,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (sessionIdRef.current === sid && inputEpochRef.current === epoch) setSlashCommandsLoading(false);
     }
-  }, [ensureNewSession]);
+  }, [ensureNewSession, isNew]);
 
   const loadSlashArgumentCompletions = useCallback(async (name: string, argumentPrefix: string) => {
     const sid = sessionIdRef.current;
@@ -826,12 +862,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // auto-reconnect. Settle the Promise and manually reconnect for
           // already-running sessions.
           settle("closed");
-          if (eventSourceRef.current === es && (agentRunRef.current.running || extensionUiPendingRef.current)) {
+          if (eventSourceRef.current === es) {
             eventSourceRef.current = null;
-            setTimeout(() => {
-              if (eventConnectionEpochRef.current === connectionEpoch && sessionIdRef.current === sid &&
-                  (agentRunRef.current.running || extensionUiPendingRef.current) && !eventSourceRef.current) void connectEvents(sid);
-            }, 1000);
+            if (agentRunRef.current.running || extensionUiPendingRef.current) {
+              setTimeout(() => {
+                if (eventConnectionEpochRef.current === connectionEpoch && sessionIdRef.current === sid &&
+                    (agentRunRef.current.running || extensionUiPendingRef.current) && !eventSourceRef.current) void connectEvents(sid);
+              }, 1000);
+            }
           }
         }
         // Recoverable errors (CONNECTING): let EventSource auto-reconnect.
@@ -842,12 +880,61 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [publishNested]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
+    // An open stream can still belong to a wrapper that was reclaimed while idle.
     const result = await connectEvents(sid);
     if (result.status === "connected" || result.source.readyState === EventSource.OPEN) return;
     if (eventSourceRef.current === result.source) eventSourceRef.current = null;
     result.source.close();
     throw new EventStreamConnectionError(result.status);
   }, [connectEvents]);
+
+  // A new chat owns one provisional runtime; sending and slash discovery share
+  // its startup promise. No session file is created just to warm MCP.
+  useEffect(() => {
+    if (!isNew || modelSelectionPending) return;
+    let cancelled = false;
+    void ensureNewSession().then((sid) => {
+      if (!cancelled && sid && sessionIdRef.current === sid && !inputRequestRef.current && !eventSourceRef.current) {
+        void connectEvents(sid);
+      }
+    }).catch((error) => console.warn("Failed to prewarm new session:", error));
+    return () => { cancelled = true; };
+  }, [isNew, modelSelectionPending, ensureNewSession, connectEvents]);
+
+  const prewarmForInput = useCallback(() => {
+    if (inputRequestRef.current || agentRunRef.current.running) return;
+    const now = Date.now();
+    if (now - lastPrewarmActivityRef.current < PREWARM_ACTIVITY_INTERVAL_MS) return;
+    lastPrewarmActivityRef.current = now;
+    const epoch = inputEpochRef.current;
+    if (isNew) {
+      void ensureNewSession().then((sid) => {
+        if (sid && inputEpochRef.current === epoch && sessionIdRef.current === sid
+          && !inputRequestRef.current && !eventSourceRef.current) void connectEvents(sid);
+      }).catch((error) => console.warn("Failed to prewarm new session:", error));
+      return;
+    }
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    void fetch(`/api/agent/${encodeURIComponent(sid)}`, { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const state = await response.json() as { running?: boolean };
+      if (!state.running && inputEpochRef.current === epoch && sessionIdRef.current === sid
+        && !inputRequestRef.current && !agentRunRef.current.running) void connectEvents(sid);
+    }).catch((error) => console.warn("Failed to prewarm session:", error));
+  }, [isNew, ensureNewSession, connectEvents]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") prewarmForInput(); };
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("online", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("online", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [prewarmForInput]);
 
   const addNotice = useCallback((notice: { id?: string; message: string; type?: NoticeType }) => {
     const message = notice.message.trim();
@@ -872,15 +959,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const ensurePackSkillsReloaded = useCallback(() => {
     return agentRunRef.current.reloadPacks(async () => {
-      const sid = sessionIdRef.current;
-      // An unsaved chat without an AgentSession discovers Packs on first send.
+      let sid = sessionIdRef.current;
+      if (isNew && sid && !agentRunRef.current.running) sid = await ensureNewSession();
+      // A fresh runtime discovers the current Packs during startup.
       if (!sid) return;
       await sendAgentCommand(sid, { type: "reload_workspace_packs" });
       await loadSlashCommands();
       await refreshLiveModels(sid);
       setModelCatalogRevision(revision => revision + 1);
     });
-  }, [loadSlashCommands, refreshLiveModels]);
+  }, [isNew, ensureNewSession, loadSlashCommands, refreshLiveModels]);
 
   useEffect(() => {
     const previous = previousWorkspacePacks.current;
@@ -1333,6 +1421,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
         }
         break;
+      case "session_persisted":
+        promoteNewSession();
+        break;
       case "session_info_changed": {
         const sid = sessionIdRef.current;
         if (sid) onSessionNameChange?.(sid, typeof event.name === "string" ? event.name : undefined);
@@ -1346,7 +1437,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLiveModels, applyExtensionUiSnapshot, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels, refreshSessionStats]);
+  }, [addNotice, applyLiveModels, applyExtensionUiSnapshot, beginNested, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionNameChange, promoteNewSession, publishNested, reconcileAgentState, recordTimingEvent, refreshLiveModels, refreshSessionStats]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Sanitize a file name for embedding inside a <file name="..."> tag.
@@ -1395,14 +1486,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setRetryInfo(null);
     const ownsRequest = () => inputEpochRef.current === epoch && inputRequestRef.current === requestId;
     try {
-      await ensurePackSkillsReloaded();
       const { piImages, fileText } = await prepareAttachments(attachments);
       if (!ownsRequest()) return false;
       const fullMessage = [trimmedMessage, fileText].filter(Boolean).join("\n");
       const existingSid = sessionIdRef.current;
-      const sid = existingSid ?? await ensureNewSession();
+      const sid = isNew ? await ensureNewSession() : existingSid;
       if (!ownsRequest()) return false;
       if (!sid) throw new Error("No session available for this input");
+      await ensurePackSkillsReloaded();
+      if (!ownsRequest() || sessionIdRef.current !== sid) return false;
       if (isNew && newSessionModel) {
         setPendingModel(newSessionModel);
         if (existingSid) {
@@ -1429,9 +1521,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setAgentPhase({ kind: "waiting_model" });
           dispatch({ type: "start" });
         }
-        notifyUserMessageSent();
-        promoteNewSession(receipt?.disposition === "started" ? 1 : 0,
-          receipt?.disposition === "started" ? message : "(no messages)");
+        if (receipt?.disposition === "started" || receipt?.disposition === "queued") notifyUserMessageSent();
         // Receipt acknowledged: idle reconciliation can now settle handled
         // input. For legacy null receipts it discovers execution, not guesses.
         inputRequestRef.current = null;
@@ -1459,7 +1549,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [beginNested, displayModel, thinkingLevel, isNew, newSessionModel, ensureNewSession, ensureEventsConnected, notifyUserMessageSent,
-    promoteNewSession, reconcileAgentState, waitForPromptSettlement, addNotice, dismissErrorNotices,
+    reconcileAgentState, waitForPromptSettlement, addNotice, dismissErrorNotices,
     ensurePackSkillsReloaded, prepareAttachments, t]);
 
   const handleAbort = useCallback(async () => {
@@ -1545,7 +1635,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const remembered = Object.hasOwn(shared["model-thinking-levels"], modelId)
         ? shared["model-thinking-levels"][modelId] : undefined;
       let nextLevel = supportedThinkingLevel(remembered ?? thinkingLevel, modelThinkingLevels[`${provider}:${modelId}`]);
-      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+      const sid = await sessionForSelection();
       if (sid) {
         const result = await sendAgentCommand<{ thinkingLevel: string }>(sid, {
           type: "set_model", provider, modelId, persist: !isNew, thinkingLevel: nextLevel,
@@ -1576,7 +1666,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modelSelectionPendingRef.current = false;
       setModelSelectionPending(false);
     }
-  }, [isNew, thinkingLevel, modelThinkingLevels, persistNewSessionDefault, refreshPreferences, addNotice, t]);
+  }, [isNew, thinkingLevel, modelThinkingLevels, persistNewSessionDefault, refreshPreferences, sessionForSelection, addNotice, t]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1655,10 +1745,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!match) return { handled: false };
 
     const [, commandName, rawArgs = ""] = match;
+    if (!["compact", "reload", "name", "session", "copy"].includes(commandName)) return { handled: false };
     const args = rawArgs.trim();
     dismissErrorNotices();
     setRetryInfo(null);
-    const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {
@@ -1670,6 +1760,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     try {
+      const sid = isNew ? await ensureNewSession() : sessionIdRef.current;
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
@@ -1700,7 +1791,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!sid) return complete({ handled: true, error: "No active session to name" });
           if (!args) return complete({ handled: true, error: "Usage: /name <name>" });
           await sendAgentCommand(sid, { type: "set_session_name", name: args });
-          if (await loadSession(sid)) promoteNewSession();
+          await loadSession(sid);
+          promoteNewSession();
           return complete({ handled: true, message: `Session renamed to ${args}` });
         }
 
@@ -1728,7 +1820,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, dismissErrorNotices, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, promoteNewSession, onSessionStatsPanelOpen, refreshSessionStats]);
+  }, [addNotice, dismissErrorNotices, ensureNewSession, isNew, isCompacting, loadModels, loadSession, loadSlashCommands, promoteNewSession, onSessionStatsPanelOpen, refreshSessionStats]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1849,7 +1941,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           addNotice({ type: "error", message: "Failed to save default thinking level" });
         }
       }
-      const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+      const sid = await sessionForSelection();
       let selectedLevel = level;
       if (sid) {
         const result = await sendAgentCommand<{ level: string }>(sid, { type: "set_thinking_level", level, persist: !isNew && level !== "auto", returnEffective: true });
@@ -1864,7 +1956,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modelSelectionPendingRef.current = false;
       setModelSelectionPending(false);
     }
-  }, [isNew, displayModel, persistNewSessionDefault, addNotice]);
+  }, [isNew, displayModel, persistNewSessionDefault, sessionForSelection, addNotice]);
 
   // Load session on mount. Restore a deterministic browser title when
   // switching away from a session whose extension set a custom title. The
@@ -2000,7 +2092,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleToggleQueuedMessage,
     handleBuiltinSlashCommand,
-    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions, setActiveLeafId, setData, setMessages,
+    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions, prewarmForInput, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId, addNotice,
     // Subscriptions
     handleAgentEventRef,

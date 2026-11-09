@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 /**
- * Preserve Pivot's existing empty-session visibility, including empty forks.
- * Once a conversation starts, pi 0.99 persists from the first user message.
+ * Persist intentionally retained empty sessions, such as named chats and forks.
+ * Ordinary new chats use pi's deferred persistence until a conversation starts.
  * Re-open through the public API so pi adopts the file without touching its
  * private flushed flag or racing the first deferred wx write.
  */

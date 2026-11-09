@@ -211,7 +211,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleToggleQueuedMessage, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions,
+    handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions, prewarmForInput,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onPacksChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -326,6 +326,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       suspended={!!extensionInteraction}
       onSend={handleSend}
       onAbort={handleAbort}
+      onInputActivity={prewarmForInput}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onToggleQueuedMessage={agentRunning ? handleToggleQueuedMessage : undefined}

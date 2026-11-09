@@ -3,6 +3,7 @@ import { PlainTextTheme } from "./plain-text-theme";
 import { normalizeTerminalLine } from "./ansi";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
+import { existsSync } from "node:fs";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { requestSessionSearchSync } from "./session-search";
@@ -195,6 +196,7 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
   private shutdownPromise: Promise<void> | null = null;
+  private sessionPersisted: boolean;
 
   private workspacePackRevision: number;
   private workspacePackReload: Promise<void> | null = null;
@@ -208,6 +210,7 @@ export class AgentSessionWrapper {
   private readonly plainTextTheme = new PlainTextTheme();
 
   constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0) {
+    this.sessionPersisted = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.workspacePackRevision = initialPackRevision;
     this.workspaceResourceRevision = resourceRevision(inner.sessionManager.getCwd());
   }
@@ -362,6 +365,11 @@ export class AgentSessionWrapper {
       }
       if (event.type === "agent_end") requestSessionSearchSync(true);
       this.emit(event);
+      if (event.type === "message_end" && !this.sessionPersisted) {
+        // Pi notifies listeners before appending the message to its manager.
+        // Announce only after that synchronous append has actually created the file.
+        queueMicrotask(() => this.announcePersistedSession());
+      }
       if (event.type === "agent_settled") for (const complete of this.settledInputCompletions) complete();
       // Streaming / compaction / tool events flow through here; re-broadcast
       // the running-status snapshot so the sidebar can update live.
@@ -512,6 +520,14 @@ export class AgentSessionWrapper {
     for (const l of this.listeners) l(event);
   }
 
+  private announcePersistedSession(): void {
+    if (!this._alive || this.sessionPersisted || !this.inner.sessionFile || !existsSync(this.inner.sessionFile)) return;
+    this.sessionPersisted = true;
+    cacheSessionPath(this.sessionId, this.inner.sessionFile);
+    invalidateSessionListCache();
+    this.emit({ type: "session_persisted", sessionId: this.sessionId });
+  }
+
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
@@ -545,6 +561,8 @@ export class AgentSessionWrapper {
 
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
+    if (this.sessionPersisted) listener({ type: "session_persisted", sessionId: this.sessionId });
+    else this.announcePersistedSession();
     listener(this.getExtensionUiSnapshot() as unknown as AgentEvent);
     for (const event of this.pendingUiRequests.values()) listener(event);
     // Extension startup can finish before the SSE route has attached its
@@ -610,7 +628,6 @@ export class AgentSessionWrapper {
         // follow-up may queue into that starting run. Ordinary duplicate prompts
         // and dispatch during earlier input hooks (before SDK busy) still reject.
         if (!ownsPrompt && (!streamingBehavior || !this.inner.isStreaming)) throw new AgentBusyError();
-        if (ownsPrompt && this.inner.sessionManager) persistEmptySession(this.inner.sessionManager);
         const requestId = typeof command.requestId === "string" ? command.requestId : undefined;
         if (ownsPrompt) {
           this.promptRunning = true;
@@ -631,6 +648,7 @@ export class AgentSessionWrapper {
             if (replied || !disposition || !this._alive) return;
             replied = true;
             this.pendingInputRejections.delete(fail);
+            this.announcePersistedSession();
             resolve({ disposition });
           };
           this.pendingInputRejections.add(fail);
@@ -853,6 +871,9 @@ export class AgentSessionWrapper {
         const name = (command.name as string | undefined)?.trim();
         if (!name) throw new Error("Session name cannot be empty");
         this.inner.setSessionName(name);
+        // Explicitly naming a new chat is an intentional empty session.
+        if (this.inner.sessionFile && !existsSync(this.inner.sessionFile)) persistEmptySession(this.inner.sessionManager);
+        this.announcePersistedSession();
         invalidateSessionListCache();
         return null;
       }
@@ -1632,16 +1653,13 @@ export async function startRpcSession(
     // Keep restored indirect tools active only while their owner/exposure rules allow it.
     activateAllSessionTools(inner);
 
-    // Keep existing empty-session visibility through the public manager API,
-    // without relying on pi's private _rewriteFile()/flushed implementation.
-    if (!sessionFile) persistEmptySession(sessionManager);
-
+    // New sessions retain pi's deferred persistence until a conversation starts.
     const wrapper = new AgentSessionWrapper(inner, initialPackRevision);
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;
     const realSessionFile = inner.sessionFile as string | undefined;
-    if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
+    if (realSessionFile && existsSync(realSessionFile)) cacheSessionPath(realSessionId, realSessionFile);
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);

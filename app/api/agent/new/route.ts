@@ -7,7 +7,8 @@ import { startRpcSession } from "@/lib/rpc-manager";
 import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
-// type:"ensure_session" only creates the runtime so clients can query commands.
+// type:"ensure_session" only creates a runtime for prewarming and command discovery.
+// Pi defers its session file until a user or assistant message is recorded.
 // Returns { sessionId, data } where sessionId is pi's real session id.
 export async function POST(req: Request) {
   try {

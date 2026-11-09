@@ -4,7 +4,7 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
+import { closeSync, existsSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
@@ -141,7 +141,8 @@ function getPathToIdCache(): Map<string, string> {
 
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
-  if (cached) return cached;
+  if (cached && existsSync(cached)) return cached;
+  if (cached) invalidateSessionPathCache(sessionId);
 
   // Cache miss: scan all sessions to populate cache, then retry
   await listAllSessions();
