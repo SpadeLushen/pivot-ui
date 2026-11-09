@@ -188,6 +188,8 @@ export async function GET(
                   type: "device_code",
                   userCode: event.userCode,
                   verificationUri: authUrl(event.verificationUri),
+                  openBrowserOnConfirm: event.openBrowserOnConfirm,
+                  copyCodeOnConfirm: event.copyCodeOnConfirm,
                   intervalSeconds: event.intervalSeconds ?? null,
                   expiresInSeconds: event.expiresInSeconds ?? null,
                 });

@@ -117,7 +117,7 @@ type OAuthLoginState =
   | { phase: "idle" }
   | { phase: "connecting" }
   | { phase: "auth"; url: string; instructions: string | null; token: string }
-  | { phase: "device_code"; userCode: string; verificationUri: string; intervalSeconds: number | null; expiresInSeconds: number | null }
+  | { phase: "device_code"; userCode: string; verificationUri: string; openBrowserOnConfirm: boolean; copyCodeOnConfirm: boolean; intervalSeconds: number | null; expiresInSeconds: number | null }
   | { phase: "prompt"; message: string; placeholder: string | null; token: string; inputType?: string }
   | { phase: "select"; message: string; options: { id: string; label: string }[]; token: string }
   | { phase: "progress"; message: string }
@@ -748,6 +748,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const [progress, setProgress] = useState("");
   const [info, setInfo] = useState<{ message: string; links?: { url: string; label?: string }[] }[]>([]);
   const [codeCopy, setCodeCopy] = useState<"idle" | "copied" | "failed">("idle");
+  const codeCopyAttemptRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const submissionRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -792,6 +793,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 
   const stopLogin = useCallback(() => {
     eventSourceRef.current?.close(); eventSourceRef.current = null; submissionRef.current = null;
+    codeCopyAttemptRef.current++;
     setCodeCopy("idle");
   }, []);
 
@@ -820,7 +822,8 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       const data = JSON.parse(e.data) as {
         type: string; url?: string; instructions?: string | null;
         token?: string; message?: string; placeholder?: string | null;
-        userCode?: string; verificationUri?: string; intervalSeconds?: number | null; expiresInSeconds?: number | null;
+        userCode?: string; verificationUri?: string; openBrowserOnConfirm?: boolean; copyCodeOnConfirm?: boolean;
+        intervalSeconds?: number | null; expiresInSeconds?: number | null;
         options?: { id: string; label: string }[];
         inputType?: string; links?: { url: string; label?: string }[];
       };
@@ -828,11 +831,14 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
         setLoginLink({ url: data.url!, instructions: data.instructions ?? undefined });
       } else if (data.type === "device_code") {
+        codeCopyAttemptRef.current++;
         setCodeCopy("idle");
         setLoginState({
           phase: "device_code",
           userCode: data.userCode!,
           verificationUri: data.verificationUri!,
+          openBrowserOnConfirm: data.openBrowserOnConfirm !== false,
+          copyCodeOnConfirm: data.copyCodeOnConfirm !== false,
           intervalSeconds: data.intervalSeconds ?? null,
           expiresInSeconds: data.expiresInSeconds ?? null,
         });
@@ -900,7 +906,8 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const canSubmitInput = allowEmptyInput || !!inputValue.trim();
 
   const copyDeviceCode = useCallback((userCode: string) => {
-    // Starts while this page still has focus; the link then opens the page in a new tab.
+    // Start copying while this page still has focus, before opening a new tab.
+    const attempt = ++codeCopyAttemptRef.current;
     setCodeCopy("idle");
     const fallback = () => {
       try {
@@ -914,8 +921,10 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       } catch { return false; }
     };
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(userCode)
-        .then(() => setCodeCopy("copied"), () => setCodeCopy(fallback() ? "copied" : "failed"));
+      navigator.clipboard.writeText(userCode).then(
+        () => { if (codeCopyAttemptRef.current === attempt) setCodeCopy("copied"); },
+        () => { if (codeCopyAttemptRef.current === attempt) setCodeCopy(fallback() ? "copied" : "failed"); },
+      );
     } else setCodeCopy(fallback() ? "copied" : "failed");
   }, []);
 
@@ -1011,17 +1020,26 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0, userSelect: "all" }}>
               {loginState.userCode}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <a
-                href={loginState.verificationUri} target="_blank" rel="noopener noreferrer"
-                onClick={() => copyDeviceCode(loginState.userCode)}
-                style={{ padding: "6px 12px", background: "var(--accent)", borderRadius: 5, color: "#fff", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
-              >
-                {t("auth.copyCodeAndOpen")}
-              </a>
-              {codeCopy === "copied" && <span role="status" style={{ fontSize: 12, color: "#4ade80" }}>{t("auth.codeCopied")}</span>}
-              {codeCopy === "failed" && <span role="status" style={{ fontSize: 12, color: "#f87171" }}>{t("auth.copyCodeFailed")}</span>}
-            </div>
+            {(loginState.openBrowserOnConfirm || loginState.copyCodeOnConfirm) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                {loginState.openBrowserOnConfirm ? (
+                  <a
+                    href={loginState.verificationUri} target="_blank" rel="noopener noreferrer"
+                    onClick={() => { if (loginState.copyCodeOnConfirm) copyDeviceCode(loginState.userCode); }}
+                    style={{ padding: "6px 12px", background: "var(--accent)", borderRadius: 5, color: "#fff", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
+                  >
+                    {t(loginState.copyCodeOnConfirm ? "auth.copyCodeAndOpen" : "auth.openVerificationPage")}
+                  </a>
+                ) : (
+                  <button type="button" onClick={() => copyDeviceCode(loginState.userCode)}
+                    style={{ padding: "6px 12px", background: "var(--accent)", border: "none", borderRadius: 5, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {t("auth.copyCode")}
+                  </button>
+                )}
+                {codeCopy === "copied" && <span role="status" style={{ fontSize: 12, color: "#4ade80" }}>{t("auth.codeCopied")}</span>}
+                {codeCopy === "failed" && <span role="status" style={{ fontSize: 12, color: "#f87171" }}>{t("auth.copyCodeFailed")}</span>}
+              </div>
+            )}
             <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
               <a href={loginState.verificationUri} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
                 {loginState.verificationUri}
