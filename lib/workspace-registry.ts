@@ -76,17 +76,23 @@ export function workspaceName(path: string): string {
   return normalized.slice(separator + 1) || normalized;
 }
 
-/** Include saved workspaces even when their last session has been deleted. */
+/** Metadata decorates session-backed workspaces; only the open directory may be sessionless. */
 export function getWorkspaceEntries(
   sessions: readonly Pick<SessionInfo, "cwd" | "projectRoot">[],
   records: readonly WorkspaceRecord[],
+  activePath: string | null = null,
 ): WorkspaceEntry[] {
   const byPath = new Map<string, WorkspaceRecord>();
   for (const session of sessions) {
     const path = session.projectRoot ?? session.cwd;
     if (path) byPath.set(path, { path, tag: "", removed: false });
   }
-  for (const record of records) byPath.set(record.path, record);
+  if (activePath && !byPath.has(activePath)) {
+    byPath.set(activePath, { path: activePath, tag: "", removed: false });
+  }
+  for (const record of records) {
+    if (byPath.has(record.path)) byPath.set(record.path, record);
+  }
   return [...byPath.values()].map((record) => ({ ...record, name: workspaceName(record.path) }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) || a.path.localeCompare(b.path));
 }

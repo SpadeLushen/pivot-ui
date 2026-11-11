@@ -524,7 +524,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => new Set());
   const { records: workspaceRecords, ready: workspacesReady, error: workspaceError, refresh: refreshWorkspaces, update: updateWorkspace } = useWorkspaceRegistry();
   const hiddenWorkspaces = useMemo(() => new Set(workspaceRecords.filter((record) => record.removed).map((record) => record.path)), [workspaceRecords]);
-  const customWorkspaces = useMemo(() => workspaceRecords.map((record) => record.path), [workspaceRecords]);
+  const workspaceEntries = useMemo(() => {
+    const activeRoot = allSessions.find((session) => session.cwd === selectedCwd)?.projectRoot ?? selectedCwd;
+    return getWorkspaceEntries(allSessions, workspaceRecords, activeRoot);
+  }, [allSessions, workspaceRecords, selectedCwd]);
+  const customWorkspaces = useMemo(() => workspaceEntries.map((entry) => entry.path), [workspaceEntries]);
   const { draftSessionIds, workspaceDraftUpdates } = useDraftActivity(allSessions, customWorkspaces);
   const workspaceTags = useMemo(() => new Map(workspaceRecords.map((record) => [record.path, record.tag])), [workspaceRecords]);
   const [allWorkspacesOpen, setAllWorkspacesOpen] = useState(false);
@@ -730,8 +734,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     return () => { workspaceSelectionGeneration.current++; };
   }, [selectedCwd, selectedCwdProp]);
 
-  // Saved registry entries are metadata, not filesystem permission. Revalidate
-  // before selecting them so sessionless workspaces survive server restarts.
+  // Workspace metadata is not filesystem permission. Revalidate before
+  // selecting a workspace or restoring a sessionless composer.
   const handleProjectSelect = useCallback(async (project: string, onSettled?: () => void) => {
     const generation = ++workspaceSelectionGeneration.current;
     try {
@@ -820,12 +824,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       workspaceSelectionGeneration.current++;
       const cwd = await validateWorkspaceDirectory(path);
       const project = projectRootFor(cwd) ?? cwd;
-      await updateWorkspace({ path: project, removed: false, ...(tag ? { tag, tagIfEmpty: true } : {}) });
+      // Merely choosing a directory does not register it. Only update metadata
+      // when applying an automatic tag or restoring an archived workspace.
+      if (tag || hiddenWorkspaces.has(project)) {
+        await updateWorkspace({ path: project, removed: false, ...(tag ? { tag, tagIfEmpty: true } : {}) });
+      }
       return await handleProjectSelect(cwd);
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
-  }, [projectRootFor, updateWorkspace, handleProjectSelect]);
+  }, [projectRootFor, updateWorkspace, handleProjectSelect, hiddenWorkspaces]);
 
   const handleDefaultCwd = useCallback(async (): Promise<string | null> => {
     try {
@@ -1456,7 +1464,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       )}
     </div>
     <DirectoryPickerModal open={directoryPickerOpen} onClose={() => setDirectoryPickerOpen(false)} onSelect={selectWorkspaceDirectory} />
-    {allWorkspacesOpen && <AllWorkspacesModal entries={getWorkspaceEntries(allSessions, workspaceRecords)} sessions={allSessions}
+    {allWorkspacesOpen && <AllWorkspacesModal entries={workspaceEntries} sessions={allSessions}
       draftSessionIds={draftSessionIds} workspaceDraftUpdates={workspaceDraftUpdates}
       onClose={() => setAllWorkspacesOpen(false)} onSelect={handleProjectSelect} onSelectSession={handleSelectSessionFromList}
       onTag={setTagWorkspace} onUpdate={updateWorkspace} />}
