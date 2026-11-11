@@ -202,10 +202,10 @@ hooks/
 - Hit-test both positions with `elementFromPoint()` to handle touch pointer capture; native `<dialog>` also excludes its own border/padding rectangle. Keep close buttons and Escape separate. Tests live in `lib/backdrop-dismiss.test.mjs` and `hooks/useBackdropDismiss.test.mjs`.
 
 ### Fork must preserve the source wrapper
-`send("fork")` opens a separate `SessionManager` and copies the path before the selected user message into a new file. `createBranchedSession()` mutates only that separately opened manager; never call it on the live wrapper's manager. Keep the source wrapper alive, including during generation or compaction, so Fork does not abort or change the source run. Mutating runtime fork APIs must not be substituted for this source-preserving copy.
+`send("fork")` opens a separate `SessionManager` and copies the path through the selected assistant reply (inclusive) into a new file. Legacy user-entry commands retain before-user semantics. `createBranchedSession()` mutates only that separately opened manager; never call it on the live wrapper's manager. Keep the source wrapper alive, including during generation or compaction, so Fork does not abort or change the source run. Mutating runtime fork APIs must not be substituted for this source-preserving copy.
 
 ### Two kinds of branching — don't confuse them
-- **Fork** (Fork button on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.
+- **Fork** (Fork button on a completed final assistant reply, not user messages, process details or streaming output): creates a new independent `.jsonl` file including that reply and its ancestor history. Shown as a child in the sidebar tree via `parentSession` header field.
 - **In-session branch** (Revert button / BranchNavigator): calls `navigate_tree` within the same file and requires an idle session. Revert targets the user entry directly; SDK navigation returns its parent leaf and editor text. Multiple entries share the same `parentId`. Context requests pass that returned leaf: `?leafId=` explicitly means root, while omitting the parameter means latest history.
 
 ### Session files can be fully rewritten

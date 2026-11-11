@@ -127,10 +127,10 @@ function haveSameRelevantNestedCalls(message: AgentMessage, previous: Map<string
 
 export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, nestedCalls, modelNames, modelProviders, cwd, onOpenFile, entryId, onFork, forking, onNavigate, showTimestamp, showTps, showTurnTps, showCost = true, hour12 = false, sessionId, timingMessageId, showTurnDuration, estimatedTurnDuration, turnDurationOverride, timingBlockIndices, timingRevision, liveThinking, runningThinking, liveTools, runningTools }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} hour12={hour12} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onNavigate={onNavigate} hour12={hour12} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} modelProviders={modelProviders} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showTurnTps={showTurnTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} nestedCalls={nestedCalls} modelNames={modelNames} modelProviders={modelProviders} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} showTps={showTps} showTurnTps={showTurnTps} showCost={showCost} hour12={hour12} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} timingMessageId={timingMessageId} showTurnDuration={showTurnDuration} estimatedTurnDuration={estimatedTurnDuration} turnDurationOverride={turnDurationOverride} timingBlockIndices={timingBlockIndices} timingRevision={timingRevision} liveThinking={liveThinking} runningThinking={runningThinking} liveTools={liveTools} runningTools={runningTools} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -362,13 +362,11 @@ function renderUserContent(
   return nodes;
 }
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, hour12 }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onNavigate, hour12 }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   entryId?: string;
-  onFork?: (entryId: string) => void;
-  forking?: boolean;
   onNavigate?: (entryId: string) => void;
   hour12: boolean;
 }) {
@@ -390,7 +388,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
   const time = formatTime(message.timestamp, hour12);
-  const canFork = !!entryId && !!onFork;
   const canNavigate = !!entryId && !!onNavigate;
 
   const copyContent = () => {
@@ -455,99 +452,65 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
-      {(time || canFork || canNavigate || true) && (
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        gap: 8, marginTop: 3,
+      }}>
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "flex-end",
-          gap: 6, marginTop: 3,
+          display: "flex", alignItems: "center", gap: 0,
+          opacity: hovered ? 1 : 0,
+          pointerEvents: hovered ? "auto" : "none",
+          transition: "opacity 0.12s",
         }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
+          <button
+            onClick={copyContent}
+            title={t("message.copyMessage")}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", height: 22,
+              background: "none", border: "none",
+              borderRadius: 5,
+              color: copied ? "var(--accent)" : "var(--text-dim)",
+              cursor: "pointer",
+              fontSize: 11, fontWeight: 400,
+              whiteSpace: "nowrap",
+              transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+          >
+            {copied ? (
+              <Check size={11} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
+            )}
+            {copied ? t("general.copied") : t("general.copy")}
+          </button>
+          {canNavigate && (
             <button
-              onClick={copyContent}
-              title={t("message.copyMessage")}
+              onClick={() => { onNavigate!(entryId!); }}
+              title={t("message.revert")}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
                 padding: "3px 8px", height: 22,
                 background: "none", border: "none",
                 borderRadius: 5,
-                color: copied ? "var(--accent)" : "var(--text-dim)",
+                color: "var(--text-dim)",
                 cursor: "pointer",
                 fontSize: 11, fontWeight: 400,
                 whiteSpace: "nowrap",
                 transition: "color 0.12s",
               }}
-              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
             >
-              {copied ? (
-                <Check size={11} strokeWidth={1.8} aria-hidden="true" />
-              ) : (
-                <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
-              )}
-              {copied ? t("general.copied") : t("general.copy")}
+              <Undo2 size={11} strokeWidth={1.8} aria-hidden="true" />
+              {t("message.revert")}
             </button>
-          </div>
-          {(canFork || canNavigate) && (
-            <div style={{
-              display: "flex", gap: 3,
-              opacity: (hovered || forking) ? 1 : 0,
-              pointerEvents: (hovered || forking) ? "auto" : "none",
-              transition: "opacity 0.12s",
-            }}>
-              {canNavigate && (
-                <button
-                  onClick={() => { onNavigate!(entryId!); }}
-                  title={t("message.revert")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <Undo2 size={11} strokeWidth={1.8} aria-hidden="true" />
-                  {t("message.revert")}
-                </button>
-              )}
-              {canFork && (
-                <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                  title={forking ? t("app.creating") : t("message.fork")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: forking ? "var(--accent)" : "var(--text-dim)",
-                    cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <GitFork size={11} strokeWidth={1.8} aria-hidden="true" />
-                  {forking ? t("app.creating") : t("message.fork")}
-                </button>
-              )}
-            </div>
           )}
-          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
         </div>
-      )}
+        {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+      </div>
     </div>
   );
 }
@@ -568,6 +531,8 @@ function AssistantMessageView({
   hour12,
   sessionId,
   entryId,
+  onFork,
+  forking,
   timingMessageId,
   showTurnDuration = true,
   estimatedTurnDuration,
@@ -594,6 +559,8 @@ function AssistantMessageView({
   hour12: boolean;
   sessionId?: string;
   entryId?: string;
+  onFork?: (entryId: string) => void;
+  forking?: boolean;
   timingMessageId?: string;
   showTurnDuration?: boolean;
   estimatedTurnDuration?: number;
@@ -768,33 +735,62 @@ function AssistantMessageView({
         {usageLine && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{usageLine}</div>
         )}
-        {textContent && !isStreaming && (
-          <button
-            onClick={copyContent}
-            title={t("message.copyMessage")}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", height: 22,
-              background: "none", border: "none",
-              borderRadius: 5,
-              color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11, fontWeight: 400,
-              whiteSpace: "nowrap",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-              transition: "opacity 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-          >
-            {copied ? (
-              <Check size={11} strokeWidth={1.8} aria-hidden="true" />
-            ) : (
-              <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
+        {!isStreaming && (textContent || (entryId && onFork)) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+            {textContent && (
+              <button
+                onClick={copyContent}
+                title={t("message.copyMessage")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: copied ? "var(--accent)" : "var(--text-dim)",
+                  cursor: "pointer",
+                  fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                  opacity: hovered ? 1 : 0,
+                  pointerEvents: hovered ? "auto" : "none",
+                  transition: "opacity 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+              >
+                {copied ? (
+                  <Check size={11} strokeWidth={1.8} aria-hidden="true" />
+                ) : (
+                  <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
+                )}
+                {copied ? t("general.copied") : t("general.copy")}
+              </button>
             )}
-            {copied ? t("general.copied") : t("general.copy")}
-          </button>
+            {entryId && onFork && (
+              <button
+                onClick={() => onFork(entryId)}
+                disabled={forking}
+                title={forking ? t("app.creating") : t("message.fork")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: forking ? "var(--accent)" : "var(--text-dim)",
+                  cursor: forking ? "not-allowed" : "pointer",
+                  fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                  opacity: (hovered || forking) ? 1 : 0,
+                  pointerEvents: (hovered || forking) ? "auto" : "none",
+                  transition: "opacity 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
+              >
+                <GitFork size={11} strokeWidth={1.8} aria-hidden="true" />
+                {forking ? t("app.creating") : t("message.fork")}
+              </button>
+            )}
+          </div>
         )}
         {time && !isStreaming && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>

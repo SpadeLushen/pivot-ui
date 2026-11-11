@@ -470,7 +470,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (idx === lastUserIdx) lastUserMessageRef.current = el;
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; turnDurationOverride?: { exact?: number; estimate?: number } } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; allowFork?: boolean; turnDurationOverride?: { exact?: number; estimate?: number } } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = msg.role === "user" || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -503,7 +503,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
-                    onFork={isNew ? undefined : handleFork}
+                    onFork={!isNew && options.allowFork ? handleFork : undefined}
                     forking={forkingEntryId === entryIds[idx]}
                     onNavigate={agentRunning || inputSending || isCompacting ? undefined : handleNavigate}
                     showTimestamp={showTimestamp}
@@ -620,7 +620,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     turnDurationOverride = { exact, estimate: exact === undefined
                       ? estimateGroupedTurnDuration(messages, entryTimestamps, userIdx, finalAssistantIdx) : undefined };
                   }
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage, turnDurationOverride }));
+                  const allowFork = hasFinalAssistantAnswer(finalAssistant)
+                    && !["toolUse", "error", "aborted"].includes(finalAssistant.stopReason ?? "")
+                    && countToolCallBlocks(finalAssistant.content) === 0;
+                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage, turnDurationOverride, allowFork }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));

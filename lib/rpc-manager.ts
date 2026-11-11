@@ -788,23 +788,26 @@ export class AgentSessionWrapper {
         if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
 
         const entry = sessionManager.getEntry(entryId);
-        if (!entry || entry.type !== "message" || entry.message.role !== "user") {
-          throw new Error("Fork requires a user message entry");
+        if (!entry || entry.type !== "message" || (entry.message.role !== "user" && entry.message.role !== "assistant")) {
+          throw new Error("Fork requires a user message or assistant message entry");
         }
 
+        // Assistant forks include the selected reply. Preserve the original
+        // before-user behavior for existing command callers.
+        const forkLeafId = entry.message.role === "assistant" ? entry.id : entry.parentId;
         const sessionDir = sessionManager.getSessionDir();
         let newSessionFile: string;
 
-        if (!entry.parentId) {
+        if (!forkLeafId) {
           // Fork before the first message: create an empty session linked to this one
           const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
           newManager.newSession({ parentSession: currentSessionFile });
           persistEmptySession(newManager);
           newSessionFile = newManager.getSessionFile() as string;
         } else {
-          // Fork after some history: copy path up to (but not including) the fork point
+          // Branch only the separately opened manager, never the live source.
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
-          const forkedPath = sourceManager.createBranchedSession(entry.parentId);
+          const forkedPath = sourceManager.createBranchedSession(forkLeafId);
           if (!forkedPath) throw new Error("Failed to create forked session");
           // pi defers branches containing only setup entries until a user
           // message; Pivot exposes these empty forks immediately as before.
