@@ -21,6 +21,8 @@ import { WorkspaceTagDialog } from "./WorkspaceTagDialog";
 import { WorkspaceTag } from "./WorkspaceDialog";
 import { SessionSearchControl } from "./SessionSearchControl";
 import { useSessionSearch } from "@/hooks/useSessionSearch";
+import { useDraftActivity } from "@/hooks/useDraftActivity";
+import { DraftIndicator } from "./DraftIndicator";
 
 interface Props {
   selectedSessionId: string | null;
@@ -31,8 +33,8 @@ interface Props {
   initialNewSessionCwd?: string | null;
   onInitialRestoreDone?: (missingSessionId?: string) => void;
   refreshKey?: number;
-  /** Workspace roots with a just-accepted user message, newest first. */
-  recentUserMessageWorkspaces?: readonly string[];
+  /** Local accepted-message timestamps until the session list catches up. */
+  recentUserMessageWorkspaces?: ReadonlyMap<string, number>;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
@@ -489,7 +491,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = [], onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = new Map(), onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const { preferences } = usePreferences();
@@ -523,6 +525,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const { records: workspaceRecords, ready: workspacesReady, error: workspaceError, refresh: refreshWorkspaces, update: updateWorkspace } = useWorkspaceRegistry();
   const hiddenWorkspaces = useMemo(() => new Set(workspaceRecords.filter((record) => record.removed).map((record) => record.path)), [workspaceRecords]);
   const customWorkspaces = useMemo(() => workspaceRecords.map((record) => record.path), [workspaceRecords]);
+  const { draftSessionIds, workspaceDraftUpdates } = useDraftActivity(allSessions, customWorkspaces);
   const workspaceTags = useMemo(() => new Map(workspaceRecords.map((record) => [record.path, record.tag])), [workspaceRecords]);
   const [allWorkspacesOpen, setAllWorkspacesOpen] = useState(false);
   const [tagWorkspace, setTagWorkspace] = useState<string | null>(null);
@@ -805,10 +808,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.(initialSessionId);
       }
-      const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces);
+      const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates);
       if (projects.length > 0) void handleProjectSelect(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, initialNewSessionCwd, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspacesReady, loading, restoringWorkspace, error, handleProjectSelect]);
+  }, [allSessions, selectedCwd, initialSessionId, initialNewSessionCwd, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates, workspacesReady, loading, restoringWorkspace, error, handleProjectSelect]);
 
   // An automatic `tag` is sent as `tagIfEmpty`, so a tag another client already
   // stored is never overwritten.
@@ -881,11 +884,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     setWorkspaceMenu((current) => current === "new" ? null : "new");
   }, []);
 
-  // Session activity determines the order for workspaces that have sessions.
-  // Custom workspaces without a session remain in their saved order. Selecting
-  // a workspace must not change either order; only a user message updates
-  // the activity used here, so an assistant reply cannot promote it.
-  const workspaceProjects = workspacesReady ? getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces) : [];
+  // User messages and draft edits both count as activity; selection and
+  // assistant replies do not. Inactive workspaces retain their saved order.
+  const workspaceProjects = workspacesReady ? getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates) : [];
   const selectedProject = projectRootFor(selectedCwd);
   const { resident: residentWorkspaceProjects, overflow: overflowWorkspaceProjects } = getWorkspaceDisplayGroups(workspaceProjects, selectedProject);
 
@@ -947,11 +948,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   // Archiving on any device also moves this browser off the archived workspace.
   useEffect(() => {
     if (workspacesReady && selectedProject && hiddenWorkspaces.has(selectedProject)) {
-      const next = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces)[0];
+      const next = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates)[0];
       if (next) void handleProjectSelect(next);
       else setSelectedCwd(null);
     }
-  }, [workspacesReady, selectedProject, hiddenWorkspaces, allSessions, customWorkspaces, recentUserMessageWorkspaces, handleProjectSelect]);
+  }, [workspacesReady, selectedProject, hiddenWorkspaces, allSessions, customWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates, handleProjectSelect]);
 
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
@@ -1130,6 +1131,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                         : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
                       <WorkspaceTag tag={workspaceTags.get(project)} />
                       <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+                      {workspaceDraftUpdates.has(project) && <DraftIndicator />}
                     </button>
                     {isSelected && (hoveredWorkspace === project || workspaceMenu === "active") && (
                       <button
@@ -1277,6 +1279,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                                 : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
                               <WorkspaceTag tag={workspaceTags.get(project)} />
                               <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+                              {workspaceDraftUpdates.has(project) && <DraftIndicator />}
                             </button>
                           </div>
                         );
@@ -1356,6 +1359,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
               runningSessionIds={runningSessionIds}
               errorSessionIds={errorSessionIds}
               unreadSessionIds={unreadSessionIds}
+              draftSessionIds={draftSessionIds}
               onSelectSession={handleSelectSessionFromList}
               onRenamed={(id, name) => {
                 onSessionRenamed?.(id, name);
@@ -1453,6 +1457,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     </div>
     <DirectoryPickerModal open={directoryPickerOpen} onClose={() => setDirectoryPickerOpen(false)} onSelect={selectWorkspaceDirectory} />
     {allWorkspacesOpen && <AllWorkspacesModal entries={getWorkspaceEntries(allSessions, workspaceRecords)} sessions={allSessions}
+      draftSessionIds={draftSessionIds} workspaceDraftUpdates={workspaceDraftUpdates}
       onClose={() => setAllWorkspacesOpen(false)} onSelect={handleProjectSelect} onSelectSession={handleSelectSessionFromList}
       onTag={setTagWorkspace} onUpdate={updateWorkspace} />}
     {tagWorkspace && <WorkspaceTagDialog key={tagWorkspace} path={tagWorkspace} tag={workspaceTags.get(tagWorkspace) ?? ""}
@@ -1467,6 +1472,7 @@ function SessionTreeItem({
   runningSessionIds,
   errorSessionIds,
   unreadSessionIds,
+  draftSessionIds,
   onSelectSession,
   onRenamed,
   onSessionDeleted,
@@ -1477,6 +1483,7 @@ function SessionTreeItem({
   runningSessionIds: Set<string>;
   errorSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
+  draftSessionIds: ReadonlySet<string>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: (sessionId: string, name: string | undefined) => void;
   onSessionDeleted?: (id: string) => void;
@@ -1505,6 +1512,7 @@ function SessionTreeItem({
           isRunning={runningSessionIds.has(node.session.id)}
           isError={errorSessionIds.has(node.session.id)}
           isUnread={unreadSessionIds.has(node.session.id)}
+          hasDraft={draftSessionIds.has(node.session.id)}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
@@ -1524,6 +1532,7 @@ function SessionTreeItem({
               runningSessionIds={runningSessionIds}
               errorSessionIds={errorSessionIds}
               unreadSessionIds={unreadSessionIds}
+              draftSessionIds={draftSessionIds}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
@@ -1636,6 +1645,7 @@ function SessionItem({
   isRunning,
   isError,
   isUnread,
+  hasDraft,
   onClick,
   onRenamed,
   onDeleted,
@@ -1649,6 +1659,7 @@ function SessionItem({
   isRunning?: boolean;
   isError?: boolean;
   isUnread?: boolean;
+  hasDraft?: boolean;
   onClick: () => void;
   onRenamed?: (sessionId: string, name: string | undefined) => void;
   onDeleted?: (id: string) => void;
@@ -1828,7 +1839,7 @@ function SessionItem({
                 {title}
               </span>
             </div>
-            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
+            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               <span>{session.messageCount} msgs</span>
               {session.worktreeBranch && (
@@ -1840,6 +1851,7 @@ function SessionItem({
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.worktreeBranch}</span>
                 </span>
               )}
+              {hasDraft && <DraftIndicator />}
             </div>
           </div>
 

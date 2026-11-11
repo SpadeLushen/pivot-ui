@@ -181,7 +181,7 @@ export function AppShell() {
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [recentUserMessageWorkspaces, setRecentUserMessageWorkspaces] = useState<string[]>([]);
+  const [recentUserMessageWorkspaces, setRecentUserMessageWorkspaces] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -415,9 +415,7 @@ export function AppShell() {
   const handleUserMessageSent = useCallback((cwd: string, projectRoot?: string | null) => {
     const root = projectRoot ?? activeProjectRoot ?? cwd;
     if (!root) return;
-    setRecentUserMessageWorkspaces((current) => current[0] === root
-      ? current
-      : [root, ...current.filter((item) => item !== root)]);
+    setRecentUserMessageWorkspaces((current) => new Map(current).set(root, Date.now()));
   }, [activeProjectRoot]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {

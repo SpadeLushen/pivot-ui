@@ -72,13 +72,32 @@ export function getWorkspaceProjects(
   sessions: readonly WorkspaceSession[],
   customWorkspaces: readonly string[],
   hiddenWorkspaces: ReadonlySet<string> = new Set(),
-  recentUserMessageWorkspaces: readonly string[] = [],
+  recentUserMessageWorkspaces: readonly string[] | ReadonlyMap<string, number> = [],
+  draftUpdates: ReadonlyMap<string, number> = new Map(),
 ): string[] {
   const baseProjects = [...getRecentProjects(sessions), ...customWorkspaces, ...getSessionProjects(sessions)]
     .filter((project, index, projects) => projects.indexOf(project) === index && !hiddenWorkspaces.has(project));
   const baseSet = new Set(baseProjects);
-  return [
-    ...recentUserMessageWorkspaces.filter((project) => baseSet.has(project)),
+  // Retain the legacy explicit-order input for callers without timestamps.
+  const recentProjects = Array.isArray(recentUserMessageWorkspaces)
+    ? recentUserMessageWorkspaces as readonly string[] : [];
+  const ordered = [
+    ...recentProjects.filter((project) => baseSet.has(project)),
     ...baseProjects,
   ].filter((project, index, projects) => projects.indexOf(project) === index);
+  const activity = new Map(draftUpdates);
+  if (!Array.isArray(recentUserMessageWorkspaces)) {
+    for (const [root, updatedAt] of recentUserMessageWorkspaces as ReadonlyMap<string, number>) {
+      activity.set(root, Math.max(activity.get(root) ?? 0, updatedAt));
+    }
+  }
+  for (const session of sessions) {
+    const root = session.projectRoot ?? session.cwd;
+    const time = Date.parse(session.lastUserMessageAt ?? "");
+    if (root && Number.isFinite(time)) activity.set(root, Math.max(activity.get(root) ?? 0, time));
+  }
+  // Stable ties retain saved ordering for workspaces with no known activity.
+  return activity.size === 0 || (recentProjects.length > 0 && draftUpdates.size === 0)
+    ? ordered
+    : ordered.sort((a, b) => (activity.get(b) ?? 0) - (activity.get(a) ?? 0));
 }

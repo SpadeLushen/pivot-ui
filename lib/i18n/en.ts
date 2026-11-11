@@ -131,6 +131,7 @@ const en: Record<string, string> = {
   "app.selecting": "Selecting...",
   "app.closeNavigation": "Close navigation",
   "app.recentSessions": "Sessions",
+  "app.draft": "Draft",
 
   "workspaces.seeAll": "See all",
   "workspaces.all": "All workspaces",

@@ -9,6 +9,7 @@ import { copyText } from "@/lib/clipboard";
 import { groupWorkspaces, matchingWorkspaceSessions, type WorkspaceEntry, type WorkspacePatch } from "@/lib/workspace-registry";
 import { WorkspaceDialog, WorkspaceTag } from "./WorkspaceDialog";
 import { useSessionSearch } from "@/hooks/useSessionSearch";
+import { DraftIndicator } from "./DraftIndicator";
 
 function HighlightMatch({ text, query }: { text: string; query: string }) {
   const phrase = query.trim();
@@ -27,7 +28,7 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-function WorkspaceRow({ entry, showTag, query, sessions, onSelect, onSelectSession, onTag, onUpdate }: Pick<Props, "onSelect" | "onSelectSession" | "onTag" | "onUpdate"> & { entry: WorkspaceEntry; showTag: boolean; query: string; sessions: SessionInfo[] }) {
+function WorkspaceRow({ entry, showTag, query, sessions, draftSessionIds, workspaceDraftUpdates, onSelect, onSelectSession, onTag, onUpdate }: Pick<Props, "onSelect" | "onSelectSession" | "onTag" | "onUpdate" | "draftSessionIds" | "workspaceDraftUpdates"> & { entry: WorkspaceEntry; showTag: boolean; query: string; sessions: SessionInfo[] }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -72,6 +73,7 @@ function WorkspaceRow({ entry, showTag, query, sessions, onSelect, onSelectSessi
           <span className="workspace-full-path">{entry.path}</span>
         </span>
       </button>
+      {workspaceDraftUpdates.has(entry.path) && <DraftIndicator />}
       <div className="workspace-row-actions">
         <button type="button" className="workspace-icon-button" onClick={() => void copy()} title={t(copied ? "fileTree.pathCopied" : "fileTree.copyFullPath")} aria-label={t("fileTree.copyFullPath")}>
           {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -86,7 +88,7 @@ function WorkspaceRow({ entry, showTag, query, sessions, onSelect, onSelectSessi
     {sessions.map((session) => <button key={session.id} type="button" className="workspace-session-result"
       disabled={busy} onClick={() => void openSession(session)} title={sessionTitle(session)}>
       <span className="workspace-session-title"><HighlightMatch text={sessionTitle(session)} query={query} /></span>
-      <span className="workspace-session-meta"><span title={session.modified}>{formatRelativeTime(session.modified)}</span><span>{session.messageCount} msgs</span></span>
+      <span className="workspace-session-meta"><span title={session.modified}>{formatRelativeTime(session.modified)}</span><span>{session.messageCount} msgs</span>{draftSessionIds.has(session.id) && <DraftIndicator />}</span>
     </button>)}
     {error && <div role="alert" className="workspace-error">{error}</div>}
   </div>;
@@ -95,6 +97,8 @@ function WorkspaceRow({ entry, showTag, query, sessions, onSelect, onSelectSessi
 interface Props {
   entries: WorkspaceEntry[];
   sessions: SessionInfo[];
+  draftSessionIds: ReadonlySet<string>;
+  workspaceDraftUpdates: ReadonlyMap<string, number>;
   onClose: () => void;
   onSelect: (path: string) => void;
   onSelectSession: (session: SessionInfo) => void;
@@ -102,7 +106,7 @@ interface Props {
   onUpdate: (patch: WorkspacePatch) => Promise<void>;
 }
 
-export function AllWorkspacesModal({ entries, sessions, onClose, onSelect, onSelectSession, onTag, onUpdate }: Props) {
+export function AllWorkspacesModal({ entries, sessions, draftSessionIds, workspaceDraftUpdates, onClose, onSelect, onSelectSession, onTag, onUpdate }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"status" | "tag">("status");
@@ -142,6 +146,7 @@ export function AllWorkspacesModal({ entries, sessions, onClose, onSelect, onSel
           // omits the per-row tag prefix to avoid repeating it.
           <WorkspaceRow key={entry.path} entry={entry} showTag={mode === "status"} query={search.phrase}
             sessions={matchingSessions.get(entry.path) ?? []} onTag={onTag} onUpdate={onUpdate}
+            draftSessionIds={draftSessionIds} workspaceDraftUpdates={workspaceDraftUpdates}
             onSelect={(path) => { onSelect(path); onClose(); }}
             onSelectSession={(session) => { onSelectSession(session); onClose(); }} />)}
       </section>)}

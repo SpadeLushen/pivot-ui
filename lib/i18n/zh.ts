@@ -133,6 +133,7 @@ const zh: Record<string, string> = {
   "app.selecting": "选择中...",
   "app.closeNavigation": "关闭导航",
   "app.recentSessions": "会话",
+  "app.draft": "草稿",
 
   "workspaces.seeAll": "查看全部",
   "workspaces.all": "所有工作区",
