@@ -8,19 +8,19 @@ npm run dev   # port 30141
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
 Lint: `npm run lint`  
-完成代码开发任务后，**直接在当前工作区执行 `npm run build`，不使用隔离构建目录**。该命令自带的编译和打包步骤正常执行，不额外拆分或重复执行。
+After completing code development, **run `npm run build` directly in the current workspace, without an isolated build directory**. Run its compilation and packaging steps as provided, without splitting or repeating them.
 
-## 编译与运行工作区约定
+## Build and Runtime Workspace Conventions
 
-- **默认仅在当前工作区执行 `npm run build`，包含命令自带的打包步骤；不额外打包、创建备份或同步运行目录**。额外操作须用户明确要求。
-- 不再自动创建隔离安装／构建／验证目录，也不执行原有备份同步脚本。
-- **不自动停止或重启运行服务（包括 WinSW）**；服务控制仍须用户明确指示。工作区编译会更新 `.next`，可能影响正在使用该目录的开发／运行进程；遇到文件占用不得强杀服务。
-- 此约定不授权发布、提交或修改 Pivot 版本号。
+- When asked to change the version number, run `npm run build` once after completing the version change.
+- **By default, run only `npm run build` in the current workspace, including its packaging steps; do not perform additional packaging, create backups, or synchronize the runtime directory**. Additional operations require an explicit user request.
+- Do not automatically create isolated installation, build, or verification directories, or run the old backup and synchronization scripts.
+- **Do not automatically stop or restart running services (including WinSW)**; service control still requires explicit user instruction. A workspace build updates `.next` and may affect development or runtime processes using that directory; do not forcibly terminate services when files are locked.
+- These conventions do not authorize publishing, committing, or changing the Pivot version number.
 
-## Git 操作
+## Git Operations
 
-- `lushen-custom` 分支推送时必须显式指定远端和目标分支：`git push selfhost HEAD:master`。不要使用不带远端和分支参数的 `git push`。
-- 当要求提交代码并同时更新版本号时，版本号更新必须单独创建一个 commit，且必须是此次提交中的最后一个 commit。
+- When asked to commit code and update the version number, put the version update in a separate commit, and make it the last commit in the set.
 
 ---
 
