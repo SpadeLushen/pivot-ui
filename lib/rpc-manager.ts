@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { clearPivotTypedModels, reloadSessionTypedModels } from "./typed-model-runtime";
 import { assertSdkChatConfiguration, withModelConfigLock } from "./model-config-store";
 import { isThinkingLevelOption } from "./thinking-levels";
+import { readUnreadSessions, setUnreadSession, type UnreadStatus } from "./session-unread";
 
 // ============================================================================
 // Types
@@ -173,6 +174,12 @@ export class AgentSessionWrapper {
   private listeners: EventListener[] = [];
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
+  private unreadWaiting = false;
+
+  private recordUnread(status: UnreadStatus | null, only?: UnreadStatus): void {
+    try { setUnreadSession(this.sessionId, status, only); }
+    catch (error) { console.error("[pivot-ui] failed to save unread state:", error); }
+  }
   private uiRuntimeId = randomUUID();
   private uiRevision = 0;
   private uiOrder = new Map<string, number>();
@@ -511,11 +518,12 @@ export class AgentSessionWrapper {
   private emit(event: AgentEvent): void {
     if (event.type === "prompt_error") {
       markRpcSessionError(this.sessionId);
+      this.recordUnread("error");
     } else if (event.type === "agent_end" && event.willRetry !== true) {
       const messages = event.messages as Array<{ role?: string; stopReason?: string }> | undefined;
-      if (messages?.some((message) => message.role === "assistant" && message.stopReason === "error")) {
-        markRpcSessionError(this.sessionId);
-      }
+      const failed = messages?.some((message) => message.role === "assistant" && message.stopReason === "error");
+      if (failed) markRpcSessionError(this.sessionId);
+      this.recordUnread(failed ? "error" : "success");
     }
     for (const l of this.listeners) l(event);
   }
@@ -1060,6 +1068,11 @@ export class AgentSessionWrapper {
   }
 
   private publishExtensionUi(): void {
+    const waiting = this.pendingUiRequests.size > 0;
+    if (waiting !== this.unreadWaiting) {
+      this.unreadWaiting = waiting;
+      this.recordUnread(waiting ? "waiting" : null, waiting ? undefined : "waiting");
+    }
     this.uiRevision++;
     this.emit(this.getExtensionUiSnapshot() as unknown as AgentEvent);
   }
@@ -1474,6 +1487,12 @@ declare global {
 function getRegistry(): Map<string, AgentSessionWrapper> {
   if (!globalThis.__piSessions) {
     globalThis.__piSessions = new Map();
+    // Pending extension interactions cannot survive a server process restart.
+    try {
+      for (const [id, status] of Object.entries(readUnreadSessions())) {
+        if (status === "waiting") setUnreadSession(id, null, "waiting");
+      }
+    } catch (error) { console.error("[pivot-ui] failed to reconcile unread state:", error); }
     const cleanup = () => globalThis.__piSessions?.forEach((s) => s.destroy());
     process.once("exit", cleanup);
     process.once("SIGINT", cleanup);

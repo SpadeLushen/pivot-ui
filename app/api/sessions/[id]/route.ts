@@ -12,6 +12,7 @@ import {
   readSessionHeader,
 } from "@/lib/session-reader";
 import { clearRpcSessionError, getRpcSession } from "@/lib/rpc-manager";
+import { setUnreadSession } from "@/lib/session-unread";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -235,6 +236,7 @@ export async function DELETE(
     getRpcSession(id)?.destroy();
     clearRpcSessionError(id);
     unlinkSync(filePath);
+    try { setUnreadSession(id, null); } catch (error) { console.error("[pivot-ui] failed to remove unread state:", error); }
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });

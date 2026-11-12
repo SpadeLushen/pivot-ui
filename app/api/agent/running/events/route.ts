@@ -1,4 +1,5 @@
 import { getErrorRpcSessionIds, getRunningRpcSessionIds, subscribeRunningSessions } from "@/lib/rpc-manager";
+import { readUnreadSessions, subscribeUnreadSessions } from "@/lib/session-unread";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,12 @@ export async function GET(req: Request) {
         }
       });
 
+      const unsubscribeUnread = subscribeUnreadSessions((unreadSessions) => {
+        try { encode({ type: "unread", unreadSessions }); } catch { /* disconnected */ }
+      });
+      try { encode({ type: "unread", unreadSessions: readUnreadSessions() }); }
+      catch (error) { console.error("[pivot-ui] failed to read unread state:", error); }
+
       // Initial snapshot so the client renders the correct state immediately.
       // (A duplicate frame here is harmless: the client just sets the same set.)
       encode({
@@ -43,6 +50,7 @@ export async function GET(req: Request) {
       const cleanup = () => {
         clearInterval(heartbeat);
         unsubscribe();
+        unsubscribeUnread();
         try { controller.close(); } catch { /* already closed */ }
       };
 

@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo, typ
 import { createPortal } from "react-dom";
 import { Archive, Box, Check, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, GitFork, List, LoaderCircle, MoreHorizontal, Network, PanelLeftClose, Pencil, PlugZap, Plus, RefreshCw, Settings, ScrollText, Tag, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/types";
+import type { UnreadSessions } from "@/lib/session-unread";
 import { formatRelativeTime, sessionTitle } from "@/lib/session-display";
 import { copyText } from "@/lib/clipboard";
 import { loadLastChat } from "@/lib/last-session";
@@ -50,8 +51,6 @@ interface Props {
   onClose?: () => void;
 }
 
-const UNREAD_SESSIONS_STORAGE_KEY = "pivot-ui:unread-session-ids";
-
 async function validateWorkspaceDirectory(cwd: string): Promise<string> {
   const response = await fetch("/api/cwd/validate", {
     method: "POST",
@@ -62,29 +61,6 @@ async function validateWorkspaceDirectory(cwd: string): Promise<string> {
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   if (!data.cwd) throw new Error("Workspace validation did not return a path");
   return data.cwd;
-}
-
-function loadUnreadSessionIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(UNREAD_SESSIONS_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) return new Set(parsed.filter((id): id is string => typeof id === "string"));
-    return new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function saveUnreadSessionIds(ids: Set<string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (ids.size === 0) window.localStorage.removeItem(UNREAD_SESSIONS_STORAGE_KEY);
-    else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore storage quota / privacy-mode errors
-  }
 }
 
 /** Substitute the home dir prefix with ~ (no path truncation) */
@@ -520,8 +496,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
-  const [errorSessionIds, setErrorSessionIds] = useState<Set<string>>(() => new Set());
-  const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => new Set());
+  const [unreadSessions, setUnreadSessions] = useState<UnreadSessions>({});
+  const [readPending, setReadPending] = useState<Set<string>>(() => new Set());
+  const unreadSessionIds = useMemo(() => new Set(Object.keys(unreadSessions).filter((id) => unreadSessions[id] === "success" && !readPending.has(id))), [unreadSessions, readPending]);
+  const errorSessionIds = useMemo(() => new Set(Object.keys(unreadSessions).filter((id) => unreadSessions[id] === "error" && !readPending.has(id))), [unreadSessions, readPending]);
+  const waitingSessionIds = useMemo(() => new Set(Object.keys(unreadSessions).filter((id) => unreadSessions[id] === "waiting")), [unreadSessions]);
   const { records: workspaceRecords, ready: workspacesReady, error: workspaceError, refresh: refreshWorkspaces, update: updateWorkspace } = useWorkspaceRegistry();
   const hiddenWorkspaces = useMemo(() => new Set(workspaceRecords.filter((record) => record.removed).map((record) => record.path)), [workspaceRecords]);
   const workspaceEntries = useMemo(() => {
@@ -533,8 +512,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const workspaceTags = useMemo(() => new Map(workspaceRecords.map((record) => [record.path, record.tag])), [workspaceRecords]);
   const [allWorkspacesOpen, setAllWorkspacesOpen] = useState(false);
   const [tagWorkspace, setTagWorkspace] = useState<string | null>(null);
-  const [storageLoaded, setStorageLoaded] = useState(false);
-  const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
+  const unreadSseAuthoritativeRef = useRef(false);
+  const pendingReadRef = useRef(new Set<string>());
   // Once the SSE stream has delivered a frame it is the source of truth for
   // running/error state; late /api/sessions responses must not overwrite it.
   const sseAuthoritativeRef = useRef(false);
@@ -546,26 +525,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; errorSessionIds?: string[] };
+      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; unreadSessions?: UnreadSessions };
       setAllSessions(data.sessions);
       // Treat the fetched status sets as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
       if (!sseAuthoritativeRef.current) {
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        setErrorSessionIds(new Set(data.errorSessionIds ?? []));
       }
-      // Drop markers for sessions that no longer exist (e.g. deleted).
-      const existingIds = new Set(data.sessions.map((s) => s.id));
-      setUnreadSessionIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set([...prev].filter((id) => existingIds.has(id)));
-        return next.size === prev.size ? prev : next;
-      });
-      setErrorSessionIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set([...prev].filter((id) => existingIds.has(id)));
-        return next.size === prev.size ? prev : next;
-      });
+      if (!unreadSseAuthoritativeRef.current) setUnreadSessions(data.unreadSessions ?? {});
       setError(null);
       if (manualRefresh) {
         setSessionRefreshDone(true);
@@ -585,18 +552,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     initialLoadDone.current = true;
     loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
-
-  useEffect(() => {
-    setUnreadSessionIds(loadUnreadSessionIds());
-    setStorageLoaded(true);
-  }, []);
-
-  // Persist unread markers so they survive a browser refresh before the user
-  // has actually opened the completed session.
-  useEffect(() => {
-    if (!storageLoaded) return;
-    saveUnreadSessionIds(unreadSessionIds);
-  }, [storageLoaded, unreadSessionIds]);
 
   // The confirmation is intentionally scoped to the open workspace menu. A
   // menu close, workspace switch, or opening the new-workspace menu starts the
@@ -640,11 +595,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
 
     source.onmessage = (e) => {
       try {
-        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[]; errorSessionIds?: string[] };
+        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[]; unreadSessions?: UnreadSessions };
         if (data.type === "running") {
           sseAuthoritativeRef.current = true;
           setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-          setErrorSessionIds(new Set(data.errorSessionIds ?? []));
+        } else if (data.type === "unread" && data.unreadSessions) {
+          unreadSseAuthoritativeRef.current = true;
+          setUnreadSessions(data.unreadSessions);
         }
       } catch {
         // ignore malformed frames
@@ -656,37 +613,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   }, []);
 
   useEffect(() => {
-    const previous = previousRunningSessionIdsRef.current;
-    const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
-    const newlyRunning = [...runningSessionIds];
-
-    if (completedInBackground.length > 0 || newlyRunning.length > 0) {
-      setUnreadSessionIds((prev) => {
-        const next = new Set(prev);
-        newlyRunning.forEach((id) => next.delete(id));
-        completedInBackground.forEach((id) => next.add(id));
-        return next;
-      });
-    }
-
-    previousRunningSessionIdsRef.current = runningSessionIds;
-  }, [runningSessionIds, selectedSessionId]);
-
-  useEffect(() => {
-    if (!selectedSessionId) return;
-    setUnreadSessionIds((prev) => {
-      if (!prev.has(selectedSessionId)) return prev;
-      const next = new Set(prev);
-      next.delete(selectedSessionId);
-      return next;
-    });
-    setErrorSessionIds((prev) => {
-      if (!prev.has(selectedSessionId)) return prev;
-      const next = new Set(prev);
-      next.delete(selectedSessionId);
-      return next;
-    });
-  }, [selectedSessionId]);
+    const markRead = () => {
+      const id = selectedSessionId;
+      if (!id || document.visibilityState !== "visible" || runningSessionIds.has(id) || pendingReadRef.current.has(id)) return;
+      const status = unreadSessions[id];
+      if (status !== "success" && status !== "error") return;
+      pendingReadRef.current.add(id);
+      setReadPending((previous) => new Set(previous).add(id));
+      void fetch(`/api/sessions/${encodeURIComponent(id)}/read`, { method: "POST" })
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          setUnreadSessions((previous) => {
+            if (previous[id] !== status) return previous;
+            const next = { ...previous };
+            delete next[id];
+            return next;
+          });
+        })
+        .catch((error) => console.error("[pivot-ui] failed to mark session read:", error))
+        .finally(() => {
+          pendingReadRef.current.delete(id);
+          setReadPending((previous) => { const next = new Set(previous); next.delete(id); return next; });
+        });
+    };
+    markRead();
+    document.addEventListener("visibilitychange", markRead);
+    return () => document.removeEventListener("visibilitychange", markRead);
+  }, [selectedSessionId, runningSessionIds, unreadSessions]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -965,7 +918,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const workspaceActivityByProject = new Map(
     workspaceProjects.map((project) => [
       project,
-      getWorkspaceActivity(project, allSessions, runningSessionIds, unreadSessionIds, errorSessionIds),
+      getWorkspaceActivity(project, allSessions, runningSessionIds, unreadSessionIds, errorSessionIds, waitingSessionIds),
     ] as const),
   );
 
@@ -1366,6 +1319,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
               errorSessionIds={errorSessionIds}
+              waitingSessionIds={waitingSessionIds}
               unreadSessionIds={unreadSessionIds}
               draftSessionIds={draftSessionIds}
               onSelectSession={handleSelectSessionFromList}
@@ -1479,6 +1433,7 @@ function SessionTreeItem({
   selectedSessionId,
   runningSessionIds,
   errorSessionIds,
+  waitingSessionIds,
   unreadSessionIds,
   draftSessionIds,
   onSelectSession,
@@ -1490,6 +1445,7 @@ function SessionTreeItem({
   selectedSessionId: string | null;
   runningSessionIds: Set<string>;
   errorSessionIds: Set<string>;
+  waitingSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
   draftSessionIds: ReadonlySet<string>;
   onSelectSession: (s: SessionInfo) => void;
@@ -1518,6 +1474,7 @@ function SessionTreeItem({
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
           isRunning={runningSessionIds.has(node.session.id)}
+          isWaiting={waitingSessionIds.has(node.session.id)}
           isError={errorSessionIds.has(node.session.id)}
           isUnread={unreadSessionIds.has(node.session.id)}
           hasDraft={draftSessionIds.has(node.session.id)}
@@ -1539,6 +1496,7 @@ function SessionTreeItem({
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
               errorSessionIds={errorSessionIds}
+              waitingSessionIds={waitingSessionIds}
               unreadSessionIds={unreadSessionIds}
               draftSessionIds={draftSessionIds}
               onSelectSession={onSelectSession}
@@ -1554,7 +1512,7 @@ function SessionTreeItem({
 }
 
 function WorkspaceActivityIndicator({ activity }: { activity?: WorkspaceActivity }) {
-  if (!activity || (!activity.isError && !activity.isRunning && !activity.hasUnread)) return null;
+  if (!activity || (!activity.isWaiting && !activity.isError && !activity.isRunning && !activity.hasUnread)) return null;
 
   return (
     <span
@@ -1567,11 +1525,15 @@ function WorkspaceActivityIndicator({ activity }: { activity?: WorkspaceActivity
         flex: "0 0 14px",
       }}
     >
-      {activity.isError
+      {activity.isWaiting ? <WaitingSessionIndicator /> : activity.isError
         ? <ErrorSessionIndicator />
         : activity.isRunning ? <RunningSessionIndicator /> : <UnreadSessionIndicator />}
     </span>
   );
+}
+
+function WaitingSessionIndicator() {
+  return <span title="Waiting for user interaction" aria-label="Waiting for user interaction" style={{ width: 14, height: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "#eab308", boxShadow: "0 0 0 2px rgba(234, 179, 8, 0.18)" }} /></span>;
 }
 
 function ErrorSessionIndicator() {
@@ -1651,6 +1613,7 @@ function SessionItem({
   session,
   isSelected,
   isRunning,
+  isWaiting,
   isError,
   isUnread,
   hasDraft,
@@ -1665,6 +1628,7 @@ function SessionItem({
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
+  isWaiting?: boolean;
   isError?: boolean;
   isUnread?: boolean;
   hasDraft?: boolean;
@@ -1827,7 +1791,7 @@ function SessionItem({
           {depth > 0 && (
             <GitFork size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0 }} />
           )}
-          {isRunning && <RunningSessionIndicator />}
+          {isRunning && !isWaiting && <RunningSessionIndicator />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
@@ -1840,9 +1804,9 @@ function SessionItem({
                 lineHeight: 1.4,
                 color: "var(--text)",
               }}
-              title={isRunning ? `${title} · Agent running…` : isError ? `${title} · Execution failed` : isUnread ? `${title} · New activity` : title}
+              title={isWaiting ? `${title} · Waiting for user interaction` : isRunning ? `${title} · Agent running…` : isError ? `${title} · Execution failed` : isUnread ? `${title} · New activity` : title}
             >
-              {!isRunning && (isError ? <ErrorSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null)}
+              {isWaiting ? <WaitingSessionIndicator /> : !isRunning && (isError ? <ErrorSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null)}
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
               </span>
