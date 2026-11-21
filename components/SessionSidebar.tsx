@@ -249,6 +249,21 @@ function DirectoryPickerModal({ open, onClose, onSelect }: { open: boolean; onCl
 const DROPDOWN_ANIMATION_MS = 140;
 const MOBILE_MORE_MENU_MAX_HEIGHT = 280;
 
+type WorkspaceActionMenu = {
+  project: string;
+  anchor: HTMLDivElement;
+  inOverflow: boolean;
+  focusOnOpen: boolean;
+};
+
+type WorkspaceActionMenuSnapshot = {
+  openingId: number;
+  project: string;
+  above: boolean;
+  maxHeight: number;
+  position: CSSProperties;
+};
+
 function AnimatedDropdown({
   open, children, style, slide = "down", reverseVertical = false,
 }: {
@@ -259,46 +274,26 @@ function AnimatedDropdown({
   reverseVertical?: boolean;
 }) {
   const [mounted, setMounted] = useState(open);
-  const [visible, setVisible] = useState(open);
 
   useEffect(() => {
-    let frame: number | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
     if (open) {
       setMounted(true);
-      setVisible(false);
-      frame = window.requestAnimationFrame(() => {
-        frame = window.requestAnimationFrame(() => setVisible(true));
-      });
-    } else {
-      setVisible(false);
-      timeout = setTimeout(() => setMounted(false), DROPDOWN_ANIMATION_MS);
+    } else if (mounted) {
+      const timeout = setTimeout(() => setMounted(false), DROPDOWN_ANIMATION_MS);
+      return () => clearTimeout(timeout);
     }
+  }, [open, mounted]);
 
-    return () => {
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [open]);
-
-  if (!mounted) return null;
+  if (!open && !mounted) return null;
 
   return (
     <div
-      className="overlay-surface"
+      className="overlay-surface animated-dropdown"
+      data-slide={reverseVertical ? "up" : slide}
+      data-state={open ? "open" : "closed"}
       style={{
         ...style,
-        opacity: visible ? 1 : 0,
-        transform: visible
-          ? "translate(0, 0) scale(1)"
-          : slide === "right"
-            ? "translateX(-8px) scale(0.96)"
-            : reverseVertical
-              ? "translateY(8px) scale(0.96)"
-              : "translateY(-8px) scale(0.96)",
-        transformOrigin: slide === "right" ? "center left" : reverseVertical ? "bottom center" : "top center",
-        transition: `opacity ${DROPDOWN_ANIMATION_MS}ms ease, transform ${DROPDOWN_ANIMATION_MS}ms ease`,
+        animationDuration: `${DROPDOWN_ANIMATION_MS}ms`,
         pointerEvents: open ? "auto" : "none",
       }}
     >
@@ -478,12 +473,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
-  const [workspaceMenu, setWorkspaceMenu] = useState<"active" | "new" | null>(null);
+  const [workspaceMenu, setWorkspaceMenu] = useState<WorkspaceActionMenu | "new" | null>(null);
+  const workspaceActionMenu = workspaceMenu === "new" ? null : workspaceMenu;
+  // Keep the last target and position while the dropdown animates out.
+  const [workspaceActionMenuSnapshot, setWorkspaceActionMenuSnapshot] = useState<WorkspaceActionMenuSnapshot | null>(null);
+  const workspaceActionMenuRef = useRef<HTMLDivElement>(null);
   const [workspaceArchiveConfirmation, setWorkspaceArchiveConfirmation] = useState<string | null>(null);
   const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
   const workspaceCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreWorkspacesCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [moreWorkspacesOpen, setMoreWorkspacesOpen] = useState(false);
   const moreWorkspacesAnchorRef = useRef<HTMLDivElement>(null);
   const [moreWorkspacesMenu, setMoreWorkspacesMenu] = useState<HTMLDivElement | null>(null);
@@ -557,13 +555,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   // menu close, workspace switch, or opening the new-workspace menu starts the
   // archive flow over from its first click.
   useEffect(() => {
-    if (workspaceMenu !== "active") {
-      setWorkspaceArchiveConfirmation(null);
-      setCopiedWorkspacePath(null);
-      if (workspaceCopyTimerRef.current !== null) {
-        clearTimeout(workspaceCopyTimerRef.current);
-        workspaceCopyTimerRef.current = null;
-      }
+    setWorkspaceArchiveConfirmation(null);
+    setCopiedWorkspacePath(null);
+    if (workspaceCopyTimerRef.current !== null) {
+      clearTimeout(workspaceCopyTimerRef.current);
+      workspaceCopyTimerRef.current = null;
     }
   }, [workspaceMenu]);
 
@@ -581,12 +577,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
 
   const closeMoreWorkspacesSoon = useCallback(() => {
     cancelMoreWorkspacesClose();
-    if (isMobile) return;
+    if (isMobile || workspaceActionMenu?.inOverflow) return;
     moreWorkspacesCloseTimerRef.current = setTimeout(() => {
       moreWorkspacesCloseTimerRef.current = null;
       setMoreWorkspacesOpen(false);
     }, 200);
-  }, [cancelMoreWorkspacesClose, isMobile]);
+  }, [cancelMoreWorkspacesClose, isMobile, workspaceActionMenu?.inOverflow]);
 
   // Live running status via SSE — no polling. The server pushes the current
   // set of running session ids whenever any session starts/stops working.
@@ -800,19 +796,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     }
   }, [selectWorkspaceDirectory]);
 
-  // Close workspace menus on outside click
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (dropdownRef.current?.contains(target) || newWorkspaceMenuRef.current?.contains(target)) return;
-      setWorkspaceMenu(null);
-      setMoreWorkspacesOpen(false);
-      setWorkspaceArchiveConfirmation(null);
-      setCopiedWorkspacePath(null);
+    const outsidePress = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (workspaceActionMenuRef.current?.contains(target) || workspaceActionMenu?.anchor.contains(target)) return;
+      if (workspaceActionMenu || (!dropdownRef.current?.contains(target) && !newWorkspaceMenuRef.current?.contains(target))) {
+        setWorkspaceMenu(null);
+      }
+      if (!moreWorkspacesAnchorRef.current?.contains(target)) setMoreWorkspacesOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !workspaceMenu) return;
+      if (workspaceActionMenuRef.current?.contains(document.activeElement)) {
+        workspaceActionMenu?.anchor.querySelector<HTMLButtonElement>(".sidebar-project-menu-button")?.focus({ preventScroll: true });
+      }
+      setWorkspaceMenu(null);
+    };
+    document.addEventListener("pointerdown", outsidePress);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", outsidePress);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [workspaceActionMenu, workspaceMenu]);
 
   // Clicking a session moves the effective cwd to that session's worktree.
   // Done on the click path (not via the selectedCwd prop sync) so it also
@@ -906,6 +912,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     if (overflowWorkspaceProjects.length === 0) setMoreWorkspacesOpen(false);
   }, [overflowWorkspaceProjects.length]);
 
+  const actionRowVisible = workspaceActionMenu && (workspaceActionMenu.inOverflow
+    ? moreWorkspacesOpen && overflowWorkspaceProjects.includes(workspaceActionMenu.project)
+    : residentWorkspaceProjects.includes(workspaceActionMenu.project));
+
+  useLayoutEffect(() => {
+    if (workspaceActionMenu && !actionRowVisible) setWorkspaceMenu(null);
+  }, [actionRowVisible, workspaceActionMenu]);
+
+  const bindWorkspaceActionMenu = useCallback((menu: HTMLDivElement | null) => {
+    workspaceActionMenuRef.current = menu;
+    if (actionRowVisible && workspaceActionMenu?.focusOnOpen) {
+      menu?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+    }
+  }, [actionRowVisible, workspaceActionMenu]);
+
   // Archiving on any device also moves this browser off the archived workspace.
   useEffect(() => {
     if (workspacesReady && selectedProject && hiddenWorkspaces.has(selectedProject)) {
@@ -947,6 +968,84 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       // Clipboard access can be unavailable in an insecure browsing context.
     });
   }, []);
+
+  const openWorkspaceActions = (project: string, anchor: HTMLDivElement, inOverflow: boolean, source: "context" | "button" | "keyboard") => {
+    const picker = dropdownRef.current?.getBoundingClientRect();
+    if (!picker) return;
+    cancelMoreWorkspacesClose();
+    if (!inOverflow) setMoreWorkspacesOpen(false);
+    if (source !== "context" && workspaceActionMenu?.project === project) {
+      setWorkspaceMenu(null);
+      return;
+    }
+
+    const row = anchor.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? document.documentElement.clientWidth;
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+    const width = Math.min(320, viewportWidth - 16);
+    const below = viewportBottom - row.bottom - 12;
+    const above = row.top - viewportTop - 12;
+    const openAbove = below < 160 && above > below;
+
+    const snapshot = {
+      project, above: openAbove,
+      maxHeight: Math.max(0, openAbove ? above : below),
+      position: {
+        left: Math.min(Math.max(row.left, viewportLeft + 8), viewportLeft + viewportWidth - width - 8) - picker.left,
+        ...(openAbove ? { bottom: picker.bottom - row.top + 4 } : { top: row.bottom - picker.top + 4 }),
+        width,
+      },
+    };
+    setWorkspaceActionMenuSnapshot((previous) => ({ ...snapshot, openingId: (previous?.openingId ?? 0) + 1 }));
+    setWorkspaceMenu({ project, anchor, inOverflow, focusOnOpen: source === "keyboard" });
+  };
+
+  const renderWorkspaceRow = (project: string, inOverflow = false) => {
+    const isSelected = project === selectedProject;
+    const actionsOpen = workspaceActionMenu?.project === project && workspaceActionMenu.inOverflow === inOverflow;
+    const activity = workspaceActivityByProject.get(project);
+    return (
+      <div
+        key={project}
+        className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openWorkspaceActions(project, event.currentTarget, inOverflow, "context");
+        }}
+      >
+        <button
+          type="button"
+          className="sidebar-project-select"
+          onClick={() => { setWorkspaceMenu(null); void handleProjectSelect(project); }}
+          title={displayCwd(project, homeDir)}
+        >
+          {activity?.isRunning
+            ? <RunningSessionIndicator />
+            : <><WorkspaceActivityIndicator activity={activity} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
+          <WorkspaceTag tag={workspaceTags.get(project)} />
+          <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
+          {workspaceDraftUpdates.has(project) && <DraftIndicator />}
+        </button>
+        <button
+          type="button"
+          className="sidebar-project-menu-button"
+          onClick={(event) => {
+            const row = event.currentTarget.parentElement;
+            if (row instanceof HTMLDivElement) openWorkspaceActions(project, row, inOverflow, event.detail === 0 ? "keyboard" : "button");
+          }}
+          title={t("app.workspaceActions")}
+          aria-label={t("app.workspaceActions")}
+          aria-haspopup="menu"
+          aria-expanded={actionsOpen}
+        >
+          <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  };
 
   const seeAllWorkspaces = (
     <div className="sidebar-project-row">
@@ -1071,101 +1170,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         </div>
         <div ref={dropdownRef} className="sidebar-project-picker" style={{ position: "relative" }}>
           <div className="sidebar-project-list">
-            {residentWorkspaceProjects.map((project) => {
-              const isSelected = project === selectedProject;
-              return (
-                <div
-                  key={project}
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredWorkspace(project)}
-                  onMouseLeave={() => setHoveredWorkspace(null)}
-                >
-                  <div className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
-                    <button
-                      type="button"
-                      className="sidebar-project-select"
-                      onClick={() => handleProjectSelect(project)}
-                      title={displayCwd(project, homeDir)}
-                    >
-                      {workspaceActivityByProject.get(project)?.isRunning
-                        ? <RunningSessionIndicator />
-                        : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
-                      <WorkspaceTag tag={workspaceTags.get(project)} />
-                      <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
-                      {workspaceDraftUpdates.has(project) && <DraftIndicator />}
-                    </button>
-                    {isSelected && (hoveredWorkspace === project || workspaceMenu === "active") && (
-                      <button
-                        type="button"
-                        className="sidebar-project-menu-button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setWorkspaceArchiveConfirmation(null);
-                          setCopiedWorkspacePath(null);
-                          setMoreWorkspacesOpen(false);
-                          setWorkspaceMenu((current) => current === "active" ? null : "active");
-                        }}
-                        title={t("app.workspaceActions")}
-                        aria-label={t("app.workspaceActions")}
-                        aria-haspopup="menu"
-                        aria-expanded={workspaceMenu === "active"}
-                      >
-                        <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                  {isSelected && (
-                    <AnimatedDropdown
-                      open={workspaceMenu === "active"}
-                      style={{
-                        position: "absolute",
-                        top: "calc(100% + 4px)",
-                        left: 0,
-                        zIndex: 105,
-                        minWidth: "min(260px, calc(100vw - 24px))",
-                        width: "min(320px, calc(100vw - 24px))",
-                        border: "1px solid var(--border)",
-                        borderRadius: 7,
-                        boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div role="menu">
-                        <div className="sidebar-workspace-menu-path" title={project}>
-                          <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{project}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="sidebar-workspace-menu-item"
-                          role="menuitem"
-                          onClick={(e) => { e.stopPropagation(); handleCopyWorkspacePath(project); }}
-                        >
-                          <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{copiedWorkspacePath === project ? t("fileTree.pathCopied") : t("fileTree.copyFullPath")}</span>
-                        </button>
-                        <button type="button" className="sidebar-workspace-menu-item" role="menuitem"
-                          onClick={() => { setWorkspaceMenu(null); setTagWorkspace(project); }}>
-                          <Tag size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{t("workspaces.setTag")}</span>
-                        </button>
-                        <div className="sidebar-workspace-menu-divider" role="separator" />
-                        <button
-                          type="button"
-                          className="sidebar-workspace-menu-item"
-                          role="menuitem"
-                          onClick={(e) => { e.stopPropagation(); handleWorkspaceArchive(project); }}
-                          aria-label={workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}
-                        >
-                          <Archive size={14} strokeWidth={1.8} aria-hidden="true" />
-                          <span>{workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}</span>
-                        </button>
-                      </div>
-                    </AnimatedDropdown>
-                  )}
-                </div>
-              );
-            })}
+            {residentWorkspaceProjects.map((project) => renderWorkspaceRow(project))}
             {overflowWorkspaceProjects.length > 0 && (
               <div
                 ref={moreWorkspacesAnchorRef}
@@ -1224,27 +1229,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                   }}
                 >
                   <div role="menu" ref={isMobile ? setMoreWorkspacesMenu : undefined} className="sidebar-workspace-overflow-menu" style={{ maxHeight: isMobile ? 278 : 318 }}>
-                    <div className="sidebar-workspace-overflow-list">
-                      {overflowWorkspaceProjects.map((project) => {
-                        const isSelected = project === selectedProject;
-                        return (
-                          <div key={project} className={isSelected ? "sidebar-project-row is-active" : "sidebar-project-row"}>
-                            <button
-                              type="button"
-                              className="sidebar-project-select"
-                              onClick={() => handleProjectSelect(project)}
-                              title={displayCwd(project, homeDir)}
-                            >
-                              {workspaceActivityByProject.get(project)?.isRunning
-                                ? <RunningSessionIndicator />
-                                : <><WorkspaceActivityIndicator activity={workspaceActivityByProject.get(project)} /><Folder size={17} strokeWidth={1.8} aria-hidden="true" /></>}
-                              <WorkspaceTag tag={workspaceTags.get(project)} />
-                              <PathLabel text={projectLabel(project)} style={{ flex: 1 }} />
-                              {workspaceDraftUpdates.has(project) && <DraftIndicator />}
-                            </button>
-                          </div>
-                        );
-                      })}
+                    <div className="sidebar-workspace-overflow-list" onScroll={() => {
+                      if (workspaceActionMenu?.inOverflow) setWorkspaceMenu(null);
+                    }}>
+                      {overflowWorkspaceProjects.map((project) => renderWorkspaceRow(project, true))}
                     </div>
                     <div className="sidebar-workspace-overflow-footer">
                       <div className="sidebar-workspace-menu-divider" role="separator" />
@@ -1269,6 +1257,44 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
             )}
             {overflowWorkspaceProjects.length === 0 && seeAllWorkspaces}
           </div>
+          <AnimatedDropdown key={workspaceActionMenuSnapshot?.openingId} open={Boolean(workspaceActionMenu)} reverseVertical={workspaceActionMenuSnapshot?.above} style={{
+            ...workspaceActionMenuSnapshot?.position,
+            position: "absolute",
+            zIndex: 115,
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+            overflow: "hidden",
+          }}>
+            {workspaceActionMenuSnapshot && (() => {
+              const { project, maxHeight } = workspaceActionMenuSnapshot;
+              return (
+                <div ref={bindWorkspaceActionMenu} role="menu" inert={!workspaceActionMenu} style={{ maxHeight, overflowY: "auto" }}>
+                  <div className="sidebar-workspace-menu-path" title={project}>
+                    <Folder size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{project}</span>
+                  </div>
+                  <button type="button" className="sidebar-workspace-menu-item" role="menuitem"
+                    onClick={() => handleCopyWorkspacePath(project)}>
+                    <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{copiedWorkspacePath === project ? t("fileTree.pathCopied") : t("fileTree.copyFullPath")}</span>
+                  </button>
+                  <button type="button" className="sidebar-workspace-menu-item" role="menuitem"
+                    onClick={() => { setWorkspaceMenu(null); setTagWorkspace(project); }}>
+                    <Tag size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{t("workspaces.setTag")}</span>
+                  </button>
+                  <div className="sidebar-workspace-menu-divider" role="separator" />
+                  <button type="button" className="sidebar-workspace-menu-item" role="menuitem"
+                    onClick={() => handleWorkspaceArchive(project)}
+                    aria-label={workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}>
+                    <Archive size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span>{workspaceArchiveConfirmation === project ? t("app.confirmWorkspaceArchive") : t("workspaces.archive")}</span>
+                  </button>
+                </div>
+              );
+            })()}
+          </AnimatedDropdown>
           {workspaceError && <div role="alert" className="workspace-error">{workspaceError}</div>}
         </div>
 
