@@ -983,6 +983,7 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
           : codemodeError.includes("Script aborted:") ? "message.codemodeWaitAborted" : null
       : null;
   const isPending = !result || result.isPartial === true;
+  const isPartialFailure = isCodemode && !isError && !isPending && Boolean(group?.calls.some((call) => call.status === "error"));
 
   return (
     <div
@@ -990,8 +991,8 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
         borderRadius: 7,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : isPending ? "1px solid var(--border)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : isPending ? "var(--bg-panel)" : "rgba(34,197,94,0.04)",
+        border: isError ? "1px solid rgba(248,113,113,0.45)" : isPending ? "1px solid var(--border)" : isPartialFailure ? "1px solid rgba(234,113,54,0.4)" : "1px solid rgba(34,197,94,0.25)",
+        background: isError ? "rgba(248,113,113,0.05)" : isPending ? "var(--bg-panel)" : isPartialFailure ? "rgba(234,113,54,0.07)" : "rgba(34,197,94,0.04)",
       }}
     >
       {/* ── Tool call header ── */}
@@ -1013,7 +1014,7 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "#f87171" : isPending ? "var(--text-muted)" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+        <span style={{ color: isError ? "#f87171" : isPending ? "var(--text-muted)" : isPartialFailure ? "#df7136" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
         {block.argumentsError ? <span style={{ color: "#f87171", flex: 1 }}>{t("message.invalidArguments")}</span> : admissionMessage ? (
@@ -1047,7 +1048,7 @@ function ToolCallBlock({ block, result, nestedGroup, liveTools, sessionId, durat
             lineHeight: 1.5,
             overflow: "auto",
             background: isPending ? "var(--bg-panel)" : "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : isPending ? "1px solid var(--border)" : "1px solid rgba(34,197,94,0.2)",
+            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : isPending ? "1px solid var(--border)" : isPartialFailure ? "1px solid rgba(234,113,54,0.2)" : "1px solid rgba(34,197,94,0.2)",
             whiteSpace: "pre-wrap",
             wordBreak: "break-all",
           }}

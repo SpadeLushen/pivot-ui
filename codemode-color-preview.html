@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codemode 卡片颜色对照</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20242b; background: #edf0f4; }
+main { max-width: 1060px; margin: 0 auto; padding: 48px 24px 64px; }
+h1 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+.intro { margin: 8px 0 28px; color: #626772; }
+.layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.scene { --surface: #fff; --muted: #626772; --dim: #8a9099; background: var(--surface); border: 1px solid rgba(84,93,104,.18); border-radius: 12px; padding: 20px; }
+.scene.dark { --surface: #25282d; --muted: #b5b9c1; --dim: #818894; color: #ebedf0; border-color: #373b42; }
+.scene h2 { font-size: 14px; margin: 0 0 18px; }
+.item + .item { margin-top: 17px; }
+.label { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.label code { color: var(--dim); font-size: 11px; }
+.card { border: 1px solid rgba(var(--rgb), var(--border-alpha)); background: rgba(var(--rgb), var(--bg-alpha)); border-radius: 7px; padding: 6px 10px; font-size: 12px; }
+.row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.tool { color: var(--tool-color); font: 600 11px ui-monospace, monospace; }
+.trail { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--dim); font: 11px ui-monospace, monospace; }
+.time, .chevron { color: var(--dim); font-size: 11px; }
+.summary { margin-top: 4px; color: var(--summary); font-size: 11px; }
+@media (max-width: 700px) { main { padding: 28px 16px; } .layout { grid-template-columns: 1fr; } .label { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Codemode 卡片颜色对照</h1>
+<p class="intro">现有状态与部分失败候选色 · 浅色 / 深色</p>
+<div class="layout" id="preview"></div>
+</main>
+<script>
+const colors = [
+  { label: '现有 · 成功', rgb: '34,197,94', bg: '.04', border: '.25', tool: '#16a34a', summary: false },
+  { label: '现有 · 失败', rgb: '248,113,113', bg: '.05', border: '.45', tool: '#f87171', summary: true },
+  { label: 'A · 珊瑚红', rgb: '242,122,83', bg: '.07', border: '.40', tool: '#e87553', summary: true },
+  { label: 'B · 赤陶橙', rgb: '234,113,54', bg: '.07', border: '.40', tool: '#df7136', summary: true },
+  { label: 'C · 暖橙', rgb: '234,130,40', bg: '.07', border: '.40', tool: '#df8228', summary: true },
+  { label: 'D · 琥珀橙', rgb: '217,137,28', bg: '.07', border: '.40', tool: '#d9891c', summary: true },
+];
+const preview = document.getElementById('preview');
+for (const dark of [false, true]) {
+  const scene = document.createElement('section');
+  scene.className = dark ? 'scene dark' : 'scene';
+  const title = document.createElement('h2');
+  title.textContent = dark ? '深色界面' : '浅色界面';
+  scene.append(title);
+  for (const color of colors) {
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.innerHTML = `<div class="label"><span>${color.label}</span><code>rgba(${color.rgb}, ${color.bg})</code></div>
+      <div class="card" style="--rgb:${color.rgb};--bg-alpha:${color.bg};--border-alpha:${color.border};--tool-color:${color.tool};--summary:${color.summary ? '#d97706' : 'var(--dim)'}">
+        <div class="row"><span class="tool">codemode</span><span class="trail">✓read　${color.summary ? '✕grep　✓bash' : '✓grep　✓bash'}</span><span class="time">1.2s</span><span class="chevron">⌄</span></div>
+        <div class="summary">3 次调用 · ${color.summary ? '2 成功 · 1 失败' : '3 成功'}</div>
+      </div>`;
+    scene.append(item);
+  }
+  preview.append(scene);
+}
+</script>
+</body>
+</html>
