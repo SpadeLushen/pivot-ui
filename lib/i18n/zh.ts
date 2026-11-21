@@ -40,6 +40,8 @@ const zh: Record<string, string> = {
   "storage.rebuildSessionListIndex": "重建会话列表索引",
   "storage.scanningSessionFiles": "正在扫描会话文件…",
   "storage.sessionListRebuilt": "会话列表索引已重建",
+  "app.restoreSessionFailed": "无法恢复会话。",
+  "app.retryRestoreSession": "重试",
   "storage.sessionTextSearch": "会话文本搜索",
   "storage.description": "在服务器缓存用户和模型的消息正文，不包含文件、附件、工具执行记录和思考过程。包含所有已保存分支，无需调用模型。",
   "storage.enable": "开启会话内容搜索",

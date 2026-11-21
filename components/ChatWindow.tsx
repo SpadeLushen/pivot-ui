@@ -19,6 +19,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/lib/i18n";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionData } from "@/lib/session-detail";
 import { getVisibleRenderWindow } from "@/lib/chat-lazy-load";
 import { EXTENSION_STATUSLINE_WIDGET_KEY } from "@/lib/extension-statusline";
 import { assistantTimingId, readTiming } from "@/lib/timing-store";
@@ -34,6 +35,7 @@ export interface CompactionControls {
 
 interface Props {
   session: SessionInfo | null;
+  initialSessionData?: SessionData | null;
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
@@ -161,7 +163,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, expanded, onToggle, 
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showTurnTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
+export function ChatWindow({ session, initialSessionData, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showTurnTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
   const [expandedProcessGroups, setExpandedProcessGroups] = useState<Set<string>>(() => new Set());
   const toggleProcessGroup = useCallback((key: string) => {
     setExpandedProcessGroups((previous) => {
@@ -213,7 +215,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleBuiltinSlashCommand,
     handleThinkingLevelChange, loadSlashCommands, loadSlashArgumentCompletions, prewarmForInput,
   } = useAgentSession({
-    session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
+    session, initialSessionData, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked,
     modelsRefreshKey, packsRefreshKey, onPacksChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
 

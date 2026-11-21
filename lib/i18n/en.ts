@@ -38,6 +38,8 @@ const en: Record<string, string> = {
   "storage.rebuildSessionListIndex": "Rebuild session list index",
   "storage.scanningSessionFiles": "Scanning session files…",
   "storage.sessionListRebuilt": "Session list index rebuilt",
+  "app.restoreSessionFailed": "Could not restore the session.",
+  "app.retryRestoreSession": "Retry",
   "storage.sessionTextSearch": "Session text search",
   "storage.description": "Cache user and assistant message text on this server. Files, attachments, tool records and thinking are excluded. All saved branches are included. No model requests are made.",
   "storage.enable": "Enable session content search",

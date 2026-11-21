@@ -13,6 +13,7 @@ import {
 } from "@/lib/session-reader";
 import { clearRpcSessionError, getRpcSession } from "@/lib/rpc-manager";
 import { setUnreadSession } from "@/lib/session-unread";
+import { resolveSessionProject } from "@/lib/worktree";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -138,13 +139,16 @@ export async function GET(
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
     const lastUserMessageAt = getLastUserMessageAt(entries);
-    const parentSessionId = header?.parentSession
-      ? await resolveSessionIdByPath(header.parentSession)
-      : undefined;
+    const [parentSessionId, project] = await Promise.all([
+      header?.parentSession ? resolveSessionIdByPath(header.parentSession) : undefined,
+      header?.cwd ? resolveSessionProject(header.cwd) : undefined,
+    ]);
     const info = header ? {
       path: filePath,
       id: header.id,
       cwd: header.cwd ?? "",
+      projectRoot: project?.projectRoot ?? header.cwd,
+      ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
       name: sm.getSessionName(),
       created: header.timestamp,
       modified,

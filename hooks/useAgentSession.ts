@@ -37,13 +37,7 @@ import { usePreferences } from "@/lib/preferences-context";
 import { useI18n } from "@/lib/i18n";
 import { supportedThinkingLevel, type ThinkingLevelOption } from "@/lib/thinking-levels";
 
-export interface SessionData {
-  sessionId: string;
-  filePath: string;
-  tree: SessionTreeNode[];
-  leafId: string | null;
-  context: SessionContext;
-}
+import { sessionDetailUrl, type SessionData } from "@/lib/session-detail";
 
 interface StreamingState {
   isStreaming: boolean;
@@ -161,6 +155,7 @@ export type BuiltinSlashCommandResult =
 
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
+  initialSessionData?: SessionData | null;
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
@@ -577,28 +572,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning || isCompacting, messages, promptGeneration,
   );
 
-  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, runId?: number) => {
+  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, runId?: number, preloaded?: SessionData | null) => {
     const epoch = inputEpochRef.current;
     const eventRevision = agentEventRevisionRef.current;
     const contextRevision = contextRequestRevisionRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
-      if (res.status === 404) {
-        if (showLoading) {
-          setData(null);
-          setActiveLeafId(null);
-          setMessages([]);
-          setEntryIds([]);
-          setEntryTimestamps([]);
-          setError(null);
+      let d = preloaded;
+      if (d?.sessionId !== sid) {
+        const res = await fetch(sessionDetailUrl(sid));
+        if (res.status === 404) {
+          if (showLoading) {
+            setData(null);
+            setActiveLeafId(null);
+            setMessages([]);
+            setEntryIds([]);
+            setEntryTimestamps([]);
+            setError(null);
+          }
+          return null;
         }
-        return null;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        d = await res.json() as SessionData;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid || inputEpochRef.current !== epoch
         || contextRequestRevisionRef.current !== contextRevision || (runId !== undefined && (!agentRunRef.current.isCurrent(runId)
           || agentEventRevisionRef.current !== eventRevision))) return null;
@@ -1970,7 +1967,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     applyDocumentTitle();
     if (session) {
       sessionIdRef.current = session.id;
-      loadSession(session.id, true, true).then((agentState) => {
+      loadSession(session.id, true, true, undefined, opts.initialSessionData).then((agentState) => {
         if (cancelled) return;
         // The state endpoint does not start idle sessions. Fetching tools does:
         // wait for the actual restored loadout rather than showing the initial

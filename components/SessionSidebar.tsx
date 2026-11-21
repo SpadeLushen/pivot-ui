@@ -27,17 +27,18 @@ import { DraftIndicator } from "./DraftIndicator";
 
 interface Props {
   selectedSessionId: string | null;
-  onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
+  onSelectSession: (session: SessionInfo) => void;
   onSessionRenamed?: (sessionId: string, name: string | undefined) => void;
   onNewSession?: (sessionId: string, cwd: string, projectRoot?: string) => void;
-  initialSessionId?: string | null;
+  restoringInitialSession?: boolean;
   initialNewSessionCwd?: string | null;
-  onInitialRestoreDone?: (missingSessionId?: string) => void;
+  onInitialRestoreDone?: () => void;
   refreshKey?: number;
   /** Local accepted-message timestamps until the session list catches up. */
   recentUserMessageWorkspaces?: ReadonlyMap<string, number>;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
+  selectedProjectRoot?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
@@ -462,7 +463,7 @@ function SidebarNavigationAction({ label, disabled, onClick, children }: { label
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, initialSessionId, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = new Map(), onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRenamed, onNewSession, restoringInitialSession, initialNewSessionCwd, onInitialRestoreDone, refreshKey, recentUserMessageWorkspaces = new Map(), onSessionDeleted, selectedCwd: selectedCwdProp, selectedProjectRoot, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, showExplorer = true, onOpenSkills, onOpenMcp, onOpenPlugins, onOpenPacks, onOpenSettings, onClose }: Props) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const { preferences } = usePreferences();
@@ -502,9 +503,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const { records: workspaceRecords, ready: workspacesReady, error: workspaceError, refresh: refreshWorkspaces, update: updateWorkspace } = useWorkspaceRegistry();
   const hiddenWorkspaces = useMemo(() => new Set(workspaceRecords.filter((record) => record.removed).map((record) => record.path)), [workspaceRecords]);
   const workspaceEntries = useMemo(() => {
-    const activeRoot = allSessions.find((session) => session.cwd === selectedCwd)?.projectRoot ?? selectedCwd;
+    const activeRoot = allSessions.find((session) => session.cwd === selectedCwd)?.projectRoot
+      ?? (selectedCwd === selectedCwdProp ? selectedProjectRoot : null) ?? selectedCwd;
     return getWorkspaceEntries(allSessions, workspaceRecords, activeRoot);
-  }, [allSessions, workspaceRecords, selectedCwd]);
+  }, [allSessions, workspaceRecords, selectedCwd, selectedCwdProp, selectedProjectRoot]);
   const customWorkspaces = useMemo(() => workspaceEntries.map((entry) => entry.path), [workspaceEntries]);
   const { draftSessionIds, workspaceDraftUpdates } = useDraftActivity(allSessions, customWorkspaces);
   const workspaceTags = useMemo(() => new Map(workspaceRecords.map((record) => [record.path, record.tag])), [workspaceRecords]);
@@ -665,8 +667,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const projectRootFor = useCallback((cwd: string | null): string | null => {
     if (!cwd) return null;
     const match = allSessions.find((s) => s.cwd === cwd);
-    return match?.projectRoot ?? cwd;
-  }, [allSessions]);
+    return match?.projectRoot ?? (cwd === selectedCwdProp ? selectedProjectRoot : null) ?? cwd;
+  }, [allSessions, selectedCwdProp, selectedProjectRoot]);
 
   // Notify parent only when the effective cwd actually changes (not when
   // projectRootFor identity changes due to session/worktree refreshes).
@@ -738,11 +740,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     return null;
   }, [allSessions, projectRootFor, onSelectSession, onNewSession]);
 
-  // Auto-select cwd and restore the URL or remembered session on first load
+  // AppShell owns restoration by session ID. Only choose a default workspace
+  // when it has no session to restore.
   useEffect(() => {
-    if (!workspacesReady || loading || restoringWorkspace) return;
+    if (!workspacesReady || loading || restoringWorkspace || restoringInitialSession) return;
 
-    if (selectedCwd === null) {
+    if (selectedCwd === null && !selectedCwdProp) {
       if (initialNewSessionCwd && !restoredRef.current) {
         restoredRef.current = true;
         // Registry metadata does not grant filesystem access: validate even
@@ -754,28 +757,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         });
         return;
       }
-      // If restoring a session, set cwd to match that session
-      if (initialSessionId && !restoredRef.current) {
-        // A failed list request cannot confirm that the session was deleted.
-        // Leave restoration pending so a later successful refresh can retry.
-        if (error) {
-          onInitialRestoreDone?.();
-          return;
-        }
-        restoredRef.current = true;
-        const target = allSessions.find((s) => s.id === initialSessionId);
-        if (target) {
-          setSelectedCwd(target.cwd);
-          onSelectSession(target, true);
-          return;
-        }
-        // Session not found — notify parent so it can show the placeholder
-        onInitialRestoreDone?.(initialSessionId);
-      }
       const projects = getWorkspaceProjects(allSessions, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates);
       if (projects.length > 0) void handleProjectSelect(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, initialNewSessionCwd, onSelectSession, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates, workspacesReady, loading, restoringWorkspace, error, handleProjectSelect]);
+  }, [allSessions, selectedCwd, selectedCwdProp, restoringInitialSession, initialNewSessionCwd, onInitialRestoreDone, customWorkspaces, hiddenWorkspaces, recentUserMessageWorkspaces, workspaceDraftUpdates, workspacesReady, loading, restoringWorkspace, handleProjectSelect]);
 
   // An automatic `tag` is sent as `tagIfEmpty`, so a tag another client already
   // stored is never overwritten.
@@ -1262,7 +1247,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
                   title={t("app.selectWorkspace")}
                 >
                   <Folder size={17} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{!workspacesReady ? t("general.loading") : initialSessionId && !restoredRef.current ? "" : t("app.selectWorkspace")}</span>
+                  <span>{!workspacesReady || loading ? t("general.loading") : t("app.selectWorkspace")}</span>
                 </button>
               </div>
             )}

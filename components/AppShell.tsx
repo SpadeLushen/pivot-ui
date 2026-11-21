@@ -23,6 +23,7 @@ import { copyText } from "@/lib/clipboard";
 import { nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
 import { replaceSessionUrl } from "@/lib/session-url";
 import { loadLastChat, saveLastChat, forgetLastSessionId } from "@/lib/last-session";
+import { sessionDetailUrl, type SessionData } from "@/lib/session-detail";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { buildAtMentionText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode, ExtensionStatusItem } from "@/lib/types";
@@ -379,23 +380,22 @@ export function AppShell() {
   }, []);
 
   const [urlSessionId] = useState<string | null>(() => searchParams.get("session"));
-  const [initialSessionId, setInitialSessionId] = useState<string | null>(urlSessionId);
   const [initialNewSessionCwd, setInitialNewSessionCwd] = useState<string | null>(null);
   const [sessionRestoreReady, setSessionRestoreReady] = useState(false);
-
-  // Read browser storage after hydration, before the sidebar auto-selects a cwd.
-  useEffect(() => {
-    const chat = urlSessionId !== null ? { kind: "session" as const, sessionId: urlSessionId } : loadLastChat();
-    setInitialSessionId(chat?.kind === "session" ? chat.sessionId : null);
-    setInitialNewSessionCwd(chat?.kind === "new" ? chat.cwd : null);
-    setInitialSessionRestored(!chat);
-    setSessionRestoreReady(true);
-  }, [urlSessionId]);
+  const [restoreTarget, setRestoreTarget] = useState<{ id: string; failed: boolean } | null>(null);
+  const [initialSessionData, setInitialSessionData] = useState<SessionData | null>(null);
+  // True once the initial URL or remembered chat has been resolved or superseded.
+  const [initialSessionRestored, setInitialSessionRestored] = useState(false);
+  const restoreAbortRef = useRef<AbortController | null>(null);
+  const cancelInitialRestore = useCallback(() => {
+    restoreAbortRef.current?.abort();
+    setRestoreTarget(null);
+    setInitialSessionData(null);
+    setInitialSessionRestored(true);
+  }, []);
 
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const [activeProjectRoot, setActiveProjectRoot] = useState<string | null>(null);
-  // True once the initial URL or remembered session has been resolved.
-  const [initialSessionRestored, setInitialSessionRestored] = useState(false);
 
   useEffect(() => {
     if (!sessionRestoreReady || !initialSessionRestored) return;
@@ -407,8 +407,6 @@ export function AppShell() {
       if (cwd) saveLastChat({ kind: "new", cwd }, activeProjectRoot ?? cwd);
     }
   }, [sessionRestoreReady, initialSessionRestored, selectedSession, newSessionCwd, activeCwd, activeProjectRoot]);
-  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
-  const suppressCwdBumpRef = useRef(false);
   const rightPanelCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null;
   const rightPanelProjectRoot = activeProjectRoot ?? selectedSession?.projectRoot ?? rightPanelCwd;
 
@@ -419,20 +417,18 @@ export function AppShell() {
   }, [activeProjectRoot]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
+    // The sidebar can report the restored cwd before it has project metadata.
+    if (cwd && selectedSession?.cwd === cwd) return;
     setActiveCwd(cwd);
     setActiveProjectRoot((current) => cwd
       ? (selectedSession === null && newSessionCwd === cwd ? current ?? projectRoot ?? cwd : projectRoot ?? cwd)
       : null);
-    // Skip if cwd is null (initial mount) or during the initial URL restore.
     if (!cwd) return;
+    cancelInitialRestore();
     // A worktree selection has already started a new chat for this cwd. The
     // sidebar receives that cwd on the next render and reports it back; avoid
     // remounting the fresh chat a second time.
     if (selectedSession === null && newSessionCwd === cwd) return;
-    if (suppressCwdBumpRef.current) {
-      suppressCwdBumpRef.current = false;
-      return;
-    }
     // Worktrees of one repo share a project root. Moving the effective cwd
     // within the same project (e.g. switching worktree, or clicking a session
     // that lives in another worktree) must not close the open session.
@@ -456,11 +452,12 @@ export function AppShell() {
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     replaceSessionUrl(null);
-  }, [newSessionCwd, selectedSession]);
+  }, [cancelInitialRestore, newSessionCwd, selectedSession]);
 
   // A worktree is a distinct checkout. Do not keep the old AgentSession open:
   // it owns its original cwd even when both worktrees share a git project.
   const handleWorktreeChange = useCallback((cwd: string, projectRoot: string) => {
+    cancelInitialRestore();
     setActiveCwd(cwd);
     setActiveProjectRoot(projectRoot);
     setSelectedSession(null);
@@ -474,9 +471,11 @@ export function AppShell() {
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     replaceSessionUrl(null);
-  }, []);
+  }, [cancelInitialRestore]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+  const handleSelectSession = useCallback((session: SessionInfo, initialData?: SessionData) => {
+    cancelInitialRestore();
+    if (initialData) setInitialSessionData(initialData);
     setActiveCwd(session.cwd);
     setNewSessionCwd(null);
     setSelectedSession(session);
@@ -486,23 +485,52 @@ export function AppShell() {
     setExtensionStatuses([]);
     compactControlsRef.current = null;
     setCompactionState(EMPTY_COMPACTION_STATE);
-    setInitialSessionRestored(true);
-    if (isRestore) {
-      // Suppress the redundant sessionKey bump that would come from the
-      // onCwdChange effect firing after setSelectedCwd in the sidebar
-      suppressCwdBumpRef.current = true;
-    }
-    // Also update the URL when restoring a remembered session from the homepage.
-    // Native history avoids resetting the session's document title.
     replaceSessionUrl(session.id);
-  }, []);
+  }, [cancelInitialRestore]);
+
+  const restoreSession = useCallback(async (id: string) => {
+    restoreAbortRef.current?.abort();
+    const controller = new AbortController();
+    restoreAbortRef.current = controller;
+    setRestoreTarget({ id, failed: false });
+    try {
+      const response = await fetch(sessionDetailUrl(id), { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (response.status === 404) {
+        forgetLastSessionId(id);
+        replaceSessionUrl(null);
+        setRestoreTarget(null);
+        setInitialSessionRestored(true);
+        return;
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as SessionData;
+      if (controller.signal.aborted) return;
+      if (!data.info || data.sessionId !== id || data.info.id !== id) throw new Error("Invalid session response");
+      handleSelectSession(data.info, data);
+    } catch {
+      if (!controller.signal.aborted) setRestoreTarget({ id, failed: true });
+    } finally {
+      if (restoreAbortRef.current === controller) restoreAbortRef.current = null;
+    }
+  }, [handleSelectSession]);
+
+  // Start the detail request before mounting the sidebar and starting its list refresh.
+  useEffect(() => {
+    const chat = urlSessionId ? { kind: "session" as const, sessionId: urlSessionId } : loadLastChat();
+    setInitialNewSessionCwd(chat?.kind === "new" ? chat.cwd : null);
+    setInitialSessionRestored(!chat);
+    if (chat?.kind === "session") void restoreSession(chat.sessionId);
+    setSessionRestoreReady(true);
+    return () => restoreAbortRef.current?.abort();
+  }, [restoreSession, urlSessionId]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string, projectRoot?: string) => {
+    cancelInitialRestore();
     setActiveCwd(cwd);
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setActiveProjectRoot(projectRoot ?? cwd);
-    setInitialSessionRestored(true);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
@@ -512,7 +540,7 @@ export function AppShell() {
     setCompactionState(EMPTY_COMPACTION_STATE);
     setActiveTopPanel(null);
     replaceSessionUrl(null);
-  }, []);
+  }, [cancelInitialRestore]);
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectRoot, which the same-project check in
@@ -573,10 +601,7 @@ export function AppShell() {
     replaceSessionUrl(newSessionId);
   }, [hydrateSelectedSession]);
 
-  const handleInitialRestoreDone = useCallback((missingSessionId?: string) => {
-    if (missingSessionId) forgetLastSessionId(missingSessionId);
-    setInitialSessionRestored(true);
-  }, []);
+  const handleInitialRestoreDone = useCallback(() => setInitialSessionRestored(true), []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     forgetLastSessionId(sessionId);
@@ -644,13 +669,14 @@ export function AppShell() {
         onSelectSession={handleSelectSession}
         onSessionRenamed={handleSessionNameChange}
         onNewSession={handleNewSession}
-        initialSessionId={initialSessionId}
+        restoringInitialSession={restoreTarget !== null}
         initialNewSessionCwd={initialNewSessionCwd}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         recentUserMessageWorkspaces={recentUserMessageWorkspaces}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
+        selectedProjectRoot={activeProjectRoot}
         onCwdChange={handleCwdChange}
         showExplorer={false}
         onOpenSkills={() => {
@@ -1333,6 +1359,7 @@ export function AppShell() {
             <ChatWindow
               key={sessionKey}
               session={selectedSession}
+              initialSessionData={initialSessionData}
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
@@ -1358,6 +1385,15 @@ export function AppShell() {
               packsRefreshKey={packsRefreshKey}
               onPacksChanged={handlePacksChanged}
             />
+          ) : restoreTarget ? (
+            <div className="workspace-placeholder">
+              {restoreTarget.failed ? (
+                <div role="alert">
+                  <p>{t("app.restoreSessionFailed")}</p>
+                  <button type="button" className="btn btn-ghost" onClick={() => void restoreSession(restoreTarget.id)}>{t("app.retryRestoreSession")}</button>
+                </div>
+              ) : <span role="status">{t("general.loading")}</span>}
+            </div>
           ) : showPlaceholder ? (
             activeCwd ? (
               <div className="workspace-placeholder">
