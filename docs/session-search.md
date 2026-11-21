@@ -17,8 +17,10 @@ substring matching. No model requests or attachment parsing are performed.
 
 A background scan checks file size, mtime and ctime. Changed files are read
 asynchronously and replaced transactionally, only if their fingerprint remains
-stable. Deleted files are pruned. Completion events request a scan; a 30-second
-timer covers external changes. Incomplete writes are retried on later scans.
+stable. JSONL files without a valid session header, such as extension logs,
+are skipped. Deleted files are pruned. Completion events request a scan; a
+30-second timer covers external changes. Incomplete writes are retried on later
+scans.
 
 Lifecycle operations are serialized. Cancellation is awaited before rebuilding,
 moving or deleting. SQLite uses DELETE journaling so a closed cache is one file.

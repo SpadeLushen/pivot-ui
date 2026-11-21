@@ -140,30 +140,42 @@ async function readTexts(path: string, generation: number) {
   try {
     for await (const line of lines) {
       if (generation !== state.generation) return null;
-      if (!line.trim()) continue;
-      // An active writer may leave a partial final line. Retry the file later.
-      const entry = JSON.parse(line);
-      if (entry.type === "session" && typeof entry.id === "string") id = entry.id;
-      const role = entry.message?.role;
-      if (entry.type === "message" && typeof entry.id === "string" && (role === "user" || role === "assistant")) {
+      const record = line.trim();
+      if (!record) continue;
+      let entry;
+      try { entry = JSON.parse(record); }
+      catch (error) {
+        if (!id) return null;
+        // An active writer may leave a partial final line. Retry the file later.
+        throw error;
+      }
+      if (!id) {
+        // Extensions can store their own JSONL files alongside sessions.
+        if (entry?.type !== "session" || typeof entry.id !== "string" || !entry.id) return null;
+        id = entry.id;
+        continue;
+      }
+      const role = entry?.message?.role;
+      if (entry?.type === "message" && typeof entry.id === "string" && (role === "user" || role === "assistant")) {
         const text = textOnly(entry.message.content, role === "user");
         if (text) messages.push({ id: entry.id, text: text.toLowerCase() });
       }
       if (++count % 100 === 0) await yieldTurn();
     }
   } finally { lines.close(); input.destroy(); }
-  if (!id) throw new Error("Invalid session header: " + path);
-  return { id, messages };
+  return id ? { id, messages } : null;
 }
 async function indexFile(db: DatabaseSync, path: string, generation: number) {
   const before = await stat(path);
   const cached = db.prepare("SELECT modified, changed, bytes FROM sessions WHERE path=?").get(path);
   if (cached?.modified === before.mtimeMs && cached.changed === before.ctimeMs && cached.bytes === before.size) return;
   const content = await readTexts(path, generation);
-  if (!content || generation !== state.generation) return;
+  if (generation !== state.generation || (!content && !cached)) return;
   const after = await stat(path);
-  if (before.mtimeMs !== after.mtimeMs || before.size !== after.size || before.ctimeMs !== after.ctimeMs) return;
-  replaceSession(db, path, after, content);
+  if (generation !== state.generation || before.mtimeMs !== after.mtimeMs ||
+      before.size !== after.size || before.ctimeMs !== after.ctimeMs) return;
+  if (content) replaceSession(db, path, after, content);
+  else db.prepare("DELETE FROM sessions WHERE path=?").run(path);
 }
 function replaceSession(db: DatabaseSync, path: string, file: { mtimeMs: number; ctimeMs: number; size: number }, content: { id: string; messages: { id: string; text: string }[] }) {
   db.exec("BEGIN IMMEDIATE");
