@@ -1008,12 +1008,12 @@ export function ExtensionDialog({
             onRespond(request, { cancelled: true });
           }
         }}>
-        {embedded ? <div className="session-question-heading"><h2>{request.title}</h2>
+        {embedded ? <div className="session-question-heading" data-interaction-scroll><h2>{request.title}</h2>
           {submitting && <span role="status">{t("interaction.submitting")}</span>}
         </div> : <InteractionHeader title={request.title} subtitle={submitting ? t("interaction.submitting") : t("interaction.request")} />}
         {failed && <div role="alert" style={{ padding: 12, color: "var(--text-muted)" }}>{t("interaction.submitFailed")}</div>}
 
-        <div style={{ padding: 14, minHeight: 0, overflowY: "auto" }}>
+        <div data-interaction-scroll className={request.method === "select" ? "session-question-choices" : undefined} style={{ padding: 14, minHeight: 0, overflowY: "auto" }}>
           {request.method === "confirm" && (
             <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
           )}
@@ -1236,6 +1236,7 @@ function ExtensionCustomPanel({
         </div>
         {failed && <div role="alert" className="session-interaction-status">{t("interaction.customInputFailed")}</div>}
         <pre
+          data-interaction-scroll
           style={{
             margin: 0,
             padding: 14,

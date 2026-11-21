@@ -3,11 +3,19 @@
 /* Extension questions participate in chat layout, never in the global modal layer. */
 .chat-workspace { min-height: 0; max-height: var(--session-visible-height, 100%); }
 .chat-input-shell[hidden] { display: none !important; }
-.session-interaction-dock {
+.session-interaction-slot {
+  position: relative;
   flex: 0 1 auto;
+  display: flex;
   min-height: 0;
   max-height: var(--session-interaction-max-height, 50dvh);
   margin: 0 16px max(8px, env(safe-area-inset-bottom));
+  z-index: 10;
+}
+.session-interaction-dock {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: var(--session-interaction-max-height, 50dvh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -16,6 +24,18 @@
   background: var(--bg-panel);
   color: var(--text);
   outline: none;
+}
+.session-interaction-dock.is-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  transition: max-height 240ms ease;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(20px);
+}
+.session-interaction-dock.is-expanded {
+  max-height: calc(var(--session-visible-height, 100dvh) * 3 / 4);
 }
 .session-interaction-toolbar, .session-interaction-status {
   display: flex; align-items: center; gap: 10px;
@@ -31,14 +51,19 @@
 .session-question, .session-custom-question {
   display: flex; flex-direction: column; min-height: 0; overflow: hidden; flex: 1 1 auto;
 }
-.session-question-heading { padding: 10px 14px; flex-shrink: 0; max-height: min(96px, calc(var(--session-interaction-max-height, 50dvh) * .25)); overflow: auto; border-bottom: 1px solid var(--border); }
+.session-question-heading { padding: 10px 14px; flex: 0 1 auto; min-height: 0; max-height: min(96px, calc(var(--session-interaction-max-height, 50dvh) * .25)); overflow: auto; border-bottom: 1px solid var(--border); transition: max-height 240ms ease; }
+.session-interaction-dock.is-expanded .session-question-heading { max-height: calc(var(--session-visible-height, 100dvh) * .48); }
+@media (prefers-reduced-motion: reduce) {
+  .session-interaction-dock.is-overlay, .session-question-heading { transition-duration: 0s; }
+}
 .session-question-heading h2 { margin: 0; font-size: 14px; font-weight: 650; white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-question .session-question-choices { flex: 0 0 auto; }
 .session-question > div:last-child { flex-shrink: 0; }
 .session-question button:disabled { cursor: wait; opacity: .65; }
 .session-question textarea { resize: none !important; min-height: min(220px, 24dvh) !important; }
 .session-custom-question pre { min-height: 0; flex: 1 1 auto; }
 @media (max-width: 640px) {
-  .session-interaction-dock { margin-left: 8px; margin-right: 8px; }
+  .session-interaction-slot { margin-left: 8px; margin-right: 8px; }
 }
 
 @theme {
