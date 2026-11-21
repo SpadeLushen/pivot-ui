@@ -4,14 +4,16 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, existsSync, openSync, readSync } from "fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
-import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
 import { getLastThinkingLine } from "./message-display";
 import { normalizeToolCalls } from "./normalize";
 import { branchModelSelection } from "./session-models";
-import { resolveProject, type ProjectInfo } from "./worktree";
+import { resolveSessionProject, type ProjectInfo } from "./worktree";
+import { discoverSessionFiles, indexedSessionPath, isDiscoveredSessionPath, scanSessionIndex } from "./session-file-index";
+import type { SessionIndexStatus } from "./session-index-types";
 
 export { getAgentDir };
 
@@ -28,48 +30,22 @@ export function getLastUserMessageAt(entries: readonly SessionEntry[]): string |
   return Number.isFinite(latest) ? new Date(latest).toISOString() : undefined;
 }
 
-function readLastUserMessageAt(filePath: string): string | undefined {
-  try {
-    return getLastUserMessageAt(getSessionEntries(filePath));
-  } catch {
-    // The session may disappear or be rewritten between list and read.
-    return undefined;
-  }
-}
-
-async function loadAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
+async function loadAllSessions(force = false, progress?: (completed: number, total: number) => void): Promise<SessionInfo[]> {
+  const sessions = await scanSessionIndex(force, progress);
   const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(normalizePath(s.path), s.id);
-
-  // Resolve each unique cwd to its project root (main repo shared by all
-  // worktrees). resolveProject caches per-cwd, so this is cheap after warmup.
-  const uniqueCwds = [...new Set(piSessions.map((s) => s.cwd).filter(Boolean))];
-  const projectByCwd = new Map<string, ProjectInfo>();
+  for (const s of sessions) pathToId.set(normalizePath(s.path), s.id);
+  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
+  const projectByCwd = new Map<string, Pick<ProjectInfo, "projectRoot" | "isWorktree" | "branch">>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
-    projectByCwd.set(cwd, await resolveProject(cwd));
+    projectByCwd.set(cwd, await resolveSessionProject(cwd));
   }));
 
-  const lastUserMessageAtByPath = new Map(
-    piSessions.map((session) => [normalizePath(session.path), readLastUserMessageAt(session.path)] as const),
-  );
-
-  return piSessions.map((s) => {
-    cacheSessionPath(s.id, s.path);
-    const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
-    const lastUserMessageAt = lastUserMessageAtByPath.get(normalizePath(s.path));
+  return sessions.map(({ parentSessionPath, ...summary }) => {
+    const project = projectByCwd.get(summary.cwd);
     return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
-      modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
-      ...(lastUserMessageAt ? { lastUserMessageAt } : {}),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(normalizePath(s.parentSessionPath)) : undefined,
-      projectRoot: project?.projectRoot ?? s.cwd,
+      ...summary,
+      parentSessionId: parentSessionPath ? pathToId.get(normalizePath(parentSessionPath)) : undefined,
+      projectRoot: project?.projectRoot ?? summary.cwd,
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
   });
@@ -94,7 +70,7 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
     // An invalidation may happen while the scan is in flight. Do not let that
     // older result repopulate the cache after a session mutation.
     if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
-      globalThis.__piSessionListCache = { data, ts: Date.now() };
+      publishSessionList(data);
     }
     return data;
   });
@@ -123,6 +99,50 @@ declare global {
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
+const indexGlobals = globalThis as typeof globalThis & {
+  __pivotSessionIndexStatus?: SessionIndexStatus;
+  __pivotSessionIndexListeners?: Set<() => void>;
+};
+
+export function subscribeSessionIndexRebuilt(listener: () => void) {
+  const listeners = indexGlobals.__pivotSessionIndexListeners ??= new Set();
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function publishSessionList(data: SessionInfo[]) {
+  for (const s of data) cacheSessionPath(s.id, s.path);
+  globalThis.__piSessionListCache = { data, ts: Date.now() };
+}
+
+export function sessionIndexStatus(): SessionIndexStatus {
+  return indexGlobals.__pivotSessionIndexStatus ?? { rebuilding: false, completed: 0, total: 0, revision: 0 };
+}
+
+export function listSessionsForSidebar() {
+  const cache = globalThis.__piSessionListCache;
+  if (cache && sessionIndexStatus().rebuilding) return Promise.resolve(cache.data);
+  return listAllSessions();
+}
+
+export function startSessionIndexRebuild(): SessionIndexStatus {
+  const current = sessionIndexStatus();
+  if (current.rebuilding) return current;
+  const generation = globalThis.__piSessionListGeneration ?? 0;
+  const status: SessionIndexStatus = { rebuilding: true, completed: 0, total: 0, revision: current.revision };
+  indexGlobals.__pivotSessionIndexStatus = status;
+  void loadAllSessions(true, (completed, total) => Object.assign(status, { completed, total })).then((data) => {
+    if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
+      invalidateSessionListCache();
+      publishSessionList(data);
+    }
+    status.revision++;
+  }).catch((error) => { status.error = String(error); }).finally(() => {
+    status.rebuilding = false;
+    if (!status.error) for (const listener of indexGlobals.__pivotSessionIndexListeners ?? []) listener();
+  });
+  return status;
+}
 
 export function invalidateSessionListCache(): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
@@ -144,9 +164,31 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
   if (cached && existsSync(cached)) return cached;
   if (cached) invalidateSessionPathCache(sessionId);
 
-  // Cache miss: scan all sessions to populate cache, then retry
-  await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+  let lookupError: unknown;
+  const recordError = (error: unknown) => { lookupError ??= error; };
+  const matchesId = (path: string) => {
+    try { return discoveryHeader(path)?.id === sessionId; }
+    catch (error) { recordError(error); return false; }
+  };
+
+  const indexed = await indexedSessionPath(sessionId);
+  if (indexed && matchesId(indexed)) {
+    cacheSessionPath(sessionId, indexed);
+    return indexed;
+  }
+
+  const files = await discoverSessionFiles(undefined, recordError);
+  // Pi names its files with the session ID. Verify the header, then fall back
+  // to header-only discovery for imported or renamed files.
+  const matchesName = (path: string) => path.endsWith(`_${sessionId}.jsonl`);
+  for (const path of [...files.filter(matchesName), ...files.filter((path) => !matchesName(path))]) {
+    if (path !== indexed && matchesId(path)) {
+      cacheSessionPath(sessionId, path);
+      return path;
+    }
+  }
+  if (lookupError) throw lookupError;
+  return null;
 }
 
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
@@ -154,8 +196,19 @@ export async function resolveSessionIdByPath(filePath: string): Promise<string |
   const cached = getPathToIdCache().get(pathKey);
   if (cached) return cached;
 
-  await listAllSessions();
-  return getPathToIdCache().get(pathKey);
+  if (!isDiscoveredSessionPath(pathKey)) return undefined;
+  const id = discoveryHeader(pathKey)?.id;
+  if (id) cacheSessionPath(id, pathKey);
+  return id;
+}
+
+function discoveryHeader(path: string): SessionHeader | null {
+  try { return readSessionHeader(path, 1024 * 1024); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") return null;
+    throw error;
+  }
 }
 
 export function cacheSessionPath(sessionId: string, filePath: string): void {
@@ -184,34 +237,40 @@ export function invalidateSessionPathCache(sessionId: string): void {
   }
 }
 
-export function readSessionHeader(filePath: string): SessionHeader | null {
+export function readSessionHeader(filePath: string, maxHeaderBytes = 64 * 1024): SessionHeader | null {
   const fd = openSync(filePath, "r");
   try {
+    if (!fstatSync(fd).isFile()) return null;
     const chunks: Buffer[] = [];
-    const maxHeaderBytes = 64 * 1024;
-    let position = 0;
-    let foundNewline = false;
+    // Like the SDK, skip unparsable lines but reject a first entry that
+    // is not a session header.
+    const parseLine = (): SessionHeader | null | undefined => {
+      const line = Buffer.concat(chunks).toString("utf8");
+      chunks.length = 0;
+      try {
+        const entry = JSON.parse(line);
+        if (entry == null) return undefined;
+        return entry.type === "session" && typeof entry.id === "string" ? entry : null;
+      } catch { return undefined; }
+    };
 
-    while (position < maxHeaderBytes && !foundNewline) {
+    let position = 0;
+    while (position < maxHeaderBytes) {
       const buffer = Buffer.allocUnsafe(Math.min(4096, maxHeaderBytes - position));
       const bytesRead = readSync(fd, buffer, 0, buffer.length, position);
-      if (bytesRead === 0) break;
+      if (bytesRead === 0) return parseLine() ?? null;
       const data = buffer.subarray(0, bytesRead);
-      const newlineIndex = data.indexOf(0x0a);
-      chunks.push(newlineIndex === -1 ? data : data.subarray(0, newlineIndex));
       position += bytesRead;
-      foundNewline = newlineIndex !== -1;
+      let start = 0;
+      for (let newline = data.indexOf(0x0a); newline !== -1; newline = data.indexOf(0x0a, start)) {
+        chunks.push(data.subarray(start, newline));
+        const header = parseLine();
+        if (header !== undefined) return header;
+        start = newline + 1;
+      }
+      if (start < data.length) chunks.push(data.subarray(start));
     }
-
-    if (!foundNewline && position >= maxHeaderBytes) return null;
-    const firstLine = Buffer.concat(chunks).toString("utf8").trimEnd();
-    if (!firstLine) return null;
-    try {
-      const header = JSON.parse(firstLine) as SessionHeader;
-      return header.type === "session" ? header : null;
-    } catch {
-      return null;
-    }
+    return null;
   } finally {
     closeSync(fd);
   }

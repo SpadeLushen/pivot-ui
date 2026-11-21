@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import { existsSync, mkdirSync, realpathSync } from "fs";
-import { basename, dirname, join, resolve } from "path";
+import { stat } from "node:fs/promises";
+import { basename, dirname, join, normalize, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
 
@@ -73,6 +74,21 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   return { projectRoot: repoRoot, branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
 
+// Session grouping only needs linked checkout metadata. Ordinary checkouts and
+// nested folders keep their own cwd, so no repository discovery is necessary.
+export async function resolveSessionProject(cwd: string): Promise<Pick<ProjectInfo, "projectRoot" | "branch" | "isWorktree">> {
+  const standalone = { projectRoot: cwd, branch: null, isWorktree: false };
+  const marker = join(cwd, ".git");
+  try {
+    if ((await stat(marker)).isFile()) return resolveProject(cwd);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" && dirname(cwd).endsWith("-worktrees") && !existsSync(cwd)) {
+      return inferRemovedWorktree(cwd) ?? standalone;
+    }
+  }
+  return standalone;
+}
+
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   const cache = getProjectCache();
   const cached = cache.get(cwd);
@@ -99,10 +115,10 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     // cwd is a subdirectory of a repo keeps its own project identity —
     // grouping subdirs under the repo root would change where new sessions
     // are created for existing users.
-    const isTopLevel = toplevel === realCwd;
+    const isTopLevel = normalize(toplevel) === normalize(realCwd);
     const isWorktreeTopLevel = gitDir !== commonDir && isTopLevel;
     info = {
-      projectRoot: isWorktreeTopLevel ? dirname(commonDir) : cwd,
+      projectRoot: isWorktreeTopLevel ? dirname(normalize(commonDir)) : cwd,
       branch: ref && ref !== "HEAD" ? ref : null,
       isWorktree: isWorktreeTopLevel,
       isTopLevel,

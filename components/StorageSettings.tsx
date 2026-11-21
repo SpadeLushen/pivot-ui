@@ -5,6 +5,7 @@ import { useI18n } from "@/lib/i18n";
 import { usePreferences } from "@/lib/preferences-context";
 import { formatBytes } from "@/lib/types";
 import type { SessionSearchAction, SessionSearchStatus } from "@/lib/session-search-types";
+import { SessionListIndexSettings } from "./SessionListIndexSettings";
 
 export function StorageSettings({ active = true }: { active?: boolean }) {
   const { t } = useI18n();
@@ -115,6 +116,7 @@ export function StorageSettings({ active = true }: { active?: boolean }) {
     finally { setSavingPicker(false); }
   };
   return <div className="storage-settings">
+    <SessionListIndexSettings active={active} />
     <section>
       <h3>{t("storage.sessionTextSearch")}</h3>
       <p>{t("storage.description")}</p>

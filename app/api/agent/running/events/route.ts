@@ -1,5 +1,6 @@
 import { getErrorRpcSessionIds, getRunningRpcSessionIds, subscribeRunningSessions } from "@/lib/rpc-manager";
 import { readUnreadSessions, subscribeUnreadSessions } from "@/lib/session-unread";
+import { subscribeSessionIndexRebuilt } from "@/lib/session-reader";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export async function GET(req: Request) {
       const unsubscribeUnread = subscribeUnreadSessions((unreadSessions) => {
         try { encode({ type: "unread", unreadSessions }); } catch { /* disconnected */ }
       });
+      const unsubscribeIndex = subscribeSessionIndexRebuilt(() => {
+        try { encode({ type: "session-index-rebuilt" }); } catch { /* disconnected */ }
+      });
       try { encode({ type: "unread", unreadSessions: readUnreadSessions() }); }
       catch (error) { console.error("[pivot-ui] failed to read unread state:", error); }
 
@@ -51,6 +55,7 @@ export async function GET(req: Request) {
         clearInterval(heartbeat);
         unsubscribe();
         unsubscribeUnread();
+        unsubscribeIndex();
         try { controller.close(); } catch { /* already closed */ }
       };
 

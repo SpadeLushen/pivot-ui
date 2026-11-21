@@ -518,12 +518,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const listRequestRef = useRef(0);
   const loadSessions = useCallback(async (showLoading = false, manualRefresh = false) => {
+    const request = ++listRequestRef.current;
     try {
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; unreadSessions?: UnreadSessions };
+      if (listRequestRef.current !== request) return;
       setAllSessions(data.sessions);
       // Treat the fetched status sets as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
@@ -538,9 +541,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
       }
     } catch (e) {
-      setError(String(e));
+      if (listRequestRef.current === request) setError(String(e));
     } finally {
-      if (showLoading) setLoading(false);
+      if (listRequestRef.current === request) setLoading(false);
     }
   }, []);
 
@@ -550,6 +553,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     initialLoadDone.current = true;
     loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
+
+  useEffect(() => {
+    const onFocus = () => { void loadSessions(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadSessions]);
 
   // The confirmation is intentionally scoped to the open workspace menu. A
   // menu close, workspace switch, or opening the new-workspace menu starts the
@@ -598,6 +607,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         } else if (data.type === "unread" && data.unreadSessions) {
           unreadSseAuthoritativeRef.current = true;
           setUnreadSessions(data.unreadSessions);
+        } else if (data.type === "session-index-rebuilt") {
+          void loadSessions();
         }
       } catch {
         // ignore malformed frames
@@ -606,7 +617,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
 
     // On error EventSource auto-reconnects; keep the last known state meanwhile.
     return () => source.close();
-  }, []);
+  }, [loadSessions]);
 
   useEffect(() => {
     const markRead = () => {
