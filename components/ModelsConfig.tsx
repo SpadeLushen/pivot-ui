@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Check as CheckIcon, Cpu, Eye, EyeOff, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Check as CheckIcon, ChevronDown, Cpu, Eye, EyeOff, Plus, Search, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useDirectionalTransition } from "@/hooks/useDirectionalTransition";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
 import { useI18n } from "@/lib/i18n";
 import type { CatalogModelType, ModelTypeCounts } from "@/lib/model-catalog";
 import { ProviderModelCatalog } from "./ProviderModelCatalog";
+import { applyCatalogModel, withModelType, type ProviderCatalogModel } from "@/lib/provider-catalog";
+import { useProviderCatalog } from "@/hooks/useProviderCatalog";
+import pickerStyles from "./ModelIdPicker.module.css";
 import { ProviderUpgradeNotice } from "./ProviderUpgradeNotice";
 import { MODEL_APIS, type SavedSamplingFields } from "@/lib/typed-model-config";
 // Color icons (have their own fill colors — no background needed)
@@ -513,12 +516,14 @@ function ModelDetail({
   providerName,
   provider,
   model,
+  catalog,
   onChange,
   onDelete,
 }: {
   providerName: string;
   provider: ProviderEntry;
   model: ModelEntry;
+  catalog: ProviderCatalogModel[];
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
 }) {
@@ -527,10 +532,7 @@ function ModelDetail({
   const [classifierInput, setClassifierInput] = useState("");
   const testRequestRef = useRef<AbortController | null>(null);
   const modelType = model.type ?? "chat";
-  const changeType = (type: CatalogModelType) => onChange({ ...model, type,
-    api: type === "chat" ? undefined : MODEL_APIS[type][0],
-    ...(type === "image" ? { output: model.output?.includes("image") ? model.output : ["image"] } : {}),
-  });
+  const changeType = (type: CatalogModelType) => onChange(withModelType(model, type));
   const testDisabled = !model.id.trim() || modelType === "image" || (modelType === "classifier" && !classifierInput.trim());
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
@@ -651,7 +653,24 @@ function ModelDetail({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
+        <Field label="ID *">
+          <div className={catalog.length ? pickerStyles.field : undefined}>
+            <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
+            {catalog.length > 0 && <div className={pickerStyles.button}>
+              <ChevronDown size={14} aria-hidden="true" />
+              <select aria-label={t("models.selectCatalogModel")} title={t("models.selectCatalogModel")} value=""
+                onChange={(event) => {
+                  const item = catalog[event.currentTarget.selectedIndex - 1];
+                  if (item) onChange(applyCatalogModel(model, item));
+                }}>
+                <option value="" disabled hidden>{t("models.selectCatalogModel")}</option>
+                {catalog.map((item, i) => <option key={i} value={i}>
+                  {item.name && item.name !== item.id ? `${item.id} · ${item.name}` : item.id}
+                </option>)}
+              </select>
+            </div>}
+          </div>
+        </Field>
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 
@@ -1427,6 +1446,9 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
   const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
+  const editing = selection?.type === "model" && (!isMobile || mobileDetail) ? selection : undefined;
+  const providerCatalog = useProviderCatalog(editing?.providerName, editing?.index,
+    editing ? config.providers?.[editing.providerName] : undefined);
   const mobileBodyRef = useDirectionalTransition(mobileDetail, mobileDetail ? "forward" : "backward", isMobile);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
@@ -1614,6 +1636,7 @@ export function ModelsConfig({ onClose, variant = "modal" }: { onClose: () => vo
         providerName={selection.providerName}
         provider={provider}
         model={model}
+        catalog={providerCatalog}
         onChange={(m) => updateModel(selection.providerName, selection.index, m)}
         onDelete={() => removeModel(selection.providerName, selection.index)}
       />

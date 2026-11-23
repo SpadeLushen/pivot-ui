@@ -1,0 +1,15 @@
+.field { position: relative; }
+.field > input { padding-inline-end: 34px !important; }
+.button {
+  position: absolute;
+  inset: 1px 1px 1px auto;
+  width: 30px;
+  display: grid;
+  place-items: center;
+  border-inline-start: 1px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  color: var(--text-muted);
+}
+.button:hover, .button:focus-within { background: var(--bg-hover); color: var(--text); }
+.button:focus-within { outline: 2px solid var(--accent); }
+.button select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }

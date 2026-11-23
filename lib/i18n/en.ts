@@ -569,6 +569,7 @@ const en: Record<string, string> = {
   "models.catalogStatus": "Availability is checked at execution; configured credentials do not guarantee model access.",
   "models.catalogUnavailable": "Model catalog is incomplete or unavailable.",
   "models.catalogModels": "Model catalog",
+  "models.selectCatalogModel": "Choose model from catalog",
   "models.catalog.unknown": "Not checked",
   "models.catalog.available": "Available",
   "models.catalog.unavailable": "Not configured",

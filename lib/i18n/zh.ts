@@ -571,6 +571,7 @@ const zh: Record<string, string> = {
   "models.catalogStatus": "可用性在执行时检查；已配置凭据不保证每个模型都可调用。",
   "models.catalogUnavailable": "模型目录不完整或暂不可用。",
   "models.catalogModels": "模型目录",
+  "models.selectCatalogModel": "从目录选择模型",
   "models.catalog.unknown": "未检查",
   "models.catalog.available": "可用",
   "models.catalog.unavailable": "未配置",
