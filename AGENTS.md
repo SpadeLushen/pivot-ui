@@ -183,7 +183,7 @@ hooks/
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
-- Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+- Idle timeout: 10 minutes. Background `cache_warm` usage updates accounting but never renews this timeout. A bound SDK 1.6 session emits `session_start` and `resources_discover` on reload; do not bind it a second time. Wait for abort, extension shutdown, disposal and credential settlement before reopening the same ID. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
 - Shared preferences live in `~/.pivot-ui/preferences.json`, including `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `cost-enabled` (defaults to `true` and controls turn-footer/top-bar cost display), `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.
@@ -234,7 +234,7 @@ Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolC
 - `useWorkspaceTrust` and `WorkspaceTrustNotice` are shared by Tools and the chat Packs selector. Every Packs opening performs a fresh, uncached check regardless of existing/legacy Pack records. Unknown, failed and untrusted status disable Pack toggles; stale requests are ignored after close/cwd changes. Tools exposes the same Trust action and refreshes its MCP/tools data after success. Global tool editing remains available without workspace trust.
 
 ### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
+`GET /api/models` prefers the visible saved default, then a valid enabled-model scope in SDK order, otherwise the SDK's initial model. Do not select by the display-sorted menu order. New sessions use the returned identity and its supported thinking levels.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
@@ -303,7 +303,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
 
 ### Exported session HTML
-- `/api/sessions/[id]/export` returns pi 1.5.0's exported HTML directly. The SDK's template handles deep session trees iteratively; do not patch the generated HTML. Preserve CLI export, the internal exporter fallback, offline mode, timeout, temporary-file cleanup, and download filenames.
+- `/api/sessions/[id]/export` returns the installed Pi SDK's exported HTML directly. The SDK's template handles deep session trees iteratively; do not patch the generated HTML. Preserve CLI export, the internal exporter fallback, offline mode, timeout, temporary-file cleanup, and download filenames.
 
 ## Pi Session File Format
 

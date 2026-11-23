@@ -1,6 +1,7 @@
 import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { clearRpcSessionError, getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { clearRpcSessionError, getRpcSession } from "@/lib/rpc-manager";
+import { startRequestRpcSession } from "@/lib/request-rpc-session";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export async function GET(
     }
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
     try {
-      ({ session } = await startRpcSession(id, filePath, cwd));
+      ({ session } = await startRequestRpcSession(id, filePath, cwd));
     } catch (error) {
       // EventSource hides HTTP error bodies. Deliver the startup rejection to the pending send.
       if (MissingWorkingDirectoryError.matches(error)) {

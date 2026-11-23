@@ -3,7 +3,7 @@ import { join, resolve } from "path";
 import { getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
-import { resolveEnabledModels } from "@/lib/model-scope";
+import { resolveEnabledModels, sdkInitialModel } from "@/lib/model-scope";
 import { modelCatalogRefreshStatus } from "@/lib/model-catalog-refresh";
 import { createPivotAgentSessionServices } from "@/lib/model-runtime";
 import { configuredNonChatRefs, modelIdentity, runtimeCatalog } from "@/lib/model-catalog";
@@ -36,7 +36,8 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const runtime = services.modelRuntime;
   const excluded = await configuredNonChatRefs(join(agentDir, "models.json"));
   const settings: SettingsManager = services.settingsManager;
-  const scope = await resolveEnabledModels(runtime, settings.getEnabledModels());
+  const patterns = settings.getEnabledModels();
+  const scope = await resolveEnabledModels(runtime, patterns);
   const typedCatalog = runtimeCatalog(runtime, excluded);
   const visible = scope.models.filter((m) => !excluded.has(modelIdentity("chat", m.provider, m.id)));
   modelList = visible.map((m) => ({
@@ -59,6 +60,11 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const defaultThinkingLevel = settings.getDefaultThinkingLevel() ?? null;
   if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
     defaultModel = { provider, modelId };
+  } else if (visible.length) {
+    // Honour a valid enabledModels scope in SDK order; sorting the menu is presentation only.
+    const initial = scope.scoped ? visible[0] : await sdkInitialModel(runtime);
+    const selected = visible.find(m => m.provider === initial?.provider && m.id === initial.id) ?? visible[0];
+    defaultModel = { provider: selected.provider, modelId: selected.id };
   }
 
   return { typedCatalog, modelScopeDiagnostics: scope.diagnostics, catalogUnavailable: !!runtime.getError(),

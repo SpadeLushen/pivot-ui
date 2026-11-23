@@ -243,7 +243,7 @@ export async function DELETE(
       }
     } catch { /* skip if dir unreadable */ }
 
-    getRpcSession(id)?.destroy();
+    await getRpcSession(id)?.destroyAndWait();
     clearRpcSessionError(id);
     unlinkSync(filePath);
     try { setUnreadSession(id, null); } catch (error) { console.error("[pivot-ui] failed to remove unread state:", error); }

@@ -1230,6 +1230,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "start" });
         break;
       }
+      case "connected":
+        refreshSessionStats(); // A warm may have been recorded while SSE was disconnected.
+        break;
+      case "entry_appended": {
+        const entry = event.entry as { type?: string; kind?: string } | undefined;
+        if (entry?.type === "usage" && entry.kind === "cache_warm") refreshSessionStats();
+        break;
+      }
       case "turn_end":
         if (!agentRunRef.current.running) break;
         refreshSessionStats();
@@ -1733,7 +1741,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const match = d.defaultModel
           ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
           : undefined;
-        const defaultModel = match ?? nextModelList[0];
+        const defaultModel = match;
         setNewSessionDefaultModel(defaultModel ? { provider: defaultModel.provider, modelId: defaultModel.id } : null);
         if (initializing && !thinkingLevelUserSelectedRef.current) {
           const saved = (shared ?? preferencesRef.current)["model-thinking-levels"];

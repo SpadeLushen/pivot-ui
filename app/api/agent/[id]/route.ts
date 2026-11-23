@@ -1,7 +1,8 @@
 import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { AgentBusyError, startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { AgentBusyError, getRpcSession } from "@/lib/rpc-manager";
+import { startRequestRpcSession } from "@/lib/request-rpc-session";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 
@@ -39,7 +40,7 @@ export async function POST(
     // is no longer configured; ordinary prompts must never silently pick a fallback.
     const requestedModel = body.type === "set_model" && typeof body.provider === "string" && typeof body.modelId === "string"
       ? { provider: body.provider, modelId: body.modelId } : undefined;
-    const { session } = await startRpcSession(id, filePath, cwd, undefined, undefined, requestedModel);
+    const { session } = await startRequestRpcSession(id, filePath, cwd, undefined, undefined, requestedModel);
     const result = await session.send(body);
 
     return NextResponse.json({ success: true, data: await recordSentThinkingPreference(body, result) });

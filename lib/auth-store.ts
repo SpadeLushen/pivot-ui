@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import lockfile from "proper-lockfile";
 import { setTimeout as sleep } from "node:timers/promises";
-import { rename, writeFile } from "fs/promises";
+import { realpath, rename, writeFile } from "fs/promises";
 import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
@@ -26,9 +26,9 @@ function authPath(): string {
   return join(getAgentDir(), "auth.json");
 }
 
-async function readAuthData(): Promise<Record<string, Credential>> {
+async function readAuthData(path: string): Promise<Record<string, Credential>> {
   try {
-    const data: unknown = JSON.parse(readFileSync(authPath(), "utf8"));
+    const data: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("Invalid credential data");
     return data as Record<string, Credential>;
   } catch (error) {
@@ -38,8 +38,7 @@ async function readAuthData(): Promise<Record<string, Credential>> {
   }
 }
 
-async function writeAuthData(data: Record<string, Credential>): Promise<void> {
-  const path = authPath();
+async function writeAuthData(path: string, data: Record<string, Credential>): Promise<void> {
   mkdirSync(dirname(path), { recursive: true });
   // Atomic write (tmp + rename) so concurrent readers never see a torn file;
   // 0600 keeps stored API keys private (pi's own store chmods the same way).
@@ -51,13 +50,14 @@ async function writeAuthData(data: Record<string, Credential>): Promise<void> {
 class FileCredentialStore implements CredentialStore {
   private chain: Promise<unknown> = Promise.resolve();
 
-  private withLock<T>(fn: (beforeWrite: () => void) => Promise<T>, options?: AuthOperationOptions): Promise<T> {
+  private withLock<T>(fn: (path: string, beforeWrite: () => void) => Promise<T>, options?: AuthOperationOptions): Promise<T> {
     const run = this.chain.then(async () => {
       const file = authPath();
       options?.signal?.throwIfAborted();
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       try { writeFileSync(file, "{}", { mode: 0o600, flag: "wx" }); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+      const target = await realpath(file);
       const deadline = Date.now() + 30_000;
       let compromised: Error | undefined;
       let release: (() => Promise<void>) | undefined;
@@ -65,8 +65,8 @@ class FileCredentialStore implements CredentialStore {
       while (!release) {
         options?.signal?.throwIfAborted();
         try {
-          release = await lockfile.lock(file, {
-            realpath: false, stale: 30_000, retries: 0,
+          release = await lockfile.lock(target, {
+            stale: 30_000, retries: 0,
             onCompromised: (error) => { compromised = error; },
           });
         } catch (error) {
@@ -75,7 +75,7 @@ class FileCredentialStore implements CredentialStore {
           // lock directory. Retry only this acquisition race, never file access
           // failures, and surface persistent permission errors after five retries.
           const transientWindowsLock = process.platform === "win32" && failure.code === "EPERM"
-            && failure.syscall === "mkdir" && failure.path === `${file}.lock` && windowsLockRetries++ < 5;
+            && failure.syscall === "mkdir" && failure.path === `${target}.lock` && windowsLockRetries++ < 5;
           if ((failure.code !== "ELOCKED" && !transientWindowsLock) || Date.now() >= deadline) throw error;
           await sleep(20, undefined, { signal: options?.signal });
         }
@@ -83,7 +83,7 @@ class FileCredentialStore implements CredentialStore {
       try {
         options?.signal?.throwIfAborted();
         if (compromised) throw compromised;
-        const result = await fn(() => { if (compromised) throw compromised; });
+        const result = await fn(target, () => { if (compromised) throw compromised; });
         if (compromised) throw compromised;
         return result;
       } finally { await release(); }
@@ -93,12 +93,12 @@ class FileCredentialStore implements CredentialStore {
   }
 
   read(providerId: string): Promise<Credential | undefined> {
-    return this.withLock(async () => (await readAuthData())[providerId]);
+    return this.withLock(async (path) => (await readAuthData(path))[providerId]);
   }
 
   list(): Promise<readonly CredentialInfo[]> {
-    return this.withLock(async () =>
-      Object.entries(await readAuthData()).map(([providerId, credential]) => ({
+    return this.withLock(async (path) =>
+      Object.entries(await readAuthData(path)).map(([providerId, credential]) => ({
         providerId,
         type: credential.type,
       }))
@@ -110,13 +110,13 @@ class FileCredentialStore implements CredentialStore {
     fn: (current: Credential | undefined) => Promise<Credential | undefined>,
     options?: AuthOperationOptions,
   ): Promise<Credential | undefined> {
-    return this.withLock(async (beforeWrite) => {
-      const data = await readAuthData();
+    return this.withLock(async (path, beforeWrite) => {
+      const data = await readAuthData(path);
       const next = await fn(data[providerId]);
       if (next === undefined) return data[providerId];
       const merged: Record<string, Credential> = { ...data, [providerId]: next };
       beforeWrite();
-      await writeAuthData(merged);
+      await writeAuthData(path, merged);
       return next;
     }, options);
   }
@@ -126,12 +126,12 @@ class FileCredentialStore implements CredentialStore {
   }
 
   deleteIfType(providerId: string, type?: Credential["type"], options?: AuthOperationOptions): Promise<void> {
-    return this.withLock(async (beforeWrite) => {
-      const data = await readAuthData();
+    return this.withLock(async (path, beforeWrite) => {
+      const data = await readAuthData(path);
       if (type && data[providerId]?.type !== type) return;
       delete data[providerId];
       beforeWrite();
-      await writeAuthData(data);
+      await writeAuthData(path, data);
     }, options);
   }
 }

@@ -19,7 +19,7 @@ export function useSessionStatistics(sid: string | null, leafId: string | null, 
       controller = request;
       let failed = true;
       const params = new URLSearchParams();
-      if (leafId) params.set("leafId", leafId);
+      if (leafId) { params.set("leafId", leafId); params.set("followWarm", "1"); }
       try {
         const response = await fetch(`/api/sessions/${encodeURIComponent(sid)}/stats?${params}`, {
           cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(15000)]),

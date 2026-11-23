@@ -61,7 +61,7 @@ type PendingUiResponse = {
 };
 
 type CustomUiComponent = {
-  render: (width: number) => string[];
+  render: (width: number) => readonly string[];
   handleInput?: (data: string) => void;
   dispose?: () => void;
   invalidate?: () => void;
@@ -204,7 +204,9 @@ export class AgentSessionWrapper {
   private modelStartTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
-  private shutdownPromise: Promise<void> | null = null;
+  private readonly closed = Promise.withResolvers<void>();
+  /** Settles after extension teardown and pending credential writes, not just registry removal. */
+  readonly whenClosed = this.closed.promise;
   private sessionPersisted: boolean;
 
   private workspacePackRevision: number;
@@ -218,7 +220,7 @@ export class AgentSessionWrapper {
 
   private readonly plainTextTheme = new PlainTextTheme();
 
-  constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0) {
+  constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0, private startupWarning?: string) {
     this.sessionPersisted = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.workspacePackRevision = initialPackRevision;
     this.workspaceResourceRevision = resourceRevision(inner.sessionManager.getCwd());
@@ -297,21 +299,23 @@ export class AgentSessionWrapper {
     try { await task; } finally { this.workspacePackReload = null; }
   }
 
-  private async reloadResources(): Promise<void> {
+  private async reloadResources(fromExtensionCommand = false): Promise<void> {
     if (this.resourceReloadPromise) return this.resourceReloadPromise;
     const task = (async () => {
-      if (this.isRunning()) throw new AgentBusyError();
+      // An extension command owns its pending prompt but may reload before an agent run starts.
+      const assertIdle = () => {
+        if (!this._alive || this.inner.isStreaming || this.inner.isCompacting || (!fromExtensionCommand && this.promptRunning)) throw new AgentBusyError();
+      };
+      assertIdle();
       // A failed binding must be recoverable through reload, not block every retry forever.
       await this.extensionBindingPromise?.catch(() => undefined);
-      if (this.isRunning()) throw new AgentBusyError();
+      assertIdle();
       const cwd = this.workspaceCwd();
       const revision = cwd ? readWorkspaceState({ cwd }).revision : this.workspacePackRevision;
       const resources = cwd ? resourceRevision(cwd) : this.workspaceResourceRevision;
       this.cancelExtensionUi();
       this.extensionStatuses.clear();
       this.extensionWidgets.clear();
-      this.extensionsBound = false;
-      this.extensionBindingPromise = null;
       // SDK reload preserves its initial trust flag; refresh saved trust only at this idle boundary.
       const settings = this.inner.settingsManager;
       if (cwd && typeof settings.setProjectTrusted === "function" && typeof settings.getDefaultProjectTrust === "function") {
@@ -323,11 +327,20 @@ export class AgentSessionWrapper {
         clearPivotTypedModels(this.inner.modelRuntime);
         await this.inner.modelRuntime.refresh({ allowNetwork: false });
       });
-      await this.inner.reload({ beforeSessionStart: () => reloadSessionTypedModels(this.inner.modelRuntime, modelsPath) });
+      assertIdle();
+      let sdkRestartedExtensions = false;
+      await this.inner.reload({ beforeSessionStart: async () => {
+        sdkRestartedExtensions = true;
+        await reloadSessionTypedModels(this.inner.modelRuntime, modelsPath);
+      } });
+      // A bound SDK runner already applied our bindings and emitted start/discover.
+      // The hook also runs when the original bind reached the SDK but later failed.
+      this.extensionsBound = sdkRestartedExtensions;
+      this.extensionBindingPromise = null;
+      this.extensionBindingError = null;
+      if (!sdkRestartedExtensions) await this.ensureExtensionsBound();
       publishMcpLoad(cwd ?? this.inner.sessionManager.getCwd(), getAgentDir(), this.inner.resourceLoader.getExtensions(), true);
       if (settings.drainErrors().length) throw new Error("Unable to apply workspace settings");
-      this.beginExtensionBinding();
-      await this.waitForExtensionsBound();
       activateAllSessionTools(this.inner);
       this.workspacePackRevision = revision;
       this.workspaceResourceRevision = resources;
@@ -366,7 +379,8 @@ export class AgentSessionWrapper {
     });
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       if (event.type === "thinking_level_changed") this.autoThinkingSelection = null;
-      this.resetIdleTimer();
+      const entry = event.type === "entry_appended" ? event.entry as { type?: string; kind?: string } | undefined : undefined;
+      if (!(entry?.type === "usage" && entry.kind === "cache_warm")) this.resetIdleTimer();
       if (this.isModelProgress(event)) this.clearModelStartTimer();
       if (event.type === "agent_end" || event.type === "session_info_changed" ||
           (event.type === "message_end" && (event.message as { role?: string } | undefined)?.role === "user")) {
@@ -571,6 +585,10 @@ export class AgentSessionWrapper {
 
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
+    if (this.startupWarning) {
+      listener({ type: "extension_ui_request", method: "notify", id: randomUUID(), notifyType: "warning", message: this.startupWarning });
+      this.startupWarning = undefined;
+    }
     if (this.sessionPersisted) listener({ type: "session_persisted", sessionId: this.sessionId });
     else this.announcePersistedSession();
     listener(this.getExtensionUiSnapshot() as unknown as AgentEvent);
@@ -1048,21 +1066,31 @@ export class AgentSessionWrapper {
     this.unsubscribeWorkspaceTools?.();
     this.unsubscribeResourceChanges?.();
     this.cancelExtensionUi();
-    const dispose = () => { try { this.inner.dispose(); } catch { /* cleanup must not strand the wrapper */ } };
-    if (this.inner.extensionRunner?.emit) {
-      // dispose() alone does not emit session_shutdown; native MCP owns processes.
-      this.shutdownPromise = (this.extensionBindingPromise ?? Promise.resolve())
-        .catch(() => undefined)
-        .then(() => this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" }))
-        .catch(() => undefined).then(dispose);
-    } else dispose();
-    this.onDestroyCallback?.();
+    void this.finishShutdown().finally(() => {
+      this.onDestroyCallback?.();
+      this.closed.resolve();
+    });
     notifyRunningChange();
   }
 
-  async destroyAndWait(): Promise<void> {
+  private async finishShutdown(): Promise<void> {
+    // Even a failed extension must not skip provider disposal or credential settlement.
+    try {
+      await this.inner.abort();
+    } catch { console.warn("[pivot-ui] Session abort failed during shutdown"); }
+    await Promise.allSettled([this.extensionBindingPromise, this.resourceReloadPromise]);
+    try {
+      await this.inner.extensionRunner?.emit?.({ type: "session_shutdown", reason: "quit" });
+    } catch { console.warn("[pivot-ui] Extension shutdown failed"); }
+    try { this.inner.dispose(); }
+    catch { console.warn("[pivot-ui] Session disposal failed"); }
+    try { await this.inner.modelRuntime.settleCredentialWrites(); }
+    catch { console.warn("[pivot-ui] Could not settle credential writes"); }
+  }
+
+  destroyAndWait(): Promise<void> {
     this.destroy();
-    await this.shutdownPromise;
+    return this.whenClosed;
   }
 
   private getExtensionUiSnapshot(): ExtensionUiSnapshot {
@@ -1461,17 +1489,7 @@ export class AgentSessionWrapper {
         return { cancelled: result.cancelled };
       },
       switchSession: async () => ({ cancelled: true }),
-      reload: async () => {
-        this.cancelExtensionUi();
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        await this.inner.reload({
-          beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), EXTENSION_MODE);
-          },
-        });
-        activateAllSessionTools(this.inner);
-      },
+      reload: () => this.reloadResources(true),
     };
   }
 }
@@ -1483,6 +1501,7 @@ export class AgentSessionWrapper {
 type RpcSessionStatusListener = (runningSessionIds: string[], errorSessionIds: string[]) => void;
 
 declare global {
+  var __piStopping: boolean | undefined;
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piErrorSessionIds: Set<string> | undefined;
@@ -1498,8 +1517,10 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
         if (status === "waiting") setUnreadSession(id, null, "waiting");
       }
     } catch (error) { console.error("[pivot-ui] failed to reconcile unread state:", error); }
-    const cleanup = () => globalThis.__piSessions?.forEach((s) => s.destroy());
-    process.once("exit", cleanup);
+    const cleanup = () => {
+      globalThis.__piStopping = true;
+      globalThis.__piSessions?.forEach((s) => s.destroy());
+    };
     process.once("SIGINT", cleanup);
     process.once("SIGTERM", cleanup);
   }
@@ -1626,6 +1647,7 @@ export async function startRpcSession(
   const registry = getRegistry();
   const locks = getLocks();
 
+  if (globalThis.__piStopping) throw new Error("Agent runtime is shutting down");
   const existing = registry.get(sessionId);
   if (existing?.isAlive()) {
     if (!existing.isRunning()) {
@@ -1641,6 +1663,7 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
+    if (existing) await existing.destroyAndWait();
     requireWorkingDirectory(cwd);
     // Initialize the legacy SDK singleton once, never from browser appearance.
     const themeState = globalThis as typeof globalThis & { __pivotSdkThemeInitialized?: boolean };
@@ -1672,7 +1695,7 @@ export async function startRpcSession(
       if (requestedModel) throw new Error(`Model unavailable: ${desired.provider}/${desired.modelId}`);
       throw new Error("Saved Azure model could not be restored. Configure its credentials/model before continuing.");
     }
-    const { session: inner } = await createAgentSessionFromServices({
+    const { session: inner, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
       model: startupModel,
@@ -1680,6 +1703,7 @@ export async function startRpcSession(
     // Never silently continue an old Azure conversation on a fallback provider/model.
     if (legacyAzure && !requestedModel && (inner.model?.provider !== savedModel.provider || inner.model?.id !== savedModel.modelId)) {
       inner.dispose();
+      await inner.modelRuntime.settleCredentialWrites();
       throw new Error("Saved Azure model could not be restored. Configure its credentials/model before continuing.");
     }
 
@@ -1688,7 +1712,11 @@ export async function startRpcSession(
     activateAllSessionTools(inner);
 
     // New sessions retain pi's deferred persistence until a conversation starts.
-    const wrapper = new AgentSessionWrapper(inner, initialPackRevision);
+    const wrapper = new AgentSessionWrapper(inner, initialPackRevision, sessionFile ? modelFallbackMessage : undefined);
+    if (globalThis.__piStopping) {
+      await wrapper.destroyAndWait();
+      throw new Error("Agent runtime is shutting down");
+    }
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;

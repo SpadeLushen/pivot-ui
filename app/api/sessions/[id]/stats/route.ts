@@ -15,7 +15,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const path = live ? undefined : await resolveSessionPath(id);
     if (!live && !path) return NextResponse.json({ error: "Session not found" }, { status: 404 });
     const sm = live?.sessionManager ?? SessionManager.open(path!);
-    const leafId = new URL(req.url).searchParams.get("leafId") ?? undefined;
+    const query = new URL(req.url).searchParams;
+    let leafId = query.get("leafId") ?? undefined;
+    if (leafId && query.get("followWarm") === "1") {
+      // A background warm advances the SDK leaf without adding a chat message.
+      // Follow only that suffix; never switch the selected branch after a missed event.
+      const tip = sm.getLeafId();
+      let cursor = tip;
+      const seen = new Set<string>();
+      while (cursor && cursor !== leafId && !seen.has(cursor)) {
+        seen.add(cursor);
+        const entry = sm.getEntry(cursor);
+        if (entry?.type !== "usage" || entry.kind !== "cache_warm") break;
+        cursor = entry.parentId;
+      }
+      if (cursor === leafId && tip) leafId = tip;
+    }
     const stats = sessionStatistics(sm, live, leafId);
     const selectedLeaf = leafId ?? sm.getLeafId();
     if (selectedLeaf !== sm.getLeafId()) stats.contextUsage = undefined;

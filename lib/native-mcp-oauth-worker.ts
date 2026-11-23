@@ -39,7 +39,11 @@ async function run() {
   if (workerData.challenge?.error === "insufficient_scope" && workerData.challenge.scope) {
     settings.scope = [...new Set([settings.scope, previous?.tokens?.scope].flatMap((scope) => scope?.split(/\s+/).filter(Boolean) ?? []))].join(" ") || undefined;
   }
-  const store = { load: () => state === undefined ? undefined : structuredClone(state), save: (next) => { state = structuredClone(next); } };
+  const store = {
+    load: () => state === undefined ? undefined : structuredClone(state),
+    save: (next) => { state = structuredClone(next); },
+    withRefreshLock: (fn) => nativeStore.withRefreshLock(fn),
+  };
   await signInMcpServer({
     serverUrl: workerData.serverUrl, store,
     settings, challenge: workerData.challenge, signal: cancellation.signal,

@@ -1,21 +1,10 @@
-import { join } from "node:path";
-import { createRequire } from "node:module";
-import { resolveDependencyRoot } from "../scripts/pivot-runtime-aliases.js";
+import { piSdkModule as nativeMcpModule } from "./pi-sdk-module";
+export { piSdkModule as nativeMcpModule, piSdkModulePath as nativeMcpModulePath } from "./pi-sdk-module";
 import { getAgentDir, SettingsManager, type LoadedMcpConfig } from "@earendil-works/pi-coding-agent";
 import { nativeProjectTrusted } from "./native-mcp-runtime";
 
 type ConfigModule = { loadMcpConfig(options: { cwd: string; agentDir: string; projectTrusted: boolean }): LoadedMcpConfig };
 let configModule: ConfigModule | undefined;
-
-export function nativeMcpModulePath(file: string): string {
-  const root = resolveDependencyRoot(process.cwd(), "@earendil-works/pi-coding-agent");
-  if (!root) throw new Error("Installed pi SDK could not be located");
-  return join(root, "dist", file);
-}
-export function nativeMcpModule<T>(file: string): T {
-  const nativeRequire = createRequire(join(process.cwd(), "package.json"));
-  return nativeRequire(nativeMcpModulePath(file)) as T;
-}
 
 /** Pure SDK validation; never resolve env/credential commands or connect servers. */
 export function validateNativeMcpDefinition(name: string, value: unknown): Record<string, unknown> | string {

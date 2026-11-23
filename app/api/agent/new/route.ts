@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { resolveSessionProject } from "@/lib/worktree";
-import { startRpcSession } from "@/lib/rpc-manager";
+import { startRequestRpcSession } from "@/lib/request-rpc-session";
 import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const { provider, modelId, toolNames, toolPreset, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; toolPreset?: unknown; thinkingLevel?: string; [key: string]: unknown };
     // Strip legacy preset fields above, but do not let them restrict new sessions.
     const tempKey = `__new__${randomUUID()}`;
-    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd);
+    const { session, realSessionId } = await startRequestRpcSession(tempKey, "", cwd);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
     // in sync so the new cwd is immediately readable via /api/files. Without this,
