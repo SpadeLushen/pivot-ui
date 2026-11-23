@@ -270,7 +270,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
               }
 
               return (
-                <div key={worktree.path} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
+                <div key={worktree.path} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)", background: isCurrent ? "var(--bg-selected)" : "var(--bg)" }}>
                   <button
                     type="button"
                     onClick={() => selectWorktree(worktree)}
@@ -283,7 +283,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
                       minWidth: 0,
                       padding: "9px 10px",
                       border: "none",
-                      background: isCurrent ? "var(--bg-selected)" : "var(--bg)",
+                      background: "none",
                       color: isCurrent ? "var(--text)" : "var(--text-muted)",
                       cursor: "pointer",
                       fontSize: 12,
