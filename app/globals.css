@@ -1607,6 +1607,7 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 
 .sidebar-project-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1677,6 +1678,9 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 
 .sidebar-project-menu-button {
+  /* Keep the hidden trigger tabbable without reserving a grid column. */
+  position: absolute;
+  inset-inline-end: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1699,12 +1703,14 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 .sidebar-project-row:hover .sidebar-project-menu-button,
 .sidebar-project-row:focus-within .sidebar-project-menu-button,
 .sidebar-project-menu-button[aria-expanded="true"] {
+  position: static;
   opacity: 1;
   pointer-events: auto;
 }
 
 @media (hover: none) {
   .sidebar-project-menu-button {
+    position: static;
     opacity: 1;
     pointer-events: auto;
   }
