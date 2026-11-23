@@ -1,3 +1,4 @@
+import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { AgentBusyError, startRpcSession, getRpcSession } from "@/lib/rpc-manager";
@@ -43,6 +44,9 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: await recordSentThinkingPreference(body, result) });
   } catch (error) {
+    if (MissingWorkingDirectoryError.matches(error)) {
+      return NextResponse.json({ code: MissingWorkingDirectoryError.code, error: String(error) }, { status: 409 });
+    }
     if (error instanceof AgentBusyError || (error instanceof Error && error.name === "AgentBusyError")) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

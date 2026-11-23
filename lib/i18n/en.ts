@@ -521,6 +521,8 @@ const en: Record<string, string> = {
   "chat.newSessionCreated": "New session created",
   "chat.steerPlaceholder": "Steer now / queue follow-up...",
   "chat.runningPlaceholder": "Agent is running...",
+  "chat.clearDraft": "Clear draft",
+  "chat.missingWorkingDirectory": "Session is read-only: its working directory no longer exists.",
   "chat.messagePlaceholder": "Message... Type / for commands, @ for files",
   "chat.send": "Send",
   "chat.sending": "Sending…",

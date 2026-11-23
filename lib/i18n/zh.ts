@@ -523,6 +523,8 @@ const zh: Record<string, string> = {
   "chat.newSessionCreated": "新会话已创建",
   "chat.steerPlaceholder": "立即引导 / 排队后续消息...",
   "chat.runningPlaceholder": "Agent 正在运行...",
+  "chat.clearDraft": "清除草稿",
+  "chat.missingWorkingDirectory": "会话只读：工作目录已不存在。",
   "chat.messagePlaceholder": "输入消息... 输入 / 查看命令，@ 添加文件",
   "chat.send": "发送",
   "chat.sending": "发送中…",

@@ -1,8 +1,9 @@
+import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
+import { resolveSessionProject } from "@/lib/worktree";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { recordSentThinkingPreference } from "@/lib/sent-thinking-preference";
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
@@ -17,9 +18,6 @@ export async function POST(req: Request) {
 
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({ error: "cwd is required" }, { status: 400 });
-    }
-    if (!existsSync(cwd)) {
-      return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
@@ -45,13 +43,20 @@ export async function POST(req: Request) {
     }
 
     if (promptCommand.type === "ensure_session") {
-      return NextResponse.json({ success: true, sessionId: realSessionId, data: null });
+      const { projectRoot, isWorktree, branch } = await resolveSessionProject(cwd);
+      return NextResponse.json({
+        success: true, sessionId: realSessionId, data: null,
+        workspace: { projectRoot, ...(isWorktree && branch ? { worktreeBranch: branch } : {}) },
+      });
     }
 
     const result = await session.send(promptCommand);
 
     return NextResponse.json({ success: true, sessionId: realSessionId, data: await recordSentThinkingPreference(promptCommand, result) });
   } catch (error) {
+    if (MissingWorkingDirectoryError.matches(error)) {
+      return NextResponse.json({ code: MissingWorkingDirectoryError.code, error: String(error) }, { status: 409 });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

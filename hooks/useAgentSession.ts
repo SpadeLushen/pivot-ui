@@ -18,6 +18,7 @@ import type { ModelScopeDiagnosticDto } from "@/lib/models-cache";
 import type { ModelPickerEntry, RoutedModel, SelectedModel } from "@/lib/session-models";
 import type { TypedModelEntry } from "@/lib/model-catalog";
 import { successfulResponseModel } from "@/lib/response-model";
+import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { readInputReceipt, sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { NestedToolState, type NestedCallGroup } from "@/lib/nested-tool-state";
@@ -198,7 +199,7 @@ const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
 
-type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
+type EventStreamConnectionStatus = "connected" | "timeout" | "closed" | "missing_cwd";
 
 type EventStreamConnectionResult = {
   status: EventStreamConnectionStatus;
@@ -391,9 +392,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const initialModelSelectionRef = useRef(false);
   const autoThinkingModelRef = useRef<SelectedModel | null>(null);
 
+  const newSessionWorkspace = useRef<Pick<SessionInfo, "projectRoot" | "worktreeBranch"> | null>(null);
   const notifyUserMessageSent = useCallback(() => {
     const cwd = session?.cwd ?? newSessionCwd;
-    if (cwd) onUserMessageSent?.(cwd, session?.projectRoot);
+    if (cwd) onUserMessageSent?.(cwd, session?.projectRoot ?? newSessionWorkspace.current?.projectRoot);
   }, [newSessionCwd, onUserMessageSent, session?.cwd, session?.projectRoot]);
 
   const [data, setData] = useState<SessionData | null>(null);
@@ -406,6 +408,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [streamState, dispatch] = useReducer(streamReducer, { isStreaming: false, streamingMessage: null });
   const [agentRunning, setAgentRunning] = useState(false);
   const [inputSending, setInputSending] = useState(false);
+  const [missingCwd, setMissingCwd] = useState(false);
   const inputRequestRef = useRef<string | null>(null);
   const inputEpochRef = useRef(0);
   const activePromptRequestIdRef = useRef<string | null>(null);
@@ -581,7 +584,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading) setLoading(true);
       let d = preloaded;
       if (d?.sessionId !== sid) {
-        const res = await fetch(sessionDetailUrl(sid));
+        const res = await fetch(sessionDetailUrl(sid, showLoading && includeState), { cache: "no-store" });
         if (res.status === 404) {
           if (showLoading) {
             setData(null);
@@ -601,6 +604,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           || agentEventRevisionRef.current !== eventRevision))) return null;
       for (const message of d.context.messages) if (message.role === "toolResult") nestedStateRef.current.settle(message.toolCallId, message.nestedCalls);
       publishNested();
+      if (d.missingCwd === true) setMissingCwd(true);
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
@@ -706,6 +710,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       id: sid,
       path: "",
       cwd: newSessionCwd,
+      ...newSessionWorkspace.current,
       name: undefined,
       created: now,
       modified: now,
@@ -762,10 +767,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           thinkingLevel,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json() as { sessionId: string };
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        if (MissingWorkingDirectoryError.matches(body)) throw new MissingWorkingDirectoryError(body.error);
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const result = await res.json() as { sessionId: string; workspace: { projectRoot: string; worktreeBranch?: string } };
       const realId = result.sessionId;
       if (inputEpochRef.current !== epoch) return null;
+      newSessionWorkspace.current = result.workspace;
       sessionIdRef.current = realId;
       return realId;
     })();
@@ -844,6 +854,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (eventSourceRef.current !== es || sessionIdRef.current !== sid) return;
         try {
           const event = JSON.parse(e.data) as AgentEvent;
+          if (event.type === "connection_rejected" && MissingWorkingDirectoryError.matches(event)) {
+            es.close();
+            eventSourceRef.current = null;
+            settle("missing_cwd");
+            return;
+          }
           if (event.type === "connected") settle("connected");
           handleAgentEventRef.current?.(event);
         } catch {
@@ -879,6 +895,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const ensureEventsConnected = useCallback(async (sid: string) => {
     // An open stream can still belong to a wrapper that was reclaimed while idle.
     const result = await connectEvents(sid);
+    if (result.status === "missing_cwd") throw new MissingWorkingDirectoryError();
     if (result.status === "connected" || result.source.readyState === EventSource.OPEN) return;
     if (eventSourceRef.current === result.source) eventSourceRef.current = null;
     result.source.close();
@@ -945,6 +962,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       },
     });
   }, []);
+
+  const reportInputRejection = useCallback((error: unknown) => {
+    if (MissingWorkingDirectoryError.matches(error)) setMissingCwd(true);
+    else addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
+  }, [addNotice]);
 
   const dismissNotice = useCallback((id: string) => {
     dispatchNotice({ type: "remove", id });
@@ -1530,7 +1552,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return true;
     } catch (e) {
       if (!ownsRequest()) return false;
-      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      reportInputRejection(e);
       // A command may have started its own run before rejecting the input.
       if (agentRunRef.current.isCurrent(promptRunId) && !agentRunRef.current.started
         && agentRunRef.current.finish(promptRunId)) {
@@ -1546,7 +1568,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [beginNested, displayModel, thinkingLevel, isNew, newSessionModel, ensureNewSession, ensureEventsConnected, notifyUserMessageSent,
-    reconcileAgentState, waitForPromptSettlement, addNotice, dismissErrorNotices,
+    reconcileAgentState, waitForPromptSettlement, addNotice, dismissErrorNotices, reportInputRejection,
     ensurePackSkillsReloaded, prepareAttachments, t]);
 
   const handleAbort = useCallback(async () => {
@@ -1813,11 +1835,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return { handled: false };
       }
     } catch (e) {
+      if (MissingWorkingDirectoryError.matches(e)) {
+        setMissingCwd(true);
+        return { handled: true, error: t("chat.missingWorkingDirectory") };
+      }
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, dismissErrorNotices, ensureNewSession, isNew, isCompacting, loadModels, loadSession, loadSlashCommands, promoteNewSession, onSessionStatsPanelOpen, refreshSessionStats]);
+  }, [addNotice, dismissErrorNotices, ensureNewSession, isNew, isCompacting, loadModels, loadSession, loadSlashCommands, promoteNewSession, onSessionStatsPanelOpen, refreshSessionStats, t]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An
@@ -1847,7 +1873,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return true;
     } catch (e) {
       if (inputEpochRef.current === epoch && sessionIdRef.current === sid) {
-        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        reportInputRejection(e);
       }
       return false;
     } finally {
@@ -1856,7 +1882,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setInputSending(false);
       }
     }
-  }, [addNotice, dismissErrorNotices, displayModel, thinkingLevel, loadSession, notifyUserMessageSent, reconcileAgentState, t]);
+  }, [addNotice, dismissErrorNotices, displayModel, thinkingLevel, loadSession, notifyUserMessageSent, reconcileAgentState, reportInputRejection, t]);
 
   const handleSteer = useCallback((message: string) => submitQueuedInput({
     type: "steer", message,
@@ -2082,7 +2108,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentPhase, timings, nestedCalls, partialToolResults,
     isNew,
     // Runtime refs
-    sessionIdRef, eventSourceRef,
+    sessionIdRef, eventSourceRef, missingCwd,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,

@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { existsSync, mkdirSync, realpathSync } from "fs";
 import { stat } from "node:fs/promises";
-import { basename, dirname, join, normalize, resolve } from "path";
+import { basename, dirname, join, normalize, relative, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
 
@@ -115,7 +115,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     // cwd is a subdirectory of a repo keeps its own project identity —
     // grouping subdirs under the repo root would change where new sessions
     // are created for existing users.
-    const isTopLevel = normalize(toplevel) === normalize(realCwd);
+    const isTopLevel = relative(toplevel, realCwd) === "";
     const isWorktreeTopLevel = gitDir !== commonDir && isTopLevel;
     info = {
       projectRoot: isWorktreeTopLevel ? dirname(normalize(commonDir)) : cwd,
@@ -157,7 +157,7 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
       // not marked them prunable yet.
       if (!current.prunable && existsSync(current.path)) {
         worktrees.push({
-          path: current.path,
+          path: normalize(current.path),
           branch: current.branch ?? null,
           isMain: worktrees.length === 0,
         });
@@ -227,12 +227,12 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
   const worktrees = await listWorktrees(cwd);
-  const target = worktrees.find((w) => w.path === worktreePath);
+  const target = worktrees.find((w) => w.path === normalize(worktreePath));
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
 
   try {
-    await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), worktreePath]);
+    await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), target.path]);
   } catch (error) {
     throw new Error(extractGitError(error));
   }

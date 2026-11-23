@@ -13,6 +13,7 @@ import {
 } from "@/lib/session-reader";
 import { clearRpcSessionError, getRpcSession } from "@/lib/rpc-manager";
 import { setUnreadSession } from "@/lib/session-unread";
+import { sessionDirectoryMissing } from "@/lib/session-working-directory";
 import { resolveSessionProject } from "@/lib/worktree";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
@@ -164,8 +165,13 @@ export async function GET(
       parentSessionId,
     } : null;
 
+    let missingCwd: boolean | undefined;
+    if (header?.cwd && searchParams.has("checkCwd")) {
+      try { missingCwd = sessionDirectoryMissing(header.cwd); } catch { /* Still serve history if the check fails. */ }
+    }
     return NextResponse.json({
       sessionId: id,
+      missingCwd,
       filePath,
       info,
       leafId,

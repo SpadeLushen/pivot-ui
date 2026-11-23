@@ -494,7 +494,7 @@ export function AppShell() {
     restoreAbortRef.current = controller;
     setRestoreTarget({ id, failed: false });
     try {
-      const response = await fetch(sessionDetailUrl(id), { signal: controller.signal });
+      const response = await fetch(sessionDetailUrl(id, true), { signal: controller.signal, cache: "no-store" });
       if (controller.signal.aborted) return;
       if (response.status === 404) {
         forgetLastSessionId(id);
@@ -542,17 +542,14 @@ export function AppShell() {
     replaceSessionUrl(null);
   }, [cancelInitialRestore]);
 
-  // Client-built transient SessionInfo (new session / fork) lacks the
-  // server-computed projectRoot, which the same-project check in
-  // handleCwdChange relies on. Hydrate it from the session list so switching
-  // worktrees right after creating a session doesn't close the chat.
+  // Fill in persisted fields once the new session has a file in the list.
   const hydrateSelectedSession = useCallback((sessionId: string, refreshTitle = false) => {
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);
         if (!full) return;
-        setSelectedSession((prev) => (prev && prev.id === sessionId && (refreshTitle || !prev.projectRoot)
+        setSelectedSession((prev) => (prev && prev.id === sessionId && (refreshTitle || !prev.path)
           ? { ...prev, ...full } : prev));
       })
       .catch(() => {});

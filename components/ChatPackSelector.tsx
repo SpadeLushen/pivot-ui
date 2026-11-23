@@ -24,9 +24,9 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const loadGeneration = useRef(0);
-  const packState = useWorkspacePackState(cwd);
+  const packState = useWorkspacePackState(disabled ? null : cwd);
   const [open, setOpen] = useState(false);
-  const trust = useWorkspaceTrust(cwd);
+  const trust = useWorkspaceTrust(cwd, !disabled);
   const untrusted = trust.trusted === false;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -57,10 +57,11 @@ export function ChatPackSelector({ cwd, refreshKey, onChanged, isMobile, disable
       .finally(() => { if (generation === loadGeneration.current) setLoading(false); });
   }, [load]);
   useEffect(() => {
+    if (disabled) return;
     reload();
     const generationRef = loadGeneration;
     return () => { generationRef.current++; };
-  }, [reload, refreshKey, packState.revision, packState.definitionsRevision, open]);
+  }, [disabled, reload, refreshKey, packState.revision, packState.definitionsRevision, open]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {

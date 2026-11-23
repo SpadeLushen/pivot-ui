@@ -3,6 +3,8 @@ import { PlainTextTheme } from "./plain-text-theme";
 import { normalizeTerminalLine } from "./ansi";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
+import { MissingWorkingDirectoryError } from "./missing-working-directory";
+import { sessionDirectoryMissing } from "./session-working-directory";
 import { existsSync } from "node:fs";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -616,6 +618,9 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     this.resetIdleTimer();
     const type = command.type as string;
+    if (type === "prompt" || type === "steer" || type === "follow_up") {
+      requireWorkingDirectory(this.inner.sessionManager.getCwd());
+    }
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
     if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools" || type === "reload_workspace_packs")) {
       await this.refreshWorkspaceTools();
@@ -1599,6 +1604,12 @@ export function notifyRunningChange(): void {
   }
 }
 
+function requireWorkingDirectory(cwd: string) {
+  if (sessionDirectoryMissing(cwd)) {
+    throw new MissingWorkingDirectoryError(`Session working directory no longer exists: ${cwd}`);
+  }
+}
+
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
@@ -1630,6 +1641,7 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
+    requireWorkingDirectory(cwd);
     // Initialize the legacy SDK singleton once, never from browser appearance.
     const themeState = globalThis as typeof globalThis & { __pivotSdkThemeInitialized?: boolean };
     if (!themeState.__pivotSdkThemeInitialized) {

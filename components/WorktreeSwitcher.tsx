@@ -9,6 +9,7 @@ interface WorktreeEntry {
   path: string;
   branch: string | null;
   isMain: boolean;
+  isCurrent: boolean;
 }
 
 interface WorktreeState {
@@ -96,13 +97,13 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
   }, []);
 
   const selectWorktree = useCallback((worktree: WorktreeEntry) => {
-    if (!state || worktree.path === cwd) {
+    if (!state || worktree.isCurrent) {
       closeMenu();
       return;
     }
     closeMenu();
     onCwdChange(worktree.path, state.projectRoot);
-  }, [closeMenu, cwd, onCwdChange, state]);
+  }, [closeMenu, onCwdChange, state]);
 
   const selectBranch = useCallback(async (branch: GitBranch) => {
     if (!state || busy) return;
@@ -159,7 +160,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     }
   }, [branch, busy, closeMenu, onCwdChange, state]);
 
-  const removeWorktree = useCallback(async (path: string, force: boolean) => {
+  const removeWorktree = useCallback(async ({ path, isCurrent }: WorktreeEntry, force: boolean) => {
     if (!state || busy) return;
 
     setBusy(true);
@@ -180,7 +181,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
         return;
       }
       setConfirmRemove(null);
-      if (path === cwd) {
+      if (isCurrent) {
         closeMenu();
         onCwdChange(state.projectRoot, state.projectRoot);
         return;
@@ -191,13 +192,12 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     } finally {
       setBusy(false);
     }
-  }, [busy, closeMenu, cwd, onCwdChange, state]);
+  }, [busy, closeMenu, onCwdChange, state]);
 
   if (!state?.isGit || !state.isTopLevel) return null;
 
-  const current = state.worktrees.find((worktree) => worktree.path === cwd)
-    ?? state.worktrees.find((worktree) => worktree.isMain);
-  const currentLabel = current?.branch ?? (current?.isMain ? "main" : "Worktree");
+  const current = state.worktrees.find((worktree) => worktree.isCurrent);
+  const currentLabel = current?.branch ?? (current ? "HEAD" : "Worktree");
   const unopenedBranches = state.branches.filter((branch) => branch.kind === "local" && !state.worktrees.some((worktree) => worktree.branch === branch.name));
 
   return (
@@ -258,12 +258,12 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
         }}>
           <div style={{ maxHeight: "min(304px, 48vh)", overflowY: "auto" }}>
             {state.worktrees.map((worktree) => {
-              const isCurrent = worktree.path === cwd;
+              const { isCurrent } = worktree;
               if (confirmRemove === worktree.path) {
                 return (
                   <div key={worktree.path} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid var(--border)", background: "rgba(239,68,68,0.06)" }}>
                     <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "var(--text)" }}>Uncommitted changes. Force remove?</span>
-                    <button type="button" onClick={() => void removeWorktree(worktree.path, true)} disabled={busy} style={{ padding: "3px 8px", border: "none", borderRadius: 5, background: "#ef4444", color: "#fff", cursor: "pointer", fontSize: 11 }}>Force</button>
+                    <button type="button" onClick={() => void removeWorktree(worktree, true)} disabled={busy} style={{ padding: "3px 8px", border: "none", borderRadius: 5, background: "#ef4444", color: "#fff", cursor: "pointer", fontSize: 11 }}>Force</button>
                     <button type="button" onClick={() => setConfirmRemove(null)} style={{ padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>Cancel</button>
                   </div>
                 );
@@ -299,7 +299,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
                   {!worktree.isMain && (
                     <button
                       type="button"
-                      onClick={() => void removeWorktree(worktree.path, false)}
+                      onClick={() => void removeWorktree(worktree, false)}
                       disabled={busy}
                       title={`Remove worktree checkout ${worktree.path}; the branch is kept`}
                       aria-label={`Remove worktree ${worktree.branch ?? worktree.path}`}

@@ -1,3 +1,4 @@
+import { MissingWorkingDirectoryError } from "./missing-working-directory";
 import type { InputReceipt } from "./pi-types";
 
 /** Old servers returned null: unknown is not the same as handled. */
@@ -38,6 +39,7 @@ export async function sendAgentCommand<T = unknown>(
     error?: string;
   };
   if (!res.ok || body.error) {
+    if (MissingWorkingDirectoryError.matches(body)) throw new MissingWorkingDirectoryError(body.error);
     throw new Error(body.error ?? `HTTP ${res.status}`);
   }
   return body.data as T;

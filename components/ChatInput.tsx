@@ -35,6 +35,7 @@ export interface Props {
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", attachments?: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   isStreaming: boolean;
   isInputSending?: boolean;
+  missingCwd?: boolean;
   isModelSelectionPending?: boolean;
   /** Keep draft/upload state mounted while an extension owns the composer slot. */
   suspended?: boolean;
@@ -260,7 +261,7 @@ function QueuedMessageRow({ kind, text, onToggle }: { kind: "steer" | "follow-up
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onInputActivity, onSteer, onFollowUp, isStreaming, isInputSending = false, isModelSelectionPending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
+  onSend, onAbort, onInputActivity, onSteer, onFollowUp, isStreaming, isInputSending = false, missingCwd = false, isModelSelectionPending = false, suspended = false, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   isCompacting, compactResult, routedModel, selectionNotice,
   onRefreshModels, modelsRefreshing = false, modelsRefreshError, modelCatalogError, modelScopeDiagnostics = [], openRouterCatalog,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -279,7 +280,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const { preferences } = usePreferences();
-  const modelControlsDisabled = isStreaming || isInputSending || isModelSelectionPending;
+  const modelControlsDisabled = missingCwd || isStreaming || isInputSending || isModelSelectionPending;
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -379,6 +380,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
+      if (missingCwd) return;
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
       if (current.trim()) return;
@@ -391,6 +393,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     prependText(text: string) {
+      if (missingCwd) return;
       if (!text.trim()) return;
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
@@ -407,6 +410,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     insertText(text: string) {
+      if (missingCwd) return;
       const ta = textareaRef.current;
       if (!ta) {
         setValue((v) => v + (v ? " " : "") + text);
@@ -525,7 +529,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // insert an "uploading" placeholder card and upload as-is, then swap in
   // the result. Send stays disabled until every attachment is ready.
   const addFiles = useCallback(async (files: File[]) => {
-    if (isStreaming || suspendedRef.current) return;
+    if (missingCwd || isStreaming || suspendedRef.current) return;
     for (const file of files) {
       if (!file || file.size === 0) continue;
       if (file.size > maxAttachmentBytes) {
@@ -546,7 +550,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const result = await uploadFile(id, file);
       setAttachments((prev) => prev.map((a) => (a.id === id ? result : a)));
     }
-  }, [isStreaming, maxAttachmentBytes, onNotice, imageFileToAttachment, uploadFile, t]);
+  }, [missingCwd, isStreaming, maxAttachmentBytes, onNotice, imageFileToAttachment, uploadFile, t]);
 
   // Retry a failed upload (uses the original File kept in uploadFilesRef).
   const retryAttachment = useCallback((id: string) => {
@@ -669,10 +673,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // All attachments must finish uploading before the message can be sent.
   const attachmentsReady = attachments.length === 0 || attachments.every((a) => a.status === "ready");
 
+  const canSend = !missingCwd && !isInputSending && !isModelSelectionPending && attachmentsReady && (!!value.trim() || attachments.length > 0);
   const handleSend = useCallback(async () => {
     const msg = value.trim();
-    if (!msg && !attachments.length) return;
-    if (suspendedRef.current || isStreaming || isInputSending || isModelSelectionPending || composerSendRef.current || !attachmentsReady) return;
+    if (!canSend || suspendedRef.current || isStreaming || composerSendRef.current) return;
     composerSendRef.current = true;
     const submittedValue = valueRef.current;
     const submittedAttachments = attachmentsRef.current;
@@ -697,7 +701,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       submittedInputRef.current = null;
       composerSendRef.current = false;
     }
-  }, [value, attachments, attachmentsReady, isStreaming, isInputSending, isModelSelectionPending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachments, canSend, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashNameQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -773,7 +777,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (slashQuery ? "1 match" : "1 command")
     : `${filteredSlashCommands.length} ${slashQuery ? "matches" : "commands"}`;
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = !suspended && hasInputText && attachments.length === 0 && !isInputSending;
+  const canQueueStreamingMessage = !missingCwd && !suspended && hasInputText && attachments.length === 0 && !isInputSending;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -930,7 +934,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const sendQueued = useCallback(async (mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (suspendedRef.current || !msg || attachments.length || isInputSending || composerSendRef.current) return;
+    if (!canQueueStreamingMessage || suspendedRef.current || composerSendRef.current) return;
     const handler = msg.startsWith("/") && onPromptWithStreamingBehavior
       ? () => onPromptWithStreamingBehavior(msg, mode === "steer" ? "steer" : "followUp")
       : mode === "steer" && onSteer ? () => onSteer(msg)
@@ -947,7 +951,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } finally {
       composerSendRef.current = false;
     }
-  }, [value, attachments, isInputSending, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, canQueueStreamingMessage, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = filteredSlashCommands.length - 1;
@@ -1242,7 +1246,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ref={fileInputRef}
         type="file"
         multiple
-        disabled={isStreaming}
+        disabled={missingCwd || isStreaming}
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
@@ -1292,7 +1296,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               }}>
                 Queued · {(queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)}
               </span>
-              {onRecallQueue && (
+              {!missingCwd && onRecallQueue && (
                 <button
                   onClick={onRecallQueue}
                   title="Remove all queued messages and put them back into the input box for editing"
@@ -1466,6 +1470,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                           {att.error ?? t("chat.attachFailed")}
                         </span>
                         <button
+                          disabled={missingCwd}
                           onClick={() => retryAttachment(att.id)}
                           title={t("chat.attachRetry")}
                           style={{
@@ -1487,6 +1492,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   </div>
                 )}
                 <button
+                  disabled={missingCwd}
                   onClick={() => removeAttachment(att.id)}
                   title={t("chat.removeAttachment")}
                   style={{
@@ -1504,9 +1510,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
         )}
 
+        {missingCwd && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6, color: "var(--text-muted)", fontSize: 12 }}>
+            <span role="status">{t("chat.missingWorkingDirectory")}</span>
+            {(value.length > 0 || attachments.length > 0) && (
+              <button type="button" onClick={clearInput} style={{ color: "var(--accent)", cursor: "pointer", whiteSpace: "nowrap" }}>
+                {t("chat.clearDraft")}
+              </button>
+            )}
+          </div>
+        )}
         {/* Main input */}
         <div style={{ position: "relative" }}>
-          {slashMenuOpen && slashQuery !== null && (
+          {!missingCwd && slashMenuOpen && slashQuery !== null && (
             <div
               className="overlay-surface"
               style={{
@@ -1641,7 +1657,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             </div>
           )}
-          {atMenuOpen && atQuery !== null && (() => {
+          {!missingCwd && atMenuOpen && atQuery !== null && (() => {
             const indexLoading = fileIndexLoading && (!fileIndex || fileIndex.cwd !== cwd);
             const matchCountLabel = atMatches.length === 1 ? "1 match" : `${atMatches.length} matches`;
             // With a truncated index, local results are provisional — the
@@ -1757,6 +1773,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           >
           <textarea
             ref={textareaRef}
+            disabled={missingCwd}
             value={value}
             onFocus={onInputActivity}
             onChange={(e) => {
@@ -1783,7 +1800,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              isStreaming && (onSteer || onFollowUp)
+              missingCwd ? "" : isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.runningPlaceholder")
                 : t("chat.messagePlaceholder")
@@ -1861,21 +1878,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               className="chat-send-button"
               onClick={handleSend}
-              disabled={isInputSending || isModelSelectionPending || (!value.trim() && !attachments.length) || !attachmentsReady}
+              disabled={!canSend}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
-                background: ((value.trim() || attachments.length) && attachmentsReady) ? "var(--accent)" : "var(--bg-panel)",
+                background: canSend ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: ((value.trim() || attachments.length) && attachmentsReady) ? "#fff" : "var(--text-dim)",
-                cursor: ((value.trim() || attachments.length) && attachmentsReady) ? "pointer" : "not-allowed",
+                color: canSend ? "#fff" : "var(--text-dim)",
+                cursor: canSend ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: ((value.trim() || attachments.length) && attachmentsReady) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: canSend ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
@@ -1900,7 +1917,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming}
+              disabled={missingCwd || isStreaming}
               title={t("chat.attachFile")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
@@ -1908,12 +1925,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 background: "none", border: "none",
                 borderRadius: 9,
                 color: attachments.length ? "var(--accent)" : "var(--text-muted)",
-                cursor: isStreaming ? "not-allowed" : "pointer",
-                opacity: isStreaming ? 0.5 : 1,
+                cursor: missingCwd || isStreaming ? "not-allowed" : "pointer",
+                opacity: missingCwd || isStreaming ? 0.5 : 1,
                 transition: "background 0.12s, color 0.12s",
               }}
               onMouseEnter={(e) => {
-                if (isStreaming) return;
+                if (missingCwd || isStreaming) return;
                 e.currentTarget.style.background = "var(--bg-hover)";
                 e.currentTarget.style.color = attachments.length ? "var(--accent)" : "var(--text)";
               }}
@@ -1925,7 +1942,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <Paperclip size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
 
-            {cwd && <ChatPackSelector key={cwd} cwd={cwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
+            {cwd && <ChatPackSelector key={cwd} cwd={cwd} disabled={missingCwd} refreshKey={packsRefreshKey} onChanged={onPacksChanged} isMobile={isMobile} />}
 
             {/* Keep model and thinking selection stable while input or a selection is pending. */}
             {onModelChange && (
@@ -2275,6 +2292,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onCwdChange && (
               <div className="chat-input-worktree-row">
                 <WorktreeSwitcher
+                  key={missingCwd ? "missing" : "available"}
                   cwd={cwd}
                   disabled={isStreaming || isCompacting}
                   onCwdChange={onCwdChange}

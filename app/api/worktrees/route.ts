@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { existsSync } from "fs";
+import { existsSync, realpathSync } from "fs";
+import { relative } from "path";
 import { addWorktree, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
 
@@ -25,11 +26,13 @@ export async function GET(req: Request) {
 
     const project = await resolveProject(cwd);
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
+    let currentPath: string | null = null;
     let isGit = true;
     try {
       // For a removed-worktree cwd (session of a deleted worktree), fall back
       // to the inferred project root so the switcher still shows the project.
-      worktrees = await listWorktrees(existsSync(cwd) ? cwd : project.projectRoot);
+      currentPath = existsSync(cwd) ? realpathSync(cwd) : null;
+      worktrees = await listWorktrees(currentPath ?? project.projectRoot);
     } catch {
       isGit = false;
     }
@@ -41,7 +44,10 @@ export async function GET(req: Request) {
       projectRoot: project.projectRoot,
       isGit,
       isTopLevel: project.isTopLevel,
-      worktrees,
+      worktrees: worktrees.map((entry) => ({
+        ...entry,
+        isCurrent: currentPath !== null && relative(currentPath, entry.path) === "",
+      })),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

@@ -209,7 +209,7 @@ export function ChatWindow({ session, initialSessionData, newSessionCwd, onAgent
     agentPhase, timings, nestedCalls, partialToolResults,
     isNew,
     sessionIdRef,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    missingCwd, handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleToggleQueuedMessage, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -327,6 +327,7 @@ export function ChatWindow({ session, initialSessionData, newSessionCwd, onAgent
       ref={chatInputRef}
       suspended={!!extensionInteraction}
       onSend={handleSend}
+      missingCwd={missingCwd}
       onAbort={handleAbort}
       onInputActivity={prewarmForInput}
       onSteer={agentRunning ? handleSteer : undefined}

@@ -1,3 +1,4 @@
+import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { clearRpcSessionError, getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -23,6 +24,12 @@ export async function GET(
     try {
       ({ session } = await startRpcSession(id, filePath, cwd));
     } catch (error) {
+      // EventSource hides HTTP error bodies. Deliver the startup rejection to the pending send.
+      if (MissingWorkingDirectoryError.matches(error)) {
+        return new Response(`data: ${JSON.stringify({ type: "connection_rejected", code: MissingWorkingDirectoryError.code })}\n\n`, {
+          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        });
+      }
       return new Response(`Failed to start agent: ${error}`, { status: 500 });
     }
   }
