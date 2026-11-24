@@ -16,7 +16,6 @@ const notoSansMono = Noto_Sans_Mono({
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Pivot UI ",
   description: "Pi Coding Agent Web Interface",
   icons: {
     icon: "/pi-agent-mark.svg",
@@ -33,6 +32,8 @@ export default function RootLayout({
   return (
     <html lang={initialPreferences.locale} translate="no" className={`${notoSansMono.variable} ${themeClass} notranslate`} suppressHydrationWarning>
       <head>
+        {/* Seed the tab title without streaming route metadata over session updates. */}
+        <title>Pivot UI</title>
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{

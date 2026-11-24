@@ -20,7 +20,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePreferences } from "@/lib/preferences-context";
 import type { EnterBehavior, TimeFormat } from "@/lib/preferences-types";
 import { copyText } from "@/lib/clipboard";
-import { nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
 import { replaceSessionUrl } from "@/lib/session-url";
 import { loadLastChat, saveLastChat, forgetLastSessionId } from "@/lib/last-session";
 import { sessionDetailUrl, type SessionData } from "@/lib/session-detail";
@@ -269,35 +268,6 @@ export function AppShell() {
       isStreaming: controls.isStreaming,
       error: controls.error,
     } : EMPTY_COMPACTION_STATE);
-  }, []);
-
-  const titleSessionRef = useRef<string | null>(null);
-  const titleStatusRef = useRef<BackgroundTitleStatus>(null);
-  useEffect(() => {
-    const sessionId = selectedSession?.id ?? null;
-    if (titleSessionRef.current !== sessionId) {
-      titleSessionRef.current = sessionId;
-      titleStatusRef.current = null;
-      if (!sessionId) document.title = "Pivot UI";
-    }
-    const updateTitle = () => {
-      const isAway = document.visibilityState === "hidden" || !document.hasFocus();
-      titleStatusRef.current = nextBackgroundTitleStatus(titleStatusRef.current, isAway, compactionState.isStreaming, !!sessionId);
-      const prefix = titleStatusRef.current === "ongoing" ? "[Ongoing] " : titleStatusRef.current === "done" ? "[Done] " : "";
-      document.title = prefix + document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
-    };
-    updateTitle();
-    window.addEventListener("blur", updateTitle);
-    window.addEventListener("focus", updateTitle);
-    document.addEventListener("visibilitychange", updateTitle);
-    return () => {
-      window.removeEventListener("blur", updateTitle);
-      window.removeEventListener("focus", updateTitle);
-      document.removeEventListener("visibilitychange", updateTitle);
-    };
-  }, [selectedSession?.id, compactionState.isStreaming]);
-  useEffect(() => () => {
-    document.title = document.title.replace(/^\[(?:Ongoing|Done)\] /, "");
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar

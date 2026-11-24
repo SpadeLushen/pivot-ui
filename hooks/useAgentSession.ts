@@ -27,7 +27,7 @@ import { useExtensionInteractions } from "@/hooks/useExtensionInteractions";
 import type { ExtensionUiSnapshot } from "@/lib/types";
 import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
 import { getFastModeTitleSuffix } from "@/lib/extension-statusline";
-import { getSessionDocumentTitle } from "@/lib/background-title";
+import { getSessionDocumentTitle, nextBackgroundTitleStatus, type BackgroundTitleStatus } from "@/lib/background-title";
 import { useTimings } from "@/hooks/useTimings";
 import { useSessionStatistics } from "@/hooks/useSessionStatistics";
 import { useModelCatalogRefresh } from "@/hooks/useModelCatalogRefresh";
@@ -466,15 +466,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Reconciliation can finish a run without receiving agent_end over SSE.
     if (!agentRunning) stopActiveTimings();
   }, [agentRunning, stopActiveTimings]);
+  const titleStatusRef = useRef<BackgroundTitleStatus>(null);
   const baseDocumentTitleRef = useRef("Pivot UI");
   const extensionTitleRef = useRef<string | null>(null);
   const fastModeTitleSuffixRef = useRef<string | null>(null);
   const applyDocumentTitle = useCallback(() => {
     const base = extensionTitleRef.current ?? baseDocumentTitleRef.current;
     const suffix = fastModeTitleSuffixRef.current;
-    const prefix = document.title.match(/^\[(?:Ongoing|Done)\] /)?.[0] ?? "";
+    const status = titleStatusRef.current;
+    const prefix = status === "ongoing" ? "[Ongoing] " : status === "done" ? "[Done] " : "";
     document.title = prefix + (suffix ? `${base} ${suffix}` : base);
   }, []);
+  useEffect(() => {
+    const updateTitle = () => {
+      const isAway = document.visibilityState === "hidden" || !document.hasFocus();
+      titleStatusRef.current = nextBackgroundTitleStatus(titleStatusRef.current, isAway, agentRunning, !!session?.id);
+      applyDocumentTitle();
+    };
+    updateTitle();
+    window.addEventListener("blur", updateTitle);
+    window.addEventListener("focus", updateTitle);
+    document.addEventListener("visibilitychange", updateTitle);
+    return () => {
+      window.removeEventListener("blur", updateTitle);
+      window.removeEventListener("focus", updateTitle);
+      document.removeEventListener("visibilitychange", updateTitle);
+    };
+  }, [agentRunning, session?.id, applyDocumentTitle]);
+
+  useEffect(() => () => { document.title = "Pivot UI"; }, []);
   const queueToggleInFlightRef = useRef(false);
   const agentRunRef = useRef(new AgentRunState());
   const inputPending = inputSending || (agentRunRef.current.running && !agentRunning);
