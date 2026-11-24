@@ -2294,7 +2294,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onCwdChange && (
               <div className="chat-input-worktree-row">
                 <WorktreeSwitcher
-                  key={missingCwd ? "missing" : "available"}
+                  key={`${missingCwd ? "missing" : "available"}:${cwd ?? ""}`}
                   cwd={cwd}
                   disabled={isStreaming || isCompacting}
                   onCwdChange={(nextCwd, root) => {

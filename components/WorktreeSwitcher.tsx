@@ -48,32 +48,25 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
   const branchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setActions(null);
-    if (!cwd) {
-      setState(null);
-      setOpen(false);
-      return;
-    }
+    if (!cwd) return;
 
     let cancelled = false;
-    setState(null);
     Promise.all([
       fetch(`/api/worktrees?cwd=${encodeURIComponent(cwd)}`).then((res) => res.json() as Promise<{ projectRoot?: string; isGit?: boolean; isTopLevel?: boolean; worktrees?: WorktreeEntry[]; error?: string }>),
-      fetch(`/api/git?cwd=${encodeURIComponent(cwd)}&action=branches`).then((res) => res.ok ? res.json() as Promise<{ branches?: GitBranch[] }> : { branches: [] }),
+      fetch(`/api/git?cwd=${encodeURIComponent(cwd)}&action=branches`).then((res) => res.ok ? res.json() as Promise<{ branches?: GitBranch[] }> : null),
     ])
       .then(([data, branchData]) => {
         if (cancelled || data.error || !data.projectRoot) return;
-        setState({
-          projectRoot: data.projectRoot,
+        const projectRoot = data.projectRoot;
+        setState(previous => ({
+          projectRoot,
           isGit: data.isGit ?? false,
           isTopLevel: data.isTopLevel ?? false,
           worktrees: data.worktrees ?? [],
-          branches: branchData.branches ?? [],
-        });
+          branches: branchData?.branches ?? previous?.branches ?? [],
+        }));
       })
-      .catch(() => {
-        if (!cancelled) setState(null);
-      });
+      .catch(() => { /* Keep the last snapshot until the next refresh. */ });
 
     return () => { cancelled = true; };
   }, [cwd, refreshKey]);
