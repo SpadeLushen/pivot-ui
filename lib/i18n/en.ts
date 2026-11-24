@@ -1,6 +1,16 @@
 // English translations (default)
 
 const en: Record<string, string> = {
+  "worktree.dirty": "Uncommitted changes",
+  "worktree.unpushed": "Unpushed commits: ${count}",
+  "worktree.withBranch": "Delete with branch",
+  "worktree.actions": "Actions for ${name}",
+  "worktree.back": "Back to branches and worktrees",
+  "worktree.changed": "Worktree branch changed. Reopen the menu.",
+  "worktree.checkedOut": "This branch is in use by a worktree and cannot be deleted.",
+  "worktree.delete": "Delete",
+  "worktree.loading": "Checking for changes…",
+  "worktree.partial": "Worktree removed, but branch deletion failed: ${error}",
   "slash.loadingArguments": "Loading arguments…",
   "slash.arguments": "/${command} · Arguments",
   "slash.noArguments": "No matching arguments",

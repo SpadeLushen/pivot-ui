@@ -1716,6 +1716,18 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   }
 }
 
+.worktree-actions { padding: 4px; font-size: 12px; }
+.worktree-actions button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px; border: 0; border-radius: 5px; background: none;
+  text-align: start; color: #dc2626; cursor: pointer;
+}
+.worktree-actions button:hover:not(:disabled) { background: var(--bg-hover); }
+.worktree-actions button:disabled { color: var(--text-dim); opacity: .55; cursor: not-allowed; }
+.worktree-actions .worktree-action-heading { color: var(--text); }
+.worktree-action-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-actions p { margin: 0; padding: 4px 8px; color: var(--text-muted); }
+
 .sidebar-project-menu-button svg {
   width: 16px;
   max-width: 16px;

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, GitFork, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, GitFork, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import type { GitBranch } from "@/lib/git-branches";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
@@ -32,6 +33,7 @@ function WorktreeIcon({ size = 11 }: { size?: number }) {
 }
 
 export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) {
+  const { t } = useI18n();
   const isMobile = useIsMobile();
   const [state, setState] = useState<WorktreeState | null>(null);
   const [open, setOpen] = useState(false);
@@ -39,12 +41,14 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
   const [branch, setBranch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [actions, setActions] = useState<{ name: string; tree?: WorktreeEntry } | null>(null);
+  const [status, setStatus] = useState<{ dirty: boolean; unpushed: number; checkedOut: boolean } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const branchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setActions(null);
     if (!cwd) {
       setState(null);
       setOpen(false);
@@ -81,7 +85,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
         setNewWorktreeOpen(false);
         setBranch("");
         setError(null);
-        setConfirmRemove(null);
+        setActions(null);
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -93,7 +97,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     setNewWorktreeOpen(false);
     setBranch("");
     setError(null);
-    setConfirmRemove(null);
+    setActions(null);
   }, []);
 
   const selectWorktree = useCallback((worktree: WorktreeEntry) => {
@@ -160,39 +164,66 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     }
   }, [branch, busy, closeMenu, onCwdChange, state]);
 
-  const removeWorktree = useCallback(async ({ path, isCurrent }: WorktreeEntry, force: boolean) => {
-    if (!state || busy) return;
+  function openActions(name: string, tree?: WorktreeEntry) {
+    setError(null);
+    setStatus(null);
+    setActions({ name, tree });
+  }
 
+  const root = state?.projectRoot;
+  useEffect(() => {
+    if (!root || !actions) return;
+    let active = true;
+    const { tree, name } = actions;
+    const query = new URLSearchParams({ cwd: root });
+    query.set(tree ? "inspectPath" : "inspectBranch", tree?.path ?? name);
+    fetch(`/api/worktrees?${query}`, { cache: "no-store" }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.branch !== (tree ? tree.branch : name)) throw new Error(t("worktree.changed"));
+      if (active) setStatus({ dirty: data.dirty, unpushed: data.unpushed, checkedOut: !tree && data.checkedOut });
+    }).catch(error => { if (active) setError(String(error)); });
+    return () => { active = false; };
+  }, [actions, root, t]);
+
+  const canDelete = !!status && !status.dirty && !status.checkedOut && !busy;
+  async function finishRemoval(withBranch: boolean) {
+    if (!state || !actions || !canDelete) return;
+    const { tree, name } = actions;
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/worktrees", {
+      const res = await fetch("/api/worktrees", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: state.projectRoot, path, force }),
+        body: JSON.stringify({ cwd: state.projectRoot, ...(tree
+          ? { path: tree.path, deleteBranch: withBranch ? tree.branch : undefined }
+          : { branch: name }) }),
       });
-      const data = await response.json().catch(() => ({})) as { error?: string; dirty?: boolean };
-      if (!response.ok) {
-        if (data.dirty && !force) {
-          setConfirmRemove(path);
-          return;
-        }
-        setError(data.error ?? `HTTP ${response.status}`);
+      const data = await res.json();
+      if (!res.ok) {
+        if (tree && data.dirty) setStatus(previous => previous && ({ ...previous, dirty: true }));
+        else setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      setConfirmRemove(null);
-      if (isCurrent) {
+      setActions(null);
+      if (data.branchError) window.alert(t("worktree.partial", { error: data.branchError }));
+      if (tree?.isCurrent) {
         closeMenu();
         onCwdChange(state.projectRoot, state.projectRoot);
-        return;
-      }
-      setRefreshKey((key) => key + 1);
+      } else setRefreshKey(key => key + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(String(cause));
     } finally {
       setBusy(false);
     }
-  }, [busy, closeMenu, onCwdChange, state]);
+  }
+
+  function actionsTrigger(name: string, tree?: WorktreeEntry) {
+    return <button type="button" className="sidebar-project-menu-button" disabled={busy} aria-label={t("worktree.actions", { name })} title={t("worktree.actions", { name })} onClick={() => openActions(name, tree)}>
+      <MoreHorizontal size={16} aria-hidden="true" />
+    </button>;
+  }
 
   if (!state?.isGit || !state.isTopLevel) return null;
 
@@ -204,7 +235,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     <div ref={dropdownRef} style={{ position: "relative" }}>
       <button
         type="button"
-        onClick={() => !disabled && setOpen((value) => !value)}
+        onClick={() => { if (open) closeMenu(); else { setOpen(true); setRefreshKey(key => key + 1); } }}
         disabled={disabled}
         title={current ? `Switch branch: ${current.path}` : "Switch branch"}
         aria-label="Switch branch"
@@ -256,21 +287,22 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
           borderRadius: 8,
           boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
         }}>
+          {actions ? (
+            <div className="worktree-actions" onKeyDown={event => { if (event.key === "Escape") { setActions(null); setError(null); event.stopPropagation(); } }}>
+              <button type="button" autoFocus disabled={busy} className="worktree-action-heading" onClick={() => { setActions(null); setError(null); }} aria-label={t("worktree.back")}><ArrowLeft size={14} /><strong>{actions.name}</strong></button>
+              {!status && !error && <p role="status">{t("worktree.loading")}</p>}
+              {status?.dirty && <p>{t("worktree.dirty")}</p>}
+              {status?.checkedOut && <p>{t("worktree.checkedOut")}</p>}
+              {!!status?.unpushed && <p>{t("worktree.unpushed", { count: status.unpushed })}</p>}
+              <button type="button" disabled={!canDelete} onClick={() => void finishRemoval(false)}><Trash2 size={14} />{t("worktree.delete")}</button>
+              {actions.tree?.branch && <button type="button" disabled={!canDelete} onClick={() => void finishRemoval(true)}><GitFork size={14} />{t("worktree.withBranch")}</button>}
+            </div>
+          ) : <>
           <div style={{ maxHeight: "min(304px, 48vh)", overflowY: "auto" }}>
             {state.worktrees.map((worktree) => {
               const { isCurrent } = worktree;
-              if (confirmRemove === worktree.path) {
-                return (
-                  <div key={worktree.path} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid var(--border)", background: "rgba(239,68,68,0.06)" }}>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "var(--text)" }}>Uncommitted changes. Force remove?</span>
-                    <button type="button" onClick={() => void removeWorktree(worktree, true)} disabled={busy} style={{ padding: "3px 8px", border: "none", borderRadius: 5, background: "#ef4444", color: "#fff", cursor: "pointer", fontSize: 11 }}>Force</button>
-                    <button type="button" onClick={() => setConfirmRemove(null)} style={{ padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>Cancel</button>
-                  </div>
-                );
-              }
-
               return (
-                <div key={worktree.path} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)", background: isCurrent ? "var(--bg-selected)" : "var(--bg)" }}>
+                <div key={worktree.path} className="sidebar-project-row" style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)", background: isCurrent ? "var(--bg-selected)" : "var(--bg)" }}>
                   <button
                     type="button"
                     onClick={() => selectWorktree(worktree)}
@@ -296,30 +328,20 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>{worktree.branch ?? worktree.path}</span>
                     {worktree.isMain && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>main</span>}
                   </button>
-                  {!worktree.isMain && (
-                    <button
-                      type="button"
-                      onClick={() => void removeWorktree(worktree, false)}
-                      disabled={busy}
-                      title={`Remove worktree checkout ${worktree.path}; the branch is kept`}
-                      aria-label={`Remove worktree ${worktree.branch ?? worktree.path}`}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 34px", width: 34, height: 30, marginRight: 4, padding: 0, border: "none", borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: busy ? "not-allowed" : "pointer" }}
-                      onMouseEnter={(event) => { if (!busy) { event.currentTarget.style.background = "rgba(239,68,68,0.08)"; event.currentTarget.style.color = "#ef4444"; } }}
-                      onMouseLeave={(event) => { event.currentTarget.style.background = "none"; event.currentTarget.style.color = "var(--text-dim)"; }}
-                    >
-                      <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                  )}
+                  {!worktree.isMain && actionsTrigger(worktree.branch ?? worktree.path, worktree)}
                 </div>
               );
             })}
             {unopenedBranches.length > 0 && <>
               <div style={{ padding: "7px 10px 4px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 10, fontWeight: 650, textTransform: "uppercase" }}>Branches</div>
               {unopenedBranches.map((branch) => (
-                <button key={branch.name} type="button" onClick={() => void selectBranch(branch)} disabled={busy} title={`Open ${branch.name} in a worktree`} style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, padding: "8px 10px", border: "none", borderBottom: "1px solid var(--border)", background: "var(--bg)", color: "var(--text-muted)", cursor: busy ? "not-allowed" : "pointer", fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
+                <div key={branch.name} className="sidebar-project-row" style={{ display: "flex", alignItems: "center" }}>
+                <button type="button" onClick={() => void selectBranch(branch)} disabled={busy} title={`Open ${branch.name} in a worktree`} style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, padding: "8px 10px", border: "none", borderBottom: "1px solid var(--border)", background: "var(--bg)", color: "var(--text-muted)", cursor: busy ? "not-allowed" : "pointer", fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
                   <span style={{ width: 10, flexShrink: 0 }} />
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{branch.name}</span>
                 </button>
+                {actionsTrigger(branch.name)}
+                </div>
               ))}
             </>}
           </div>
@@ -356,6 +378,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
               </div>
             </div>
           )}
+          </>}
           {error && <div style={{ padding: "0 10px 9px", color: "#dc2626", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" }}>{error}</div>}
         </div>
       )}

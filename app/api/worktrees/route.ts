@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync, realpathSync } from "fs";
 import { relative } from "path";
-import { addWorktree, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
+import { addWorktree, deleteLocalBranch, inspectBranch, inspectRemoval, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
@@ -23,6 +23,12 @@ export async function GET(req: Request) {
     }
     const denied = await checkCwdAllowed(cwd);
     if (denied) return denied;
+
+    const params = new URL(req.url).searchParams;
+    const branch = params.get("inspectBranch");
+    if (branch) return NextResponse.json(await inspectBranch(cwd, branch));
+    const inspectPath = params.get("inspectPath");
+    if (inspectPath) return NextResponse.json(await inspectRemoval(cwd, inspectPath));
 
     const project = await resolveProject(cwd);
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
@@ -78,25 +84,30 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE /api/worktrees  body: { cwd, path, force? }
+// DELETE: { cwd, branch } or { cwd, path, deleteBranch? }
 export async function DELETE(req: Request) {
   try {
-    const body = await req.json() as { cwd?: string; path?: string; force?: boolean };
+    const body = await req.json() as { cwd?: string; path?: string; branch?: string; deleteBranch?: string };
     if (!body.cwd || typeof body.cwd !== "string") {
       return NextResponse.json({ error: "cwd is required" }, { status: 400 });
+    }
+    const denied = await checkCwdAllowed(body.cwd);
+    if (denied) return denied;
+    if (body.path === undefined && typeof body.branch === "string" && body.branch) {
+      await deleteLocalBranch(body.cwd, body.branch);
+      return NextResponse.json({ success: true });
     }
     if (!body.path || typeof body.path !== "string") {
       return NextResponse.json({ error: "path is required" }, { status: 400 });
     }
-    const denied = await checkCwdAllowed(body.cwd);
-    if (denied) return denied;
-
-    await removeWorktree(body.cwd, body.path, body.force === true);
-    return NextResponse.json({ success: true });
+    if (body.deleteBranch !== undefined && (typeof body.deleteBranch !== "string" || !body.deleteBranch)) {
+      return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
+    }
+    const result = await removeWorktree(body.cwd, body.path, body.deleteBranch);
+    return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    // git refuses to remove dirty worktrees without --force; surface that so
-    // the UI can offer a force-remove confirmation.
+    // The checkout may have changed since the menu was opened.
     const dirty = /contains modified or untracked files|is dirty/i.test(message);
     return NextResponse.json({ error: message, dirty }, { status: dirty ? 409 : 400 });
   }

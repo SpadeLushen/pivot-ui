@@ -225,18 +225,71 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   return { path: worktreePath, branch: trimmed };
 }
 
-export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
+async function removableWorktree(cwd: string, worktreePath: string) {
   const worktrees = await listWorktrees(cwd);
   const target = worktrees.find((w) => w.path === normalize(worktreePath));
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
 
+  return target;
+}
+
+export async function inspectRemoval(cwd: string, path: string) {
+  const target = await removableWorktree(cwd, path);
+  const [dirty, status] = await Promise.all([
+    hasChanges(target.path),
+    target.branch ? inspectBranch(cwd, target.branch) : countUnpushed(target.path, "HEAD"),
+  ]);
+  return { ...status, branch: target.branch, dirty };
+}
+
+async function countUnpushed(cwd: string, ref: string, upstream?: string) {
+  // Without a live upstream, count commits not on any known remote branch.
+  const args = upstream ? [`${upstream}..${ref}`] : [ref, "--not", "--remotes"];
+  return { unpushed: Number(await git(cwd, ["rev-list", "--count", ...args, "--"])) };
+}
+
+export async function inspectBranch(cwd: string, branch: string) {
+  const ref = `refs/heads/${branch}`;
+  await git(cwd, ["check-ref-format", ref]);
+  const info = await git(cwd, ["for-each-ref", "--format=%(refname)%09%(upstream)%09%(upstream:remotename)%09%(upstream:track,nobracket)%09%(worktreepath)", ref]);
+  const row = info.split("\n").find(line => line.split("\t")[0] === ref);
+  if (!row) throw new Error("Local branch no longer exists");
+  const [, upstream, remote, tracking, checkout] = row.split("\t");
+  return { ...await countUnpushed(cwd, ref, remote !== "." && tracking !== "gone" ? upstream : undefined),
+    branch, dirty: false, checkedOut: Boolean(checkout) };
+}
+
+async function hasChanges(path: string) {
+  return (await git(path, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=none"])).length > 0;
+}
+
+export async function deleteLocalBranch(cwd: string, branch: string) {
+  await git(cwd, ["check-ref-format", `refs/heads/${branch}`]);
+  // Git refuses to delete a checked-out branch, even with -D.
+  await git(cwd, ["branch", "-D", "--", branch]);
+}
+
+export async function removeWorktree(cwd: string, worktreePath: string, deleteBranch?: string) {
+  const target = await removableWorktree(cwd, worktreePath);
+  if (deleteBranch !== undefined && target.branch !== deleteBranch) {
+    throw new Error("Cannot delete the branch: the checkout changed.");
+  }
+  const root = await getRepoRoot(cwd);
+  if (await hasChanges(target.path)) {
+    throw new Error("Worktree contains modified or untracked files");
+  }
   try {
-    await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), target.path]);
+    await git(root, ["worktree", "remove", "--", target.path]);
   } catch (error) {
     throw new Error(extractGitError(error));
   }
   invalidateProjectCache();
+  if (deleteBranch) {
+    try { await deleteLocalBranch(root, deleteBranch); }
+    catch (error) { return { branchError: extractGitError(error) }; }
+  }
+  return {};
 }
 
 function extractGitError(error: unknown): string {

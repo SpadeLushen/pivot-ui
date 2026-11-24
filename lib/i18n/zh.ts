@@ -3,6 +3,16 @@
 // Skills, MCP, Packs, Plugins, Prompts, Extensions, Themes, Pivot UI
 
 const zh: Record<string, string> = {
+  "worktree.dirty": "有未提交的更改",
+  "worktree.unpushed": "未推送的提交：${count}",
+  "worktree.withBranch": "同时删除分支",
+  "worktree.actions": "${name} 的操作",
+  "worktree.back": "返回分支和 worktree 列表",
+  "worktree.changed": "Worktree 分支已变更，请重新打开菜单。",
+  "worktree.checkedOut": "分支仍由 worktree 使用，不能删除。",
+  "worktree.delete": "删除",
+  "worktree.loading": "正在检查改动…",
+  "worktree.partial": "Worktree 已删除，但分支删除失败：${error}",
   "slash.loadingArguments": "正在加载参数候选…",
   "slash.arguments": "/${command} · 子命令与参数",
   "slash.noArguments": "没有匹配的子命令或参数",

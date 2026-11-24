@@ -256,7 +256,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `lib/worktree.ts` resolves linked worktree top-levels back to the main repo `projectRoot`; `listAllSessions()` attaches that to each `SessionInfo` so all worktrees for one repo are grouped together in the sidebar.
 - Worktree operations are served by `/api/worktrees` and guarded by the same allowed-root rules as `/api/files`.
 - New worktrees are created under `<repoRoot>-worktrees/<sanitized-branch>`. Existing branches are reused; otherwise `git worktree add -b` creates the branch.
-- Removing a dirty worktree returns `409` with `{ dirty: true }` so the UI can ask before retrying with `force`.
+- Worktree and branch action menus inspect Git status on opening. Unpushed commits are informational. Dirty worktrees cannot be removed (409); clean worktrees support Delete and, when attached, Delete with branch. Selecting either action executes without another confirmation.
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 
 ### Right-panel tools
