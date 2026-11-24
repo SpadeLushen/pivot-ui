@@ -222,6 +222,17 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
   allowFileRoot(worktreePath);
   invalidateProjectCache();
+  try {
+    const { getAgentDir, ProjectTrustStore } = await import("@earendil-works/pi-coding-agent");
+    const trust = new ProjectTrustStore(getAgentDir());
+    // Both checkouts already share global policy. Copy a saved grant only
+    // when the new path has no decision of its own or from its ancestors.
+    if (trust.get(repoRoot) === true && trust.get(worktreePath) === null) {
+      trust.set(worktreePath, true);
+    }
+  } catch (error) {
+    throw new Error(`Worktree created at ${worktreePath}, but trust inheritance failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   return { path: worktreePath, branch: trimmed };
 }
 

@@ -230,7 +230,7 @@ Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolC
 - `createPivotAgentSessionServices` respects saved project trust / global policy. Teardown emits `session_shutdown` before `dispose()` to close native processes. Never restart WinSW automatically.
 
 ### Workspace trust controls
-- `GET /api/workspace-trust?cwd=` reads SDK-effective trust (saved decision before global policy) without loading project resources or creating a session. Only the explicit Trust button posts a decision; opening Tools/Packs never grants trust or changes Pack switches.
+- `GET /api/workspace-trust?cwd=` reads SDK-effective trust (saved decision before global policy) without loading project resources or creating a session. The Trust button posts an explicit workspace decision; opening Tools/Packs never grants trust or changes Pack switches.
 - `useWorkspaceTrust` and `WorkspaceTrustNotice` are shared by Tools and the chat Packs selector. Every Packs opening performs a fresh, uncached check regardless of existing/legacy Pack records. Unknown, failed and untrusted status disable Pack toggles; stale requests are ignored after close/cwd changes. Tools exposes the same Trust action and refreshes its MCP/tools data after success. Global tool editing remains available without workspace trust.
 
 ### Model defaults for new sessions
@@ -255,7 +255,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 ### Worktrees and project grouping
 - `lib/worktree.ts` resolves linked worktree top-levels back to the main repo `projectRoot`; `listAllSessions()` attaches that to each `SessionInfo` so all worktrees for one repo are grouped together in the sidebar.
 - Worktree operations are served by `/api/worktrees` and guarded by the same allowed-root rules as `/api/files`.
-- New worktrees are created under `<repoRoot>-worktrees/<sanitized-branch>`. Existing branches are reused; otherwise `git worktree add -b` creates the branch.
+- New worktrees are created under `<repoRoot>-worktrees/<sanitized-branch>`. Existing branches are reused; otherwise `git worktree add -b` creates the branch. After a successful add, copy the main checkout's saved trust grant to the new path only if the SDK finds no trust decision there. Global policy remains a fallback; listing or switching worktrees never copies trust.
 - Worktree and branch action menus inspect Git status on opening. Unpushed commits are informational. Dirty worktrees cannot be removed (409); clean worktrees support Delete and, when attached, Delete with branch. Selecting either action executes without another confirmation.
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 
