@@ -22,7 +22,6 @@ import { MissingWorkingDirectoryError } from "@/lib/missing-working-directory";
 import { readInputReceipt, sendAgentCommand } from "@/lib/agent-client";
 import { AgentRunState } from "@/lib/agent-run-state";
 import { NestedToolState, type NestedCallGroup } from "@/lib/nested-tool-state";
-import { clearDraft } from "@/lib/draft-store";
 import { useExtensionInteractions } from "@/hooks/useExtensionInteractions";
 import type { ExtensionUiSnapshot } from "@/lib/types";
 import { useWorkspacePackRevision } from "@/hooks/useWorkspacePackRevision";
@@ -723,7 +722,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Move any newly edited input to the real session before props change;
     // only the unchanged accepted submission is cleared by the composer.
     opts.chatInputRef?.current?.promoteDraft?.(sid);
-    clearDraft(`new:${newSessionCwd}`);
     // The composer clears only the unchanged, accepted input after the receipt.
     const now = new Date().toISOString();
     onSessionCreated?.({

@@ -443,12 +443,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         && submitted.value === valueRef.current && submitted.attachments === attachmentsRef.current) {
         clearInputRef.current?.();
       }
+      if (draftKeyRef.current) clearDraft(draftKeyRef.current);
       setDraft(nextKey, {
         value: valueRef.current,
         attachments: attachmentsRef.current.map(attachmentToDraft),
       });
       // Avoid the prop-transition effect saving the accepted old submission
-      // back to new:<cwd> or loading over newly edited text.
+      // back to the new-session draft or loading over newly edited text.
       draftKeyRef.current = nextKey;
     },
     addImages(files: File[]) {
@@ -654,21 +655,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     };
   }, []);
 
+  const flushDraft = useCallback(() => {
+    const key = draftKeyRef.current;
+    if (key) setDraft(key, {
+      value: valueRef.current,
+      attachments: attachmentsRef.current.map(attachmentToDraft),
+    });
+  }, []);
+
   useEffect(() => {
-    const flushDraft = () => {
-      const key = draftKeyRef.current;
-      if (key) setDraft(key, {
-        value: valueRef.current,
-        attachments: attachmentsRef.current.map(attachmentToDraft),
-      });
-    };
     window.addEventListener("pagehide", flushDraft);
     return () => {
       window.removeEventListener("pagehide", flushDraft);
       flushDraft();
       attachmentsRef.current.forEach(revokeAttachmentPreview);
     };
-  }, []);
+  }, [flushDraft]);
 
   // All attachments must finish uploading before the message can be sent.
   const attachmentsReady = attachments.length === 0 || attachments.every((a) => a.status === "ready");
@@ -2295,7 +2297,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   key={missingCwd ? "missing" : "available"}
                   cwd={cwd}
                   disabled={isStreaming || isCompacting}
-                  onCwdChange={onCwdChange}
+                  onCwdChange={(nextCwd, root) => {
+                    flushDraft();
+                    onCwdChange(nextCwd, root);
+                  }}
                 />
               </div>
             )}

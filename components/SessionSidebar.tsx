@@ -52,16 +52,16 @@ interface Props {
   onClose?: () => void;
 }
 
-async function validateWorkspaceDirectory(cwd: string): Promise<string> {
+async function validateWorkspaceDirectory(cwd: string) {
   const response = await fetch("/api/cwd/validate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd }),
   });
-  const data = await response.json() as { cwd?: string; error?: string };
+  const data = await response.json() as { cwd?: string; projectRoot?: string; error?: string };
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   if (!data.cwd) throw new Error("Workspace validation did not return a path");
-  return data.cwd;
+  return { cwd: data.cwd, projectRoot: data.projectRoot ?? data.cwd };
 }
 
 /** Substitute the home dir prefix with ~ (no path truncation) */
@@ -701,8 +701,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const handleProjectSelect = useCallback(async (project: string, onSettled?: () => void) => {
     const generation = ++workspaceSelectionGeneration.current;
     try {
-      let cwd = await validateWorkspaceDirectory(project);
-      const root = projectRootFor(cwd) ?? cwd;
+      let { cwd, projectRoot: root } = await validateWorkspaceDirectory(project);
       // Homepage new-chat restoration is explicit and must not consult a
       // workspace's older session record. Ordinary switches restore it.
       const remembered = onSettled ? null : loadLastChat(root);
@@ -711,23 +710,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
         : undefined;
       if (target && target.cwd !== cwd) {
         try {
-          cwd = await validateWorkspaceDirectory(target.cwd);
+          cwd = (await validateWorkspaceDirectory(target.cwd)).cwd;
         } catch {
           target = undefined;
         }
       } else if (remembered?.kind === "new" && remembered.cwd !== cwd) {
         try {
-          cwd = await validateWorkspaceDirectory(remembered.cwd);
+          cwd = (await validateWorkspaceDirectory(remembered.cwd)).cwd;
         } catch {
           // A removed worktree falls back to the project's new-chat screen.
         }
       }
       if (generation !== workspaceSelectionGeneration.current) return null;
       setSelectedCwd(cwd);
-      if (!onSettled) {
-        if (target) onSelectSession(target);
-        else onNewSession?.("", cwd, root);
-      }
+      if (target) onSelectSession(target);
+      else onNewSession?.("", cwd, root);
       setWorkspaceMenu(null);
       setMoreWorkspacesOpen(false);
       setError(null);
@@ -738,7 +735,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
       onSettled?.();
     }
     return null;
-  }, [allSessions, projectRootFor, onSelectSession, onNewSession]);
+  }, [allSessions, onSelectSession, onNewSession]);
 
   // AppShell owns restoration by session ID. Only choose a default workspace
   // when it has no session to restore.
@@ -767,8 +764,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
   const selectWorkspaceDirectory = useCallback(async (path: string, tag?: string): Promise<string | null> => {
     try {
       workspaceSelectionGeneration.current++;
-      const cwd = await validateWorkspaceDirectory(path);
-      const project = projectRootFor(cwd) ?? cwd;
+      const { cwd, projectRoot: project } = await validateWorkspaceDirectory(path);
       // Merely choosing a directory does not register it. Only update metadata
       // when applying an automatic tag or restoring an archived workspace.
       if (tag || hiddenWorkspaces.has(project)) {
@@ -778,7 +774,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSessionRe
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
-  }, [projectRootFor, updateWorkspace, handleProjectSelect, hiddenWorkspaces]);
+  }, [updateWorkspace, handleProjectSelect, hiddenWorkspaces]);
 
   const handleDefaultCwd = useCallback(async (): Promise<string | null> => {
     try {

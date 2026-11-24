@@ -1328,6 +1328,7 @@ export function AppShell() {
               session={selectedSession}
               initialSessionData={initialSessionData}
               newSessionCwd={effectiveNewSessionCwd}
+              newSessionDraftRoot={activeProjectRoot ?? effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
               onUserMessageSent={handleUserMessageSent}

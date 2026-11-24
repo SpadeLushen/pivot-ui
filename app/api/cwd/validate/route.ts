@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
+import { resolveSessionProject } from "@/lib/worktree";
 import { allowFileRoot } from "@/lib/file-access";
 
 function normalizeCwd(cwd: string): string {
@@ -34,7 +35,8 @@ export async function POST(req: Request) {
     }
 
     allowFileRoot(normalizedCwd);
-    return NextResponse.json({ success: true, cwd: normalizedCwd });
+    const { projectRoot } = await resolveSessionProject(normalizedCwd);
+    return NextResponse.json({ success: true, cwd: normalizedCwd, projectRoot });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

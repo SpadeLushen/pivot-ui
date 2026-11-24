@@ -37,6 +37,7 @@ interface Props {
   session: SessionInfo | null;
   initialSessionData?: SessionData | null;
   newSessionCwd: string | null;
+  newSessionDraftRoot: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
   onUserMessageSent?: (cwd: string, projectRoot?: string | null) => void;
@@ -163,7 +164,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, expanded, onToggle, 
   );
 }
 
-export function ChatWindow({ session, initialSessionData, newSessionCwd, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showTurnTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
+export function ChatWindow({ session, initialSessionData, newSessionCwd, newSessionDraftRoot, onAgentEnd, onSessionCreated, onUserMessageSent, onSessionNameChange, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onCompactionStateChange, onExtensionStatusesChange, onSessionStatsPanelOpen, onContextUsageChange, showTps = false, showTurnTps = false, showCost = true, timeFormat = "24", enterBehavior = "followUp", onOpenFile, onCwdChange, packsRefreshKey, onPacksChanged }: Props) {
   const [expandedProcessGroups, setExpandedProcessGroups] = useState<Set<string>>(() => new Set());
   const toggleProcessGroup = useCallback((key: string) => {
     setExpandedProcessGroups((previous) => {
@@ -371,7 +372,7 @@ export function ChatWindow({ session, initialSessionData, newSessionCwd, onAgent
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       onNotice={(message, type) => addNotice({ message, type })}
-      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
+      draftKey={session?.id ?? (newSessionDraftRoot ? `new:${newSessionDraftRoot}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
       onCwdChange={onCwdChange}
       packsRefreshKey={packsRefreshKey}
