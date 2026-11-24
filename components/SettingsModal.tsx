@@ -10,9 +10,11 @@ import { useDirectionalTransition } from "@/hooks/useDirectionalTransition";
 import { usePreferences } from "@/lib/preferences-context";
 import type { TimeFormat } from "@/lib/preferences-types";
 import { ModelsConfigTab } from "./ModelsConfig";
+import { ModelHttpTimeoutSettings } from "./ModelHttpTimeoutSettings";
+import { IdleTimeoutSettings } from "./IdleTimeoutSettings";
 import { StorageSettings } from "./StorageSettings";
 
-type SettingsTab = "general" | "models" | "storage";
+type SettingsTab = "appearance" | "behavior" | "models" | "storage";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -34,8 +36,8 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
   const isMobile = useIsMobile();
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
-  const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(["general"]);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
+  const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(["appearance"]);
   const [tabDirection, setTabDirection] = useState<"forward" | "backward">("forward");
   const tabContentRef = useDirectionalTransition(activeTab, tabDirection);
   const { preferences, updatePreferences } = usePreferences();
@@ -54,7 +56,8 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
     }
   };
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: "general", label: t("settings.general"), icon: <Globe size={15} strokeWidth={1.8} aria-hidden="true" /> },
+    { id: "appearance", label: t("settings.appearance"), icon: <Globe size={15} strokeWidth={1.8} aria-hidden="true" /> },
+    { id: "behavior", label: t("settings.behavior"), icon: <Keyboard size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "storage", label: t("settings.storage"), icon: <Database size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "models", label: t("settings.models"), icon: <Cpu size={15} strokeWidth={1.8} aria-hidden="true" /> },
   ];
@@ -146,6 +149,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
             borderBottom: "1px solid var(--border)",
             flexShrink: 0,
             padding: "0 12px",
+            overflowX: "auto",
             background: "var(--bg-panel)",
           }}
         >
@@ -188,8 +192,8 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
         {/* Content */}
         <div ref={tabContentRef} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {/* Keep visited panels mounted until Settings closes, including drafts and scroll positions. */}
-          {visitedTabs.includes("general") && (
-            <div hidden={activeTab !== "general"} style={{ padding: 24, overflowY: "auto", height: "100%" }}>
+          {visitedTabs.includes("appearance") && (
+            <div hidden={activeTab !== "appearance"} style={{ padding: 24, overflowY: "auto", height: "100%" }}>
               {/* Language */}
               <section style={{ marginBottom: 0 }}>
                 <h3
@@ -380,63 +384,6 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </div>
               </section>
 
-              {/* Enter behavior while the agent is running */}
-              <section style={{ marginTop: 32 }}>
-                <h3
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    marginBottom: 4,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Keyboard size={16} strokeWidth={1.8} aria-hidden="true" />
-                  {t("settings.enterBehavior")}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-muted)",
-                    marginBottom: 16,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {t("settings.enterBehaviorDescription")}
-                </p>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {([
-                    ["steer", t("settings.enterBehaviorSteer")],
-                    ["followUp", t("settings.enterBehaviorFollowUp")],
-                  ] as const).map(([behavior, label]) => {
-                    const isActive = enterBehavior === behavior;
-                    return (
-                      <button
-                        key={behavior}
-                        type="button"
-                        onClick={() => onEnterBehaviorChange(behavior)}
-                        aria-pressed={isActive}
-                        style={{
-                          padding: "10px 20px",
-                          background: isActive ? "var(--accent)" : "var(--bg)",
-                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
-                          borderRadius: 8,
-                          color: isActive ? "#fff" : "var(--text)",
-                          cursor: "pointer",
-                          fontSize: 13,
-                          fontWeight: isActive ? 600 : 400,
-                          transition: "all 0.12s",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-
               {/* Fork session display (shared server preference) */}
               <section style={{ marginTop: 32 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
@@ -535,6 +482,69 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 </label>
               </section>
 
+            </div>
+          )}
+
+          {visitedTabs.includes("behavior") && (
+            <div hidden={activeTab !== "behavior"} style={{ padding: 24, overflowY: "auto", height: "100%" }}>
+              {/* Enter behavior while the agent is running */}
+              <section>
+                <h3
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: 4,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <Keyboard size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.enterBehavior")}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {t("settings.enterBehaviorDescription")}
+                </p>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {([
+                    ["steer", t("settings.enterBehaviorSteer")],
+                    ["followUp", t("settings.enterBehaviorFollowUp")],
+                  ] as const).map(([behavior, label]) => {
+                    const isActive = enterBehavior === behavior;
+                    return (
+                      <button
+                        key={behavior}
+                        type="button"
+                        onClick={() => onEnterBehaviorChange(behavior)}
+                        aria-pressed={isActive}
+                        style={{
+                          padding: "10px 20px",
+                          background: isActive ? "var(--accent)" : "var(--bg)",
+                          border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          borderRadius: 8,
+                          color: isActive ? "#fff" : "var(--text)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 400,
+                          transition: "all 0.12s",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+              <IdleTimeoutSettings />
+              <ModelHttpTimeoutSettings />
             </div>
           )}
 

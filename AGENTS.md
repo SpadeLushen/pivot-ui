@@ -183,7 +183,7 @@ hooks/
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
-- Idle timeout: 10 minutes. Background `cache_warm` usage updates accounting but never renews this timeout. A bound SDK 1.6 session emits `session_start` and `resources_discover` on reload; do not bind it a second time. Wait for abort, extension shutdown, disposal and credential settlement before reopening the same ID. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+- Idle timeout defaults to 10 minutes. Shared Behavior preferences can change the duration or disable it for live and future wrappers. Background `cache_warm` usage updates accounting but never renews this timeout. A bound SDK 1.6 session emits `session_start` and `resources_discover` on reload; do not bind it a second time. Wait for abort, extension shutdown, disposal and credential settlement before reopening the same ID. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Shared user preferences
 - Shared preferences live in `~/.pivot-ui/preferences.json`, including `theme`, `locale`, `tool-preset`, `sound-enabled`, `tps-enabled`, `cost-enabled` (defaults to `true` and controls turn-footer/top-bar cost display), `enter-behavior`, `time-format`, and `default-workspace-parent` (defaults to `~/pivot-default-workspaces`). `tool-preset` is retained as dormant legacy data; it does not control sessions.

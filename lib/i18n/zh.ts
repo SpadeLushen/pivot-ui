@@ -168,7 +168,12 @@ const zh: Record<string, string> = {
 
   // Settings modal
   "settings.title": "设置",
-  "settings.general": "通用",
+  "settings.appearance": "外观",
+  "settings.behavior": "行为",
+  "settings.idleEnabled": "自动停止空闲会话",
+  "settings.modelHttpTimeout": "模型响应 HTTP 空闲超时（秒，0 表示关闭）",
+  "settings.idleMinutes": "空闲时长（分钟）",
+  "settings.idleSaveError": "无法保存空闲设置，请重试。",
   "settings.models": "Models",
   "settings.language": "语言",
   "settings.theme": "主题",

@@ -6,6 +6,13 @@ export type Locale = "en" | "zh";
 export type EnterBehavior = "steer" | "followUp";
 export type TimeFormat = "12" | "24";
 
+// Keep each timeout within Node's signed 32-bit millisecond limit.
+export const MAX_IDLE_MINUTES = 35_791;
+
+export function isIdleMinutes(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_IDLE_MINUTES;
+}
+
 export interface UserPreferences {
   theme: Theme;
   locale: Locale;
@@ -19,6 +26,8 @@ export interface UserPreferences {
   /** Last accepted message's selected level, keyed by model ID (not provider). */
   "model-thinking-levels": Record<string, ThinkingLevelOption>;
   "fork-hierarchy-enabled": boolean;
+  "idle-timeout-enabled": boolean;
+  "idle-timeout-minutes": number;
   "enter-behavior": EnterBehavior;
   "time-format": TimeFormat;
   "default-workspace-parent": string;
@@ -40,6 +49,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   "hidden-models": [],
   "model-thinking-levels": {},
   "fork-hierarchy-enabled": false,
+  "idle-timeout-enabled": true,
+  "idle-timeout-minutes": 10,
   "enter-behavior": "followUp",
   "time-format": "24",
   "default-workspace-parent": "~/pivot-default-workspaces",
@@ -74,6 +85,8 @@ export function normalizePreferences(value: unknown): UserPreferences {
     "fork-hierarchy-enabled": typeof raw["fork-hierarchy-enabled"] === "boolean"
       ? raw["fork-hierarchy-enabled"]
       : DEFAULT_PREFERENCES["fork-hierarchy-enabled"],
+    "idle-timeout-enabled": raw["idle-timeout-enabled"] !== false,
+    "idle-timeout-minutes": isIdleMinutes(raw["idle-timeout-minutes"]) ? raw["idle-timeout-minutes"] : DEFAULT_PREFERENCES["idle-timeout-minutes"],
     "enter-behavior": raw["enter-behavior"] === "steer" ? "steer" : DEFAULT_PREFERENCES["enter-behavior"],
     "time-format": raw["time-format"] === "12" ? "12" : DEFAULT_PREFERENCES["time-format"],
     "session-search-enabled": raw["session-search-enabled"] === true,

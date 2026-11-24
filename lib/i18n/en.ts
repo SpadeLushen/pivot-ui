@@ -166,7 +166,12 @@ const en: Record<string, string> = {
 
   // Settings modal
   "settings.title": "Settings",
-  "settings.general": "General",
+  "settings.appearance": "Appearance",
+  "settings.behavior": "Behavior",
+  "settings.idleEnabled": "Automatically stop idle sessions",
+  "settings.modelHttpTimeout": "Model response HTTP idle timeout (seconds, 0 = off)",
+  "settings.idleMinutes": "Idle timeout (minutes)",
+  "settings.idleSaveError": "Could not save idle timeout settings. Try again.",
   "settings.models": "Models",
   "settings.language": "Language",
   "settings.theme": "Theme",

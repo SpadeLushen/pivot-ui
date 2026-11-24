@@ -2,6 +2,9 @@ import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager,
 import { PlainTextTheme } from "./plain-text-theme";
 import { normalizeTerminalLine } from "./ansi";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
+import { bindModelHttpTransport } from "./model-http-transport";
+import { httpSettingsRevision } from "./model-http-settings";
+import { subscribeIdlePolicy } from "./preferences";
 import { randomUUID } from "crypto";
 import { MissingWorkingDirectoryError } from "./missing-working-directory";
 import { sessionDirectoryMissing } from "./session-working-directory";
@@ -200,6 +203,9 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private unsubscribe: (() => void) | null = null;
+  private idleTimeoutMs = 0;
+  private lastActivity = Date.now();
+  private unsubscribeIdlePolicy?: () => void;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private modelStartTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
@@ -220,7 +226,8 @@ export class AgentSessionWrapper {
 
   private readonly plainTextTheme = new PlainTextTheme();
 
-  constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0, private startupWarning?: string) {
+  constructor(public readonly inner: AgentSessionLike, initialPackRevision = 0, private startupWarning?: string,
+    private appliedHttpRevision = httpSettingsRevision(), private releaseHttpTransport?: () => void) {
     this.sessionPersisted = Boolean(inner.sessionFile && existsSync(inner.sessionFile));
     this.workspacePackRevision = initialPackRevision;
     this.workspaceResourceRevision = resourceRevision(inner.sessionManager.getCwd());
@@ -368,6 +375,10 @@ export class AgentSessionWrapper {
   }
 
   start(): void {
+    this.unsubscribeIdlePolicy = subscribeIdlePolicy(prefs => {
+      this.idleTimeoutMs = prefs["idle-timeout-enabled"] ? prefs["idle-timeout-minutes"] * 60_000 : 0;
+      this.scheduleIdleTimeout();
+    });
     const cwd = this.workspaceCwd();
     if (cwd) this.unsubscribeResourceChanges = subscribeResourceChanges(cwd, () => this.refreshWorkspacePacksInBackground());
     if (cwd) this.unsubscribeWorkspaceTools = subscribeWorkspaceTools(cwd, () => {
@@ -553,8 +564,19 @@ export class AgentSessionWrapper {
   }
 
   private resetIdleTimer(): void {
+    this.lastActivity = Date.now();
+    this.scheduleIdleTimeout();
+  }
+
+  private scheduleIdleTimeout(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
+    this.idleTimer = null;
+    if (!this._alive || !this.idleTimeoutMs) return;
+    const remaining = Math.max(0, this.lastActivity + this.idleTimeoutMs - Date.now());
+    this.idleTimer = setTimeout(() => {
+      if (this.isRunning()) this.resetIdleTimer();
+      else this.destroy();
+    }, remaining);
   }
 
   private isModelProgress(event: AgentEvent): boolean {
@@ -638,6 +660,13 @@ export class AgentSessionWrapper {
     const type = command.type as string;
     if (type === "prompt" || type === "steer" || type === "follow_up") {
       requireWorkingDirectory(this.inner.sessionManager.getCwd());
+    }
+    const revision = httpSettingsRevision();
+    if (this.appliedHttpRevision !== revision && ["prompt", "compact", "steer", "follow_up", "navigate_tree"].includes(type)) {
+      await this.inner.settingsManager.reload();
+      const failure = this.inner.settingsManager.drainErrors()[0];
+      if (failure) throw failure.error;
+      this.appliedHttpRevision = revision;
     }
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
     if (!this.isRunning() && (this.shouldWaitForExtensions(type) || type === "get_tools" || type === "reload_workspace_packs")) {
@@ -1065,6 +1094,7 @@ export class AgentSessionWrapper {
     this.unsubscribeWorkspacePacks?.();
     this.unsubscribeWorkspaceTools?.();
     this.unsubscribeResourceChanges?.();
+    this.unsubscribeIdlePolicy?.();
     this.cancelExtensionUi();
     void this.finishShutdown().finally(() => {
       this.onDestroyCallback?.();
@@ -1084,6 +1114,7 @@ export class AgentSessionWrapper {
     } catch { console.warn("[pivot-ui] Extension shutdown failed"); }
     try { this.inner.dispose(); }
     catch { console.warn("[pivot-ui] Session disposal failed"); }
+    this.releaseHttpTransport?.();
     try { await this.inner.modelRuntime.settleCredentialWrites(); }
     catch { console.warn("[pivot-ui] Could not settle credential writes"); }
   }
@@ -1686,6 +1717,7 @@ export async function startRpcSession(
     try { await reconcileWorkspacePackMcp(cwd); }
     catch (error) { console.warn("[packs] MCP synchronization deferred", cwd, String(error)); }
     const initialPackRevision = readWorkspaceState({ cwd }).revision;
+    const httpRevision = httpSettingsRevision();
     const services = await createPivotAgentSessionServices({ cwd, agentDir }, legacyAzure || requestedModel?.provider === LEGACY_AZURE_PROVIDER);
     const desired = requestedModel ?? (legacyAzure ? savedModel : undefined);
     const startupModel = desired ? services.modelRuntime.getModel(desired.provider, desired.modelId) : undefined;
@@ -1712,7 +1744,8 @@ export async function startRpcSession(
     activateAllSessionTools(inner);
 
     // New sessions retain pi's deferred persistence until a conversation starts.
-    const wrapper = new AgentSessionWrapper(inner, initialPackRevision, sessionFile ? modelFallbackMessage : undefined);
+    const releaseTransport = bindModelHttpTransport(inner.modelRuntime, inner.settingsManager);
+    const wrapper = new AgentSessionWrapper(inner, initialPackRevision, sessionFile ? modelFallbackMessage : undefined, httpRevision, releaseTransport);
     if (globalThis.__piStopping) {
       await wrapper.destroyAndWait();
       throw new Error("Agent runtime is shutting down");

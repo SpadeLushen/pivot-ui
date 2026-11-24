@@ -26,6 +26,7 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
     "node-pty",
+    "undici",
   ],
   allowedDevOrigins,
   // Attachment uploads (multipart) can reach ~10 MiB of file data plus

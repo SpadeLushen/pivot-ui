@@ -53,7 +53,9 @@ ChatInput
 ```
 
 `rpc-manager.ts` 是运行时的唯一入口。它按 session id 缓存一个
-`AgentSessionWrapper`，并在空闲 10 分钟后释放，避免热重载或并发请求创建重复会话。
+`AgentSessionWrapper`，默认在空闲 10 分钟后释放（可在「行为」调整或关闭），避免热重载或并发请求创建重复会话。
+
+「行为」中的模型响应 HTTP 空闲超时单独写入 Pi 全局 `settings.json` 的 `httpIdleTimeoutMs`。界面单位为秒，默认 300，0 表示关闭。模型 HTTP 连接使用会话自己的连接池，不修改 Next.js 的全局 fetch。受信任项目的 Pi 设置可覆盖全局默认值；Provider 自己的请求期限仍然适用。
 
 ## 四层分别做什么
 

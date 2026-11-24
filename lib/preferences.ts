@@ -10,6 +10,7 @@ import { getPivotUiConfigDir } from "./attachment-config";
 import { resolveDefaultWorkspaceParent } from "./default-workspace-parent";
 import {
   DEFAULT_PREFERENCES,
+  isIdleMinutes,
   normalizePreferences,
   type PreferencePatch,
   type UserPreferences,
@@ -43,12 +44,27 @@ async function writePreferences(preferences: UserPreferences): Promise<void> {
 
 // Serialize read-modify-write operations so simultaneous browser updates do
 // not overwrite a field changed by another request in this Node process.
-const preferenceGlobals = globalThis as typeof globalThis & { __pivotPreferencesWriteChain?: Promise<void> };
+type IdlePolicyListener = (preferences: UserPreferences) => void;
+const preferenceGlobals = globalThis as typeof globalThis & {
+  __pivotPreferencesWriteChain?: Promise<void>;
+  __pivotIdlePolicyListeners?: Set<IdlePolicyListener>;
+};
+
+export function subscribeIdlePolicy(listener: IdlePolicyListener) {
+  const listeners = preferenceGlobals.__pivotIdlePolicyListeners ??= new Set();
+  listeners.add(listener);
+  listener(readPreferences());
+  return () => { listeners.delete(listener); };
+}
 
 function mutatePreferences(mutate: (current: UserPreferences) => UserPreferences): Promise<UserPreferences> {
   const run = (preferenceGlobals.__pivotPreferencesWriteChain ?? Promise.resolve()).then(async () => {
-    const next = normalizePreferences(mutate(readPreferences()));
+    const current = readPreferences();
+    const next = normalizePreferences(mutate(current));
     await writePreferences(next);
+    if (current["idle-timeout-enabled"] !== next["idle-timeout-enabled"] || current["idle-timeout-minutes"] !== next["idle-timeout-minutes"]) {
+      for (const listener of preferenceGlobals.__pivotIdlePolicyListeners ?? []) listener(next);
+    }
     return next;
   });
   preferenceGlobals.__pivotPreferencesWriteChain = run.then(() => undefined, () => undefined);
@@ -89,6 +105,11 @@ export function parsePreferencePatch(value: unknown): { patch: PreferencePatch }
         if (item !== "none" && item !== "default" && item !== "full") return { error: `Invalid preference: ${key}` };
         patch["tool-preset"] = item;
         break;
+      case "idle-timeout-minutes":
+        if (!isIdleMinutes(item)) return { error: `Invalid preference: ${key}` };
+        patch[key] = item;
+        break;
+      case "idle-timeout-enabled":
       case "sound-enabled":
       case "tps-enabled":
       case "turn-tps-enabled":
