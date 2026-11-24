@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronDown, GitFork, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { GitBranch } from "@/lib/git-branches";
@@ -32,6 +32,29 @@ function WorktreeIcon({ size = 11 }: { size?: number }) {
   return <GitFork size={size} aria-hidden="true" />;
 }
 
+function MenuBody({ showActions, actionsPage, children }: { showActions: boolean; actionsPage: ReactNode; children: ReactNode }) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current!;
+    const page = (showActions ? actionsRef : listRef).current!;
+    const resize = () => { frame.style.height = `${page.offsetHeight}px`; };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(page);
+    return () => observer.disconnect();
+  }, [showActions]);
+
+  return <div ref={frameRef} className="worktree-menu-frame">
+    <div className="worktree-menu-track" data-view={showActions ? "actions" : "list"}>
+      <div ref={listRef} className="worktree-menu-page" inert={showActions}>{children}</div>
+      <div ref={actionsRef} className="worktree-menu-page" inert={!showActions}>{actionsPage}</div>
+    </div>
+  </div>;
+}
+
 export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -41,7 +64,16 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
   const [branch, setBranch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [actions, setActions] = useState<{ name: string; tree?: WorktreeEntry } | null>(null);
+  const [target, setActions] = useState<{ name: string; tree?: WorktreeEntry } | null>(null);
+  const [showActions, setShowActions] = useState(false);
+  const actions = showActions ? target : null;
+  const backRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    if (actions) backRef.current?.focus({ preventScroll: true });
+    else if (open) triggerRef.current?.focus({ preventScroll: true });
+  }, [actions, open]);
+
   const [status, setStatus] = useState<{ dirty: boolean; unpushed: number; checkedOut: boolean } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -161,6 +193,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
     setError(null);
     setStatus(null);
     setActions({ name, tree });
+    setShowActions(true);
   }
 
   const root = state?.projectRoot;
@@ -199,7 +232,7 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
         else setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      setActions(null);
+      setShowActions(false);
       if (data.branchError) window.alert(t("worktree.partial", { error: data.branchError }));
       if (tree?.isCurrent) {
         closeMenu();
@@ -213,13 +246,14 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
   }
 
   function actionsTrigger(name: string, tree?: WorktreeEntry) {
-    return <button type="button" className="sidebar-project-menu-button" disabled={busy} aria-label={t("worktree.actions", { name })} title={t("worktree.actions", { name })} onClick={() => openActions(name, tree)}>
+    return <button type="button" className="sidebar-project-menu-button" disabled={busy} aria-label={t("worktree.actions", { name })} title={t("worktree.actions", { name })} onClick={event => { triggerRef.current = event.currentTarget; openActions(name, tree); }}>
       <MoreHorizontal size={16} aria-hidden="true" />
     </button>;
   }
 
   if (!state?.isGit || !state.isTopLevel) return null;
 
+  const menuError = error && <div style={{ padding: "0 10px 9px", color: "#dc2626", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" }}>{error}</div>;
   const current = state.worktrees.find((worktree) => worktree.isCurrent);
   const currentLabel = current?.branch ?? (current ? "HEAD" : "Worktree");
   const unopenedBranches = state.branches.filter((branch) => branch.kind === "local" && !state.worktrees.some((worktree) => worktree.branch === branch.name));
@@ -280,17 +314,18 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
           borderRadius: 8,
           boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
         }}>
-          {actions ? (
-            <div className="worktree-actions" onKeyDown={event => { if (event.key === "Escape") { setActions(null); setError(null); event.stopPropagation(); } }}>
-              <button type="button" autoFocus disabled={busy} className="worktree-action-heading" onClick={() => { setActions(null); setError(null); }} aria-label={t("worktree.back")}><ArrowLeft size={14} /><strong>{actions.name}</strong></button>
+          <MenuBody showActions={!!actions} actionsPage={target && <>
+            <div className="worktree-actions" onKeyDown={event => { if (event.key === "Escape") { setShowActions(false); setError(null); event.stopPropagation(); } }}>
+              <button type="button" ref={backRef} disabled={busy} className="worktree-action-heading" onClick={() => { setShowActions(false); setError(null); }} aria-label={t("worktree.back")}><ArrowLeft size={14} /><strong>{target.name}</strong></button>
               {!status && !error && <p role="status">{t("worktree.loading")}</p>}
               {status?.dirty && <p>{t("worktree.dirty")}</p>}
               {status?.checkedOut && <p>{t("worktree.checkedOut")}</p>}
               {!!status?.unpushed && <p>{t("worktree.unpushed", { count: status.unpushed })}</p>}
               <button type="button" disabled={!canDelete} onClick={() => void finishRemoval(false)}><Trash2 size={14} />{t("worktree.delete")}</button>
-              {actions.tree?.branch && <button type="button" disabled={!canDelete} onClick={() => void finishRemoval(true)}><GitFork size={14} />{t("worktree.withBranch")}</button>}
+              {target.tree?.branch && <button type="button" disabled={!canDelete} onClick={() => void finishRemoval(true)}><GitFork size={14} />{t("worktree.withBranch")}</button>}
             </div>
-          ) : <>
+            {actions && menuError}
+          </>}>
           <div style={{ maxHeight: "min(304px, 48vh)", overflowY: "auto" }}>
             {state.worktrees.map((worktree) => {
               const { isCurrent } = worktree;
@@ -371,8 +406,8 @@ export function WorktreeSwitcher({ cwd, disabled = false, onCwdChange }: Props) 
               </div>
             </div>
           )}
-          </>}
-          {error && <div style={{ padding: "0 10px 9px", color: "#dc2626", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" }}>{error}</div>}
+          {!actions && menuError}
+          </MenuBody>
         </div>
       )}
     </div>

@@ -1716,6 +1716,16 @@ html.dark .terminal-tool-xterm .xterm-viewport {
   }
 }
 
+.worktree-menu-frame { overflow: clip; }
+.worktree-menu-track { display: flex; align-items: flex-start; transform: translateX(0); }
+.worktree-menu-track[data-view="actions"] { transform: translateX(-100%); }
+.worktree-menu-page { flex: 0 0 100%; min-width: 0; max-height: min(428px, calc(70vh - 2px)); overflow-y: auto; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .worktree-menu-frame { transition: height 180ms ease-out; }
+  .worktree-menu-track { transition: transform 200ms cubic-bezier(.22, .68, .25, 1); }
+}
+
 .worktree-actions { padding: 4px; font-size: 12px; }
 .worktree-actions button {
   display: flex; align-items: center; gap: 8px; width: 100%;
