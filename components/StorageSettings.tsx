@@ -1,5 +1,7 @@
 "use client";
 
+import { SettingsHeading } from "./SettingsHeading";
+import { FolderTree, FolderOpen, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { usePreferences } from "@/lib/preferences-context";
@@ -118,7 +120,7 @@ export function StorageSettings({ active = true }: { active?: boolean }) {
   return <div className="storage-settings">
     <SessionListIndexSettings active={active} />
     <section>
-      <h3>{t("storage.sessionTextSearch")}</h3>
+      <SettingsHeading icon={Search}>{t("storage.sessionTextSearch")}</SettingsHeading>
       <p>{t("storage.description")}</p>
       <label className="storage-toggle">
         <input type="checkbox" checked={status?.enabled ?? preferences["session-search-enabled"]}
@@ -148,7 +150,7 @@ export function StorageSettings({ active = true }: { active?: boolean }) {
       {(error || status?.error) && <p role="alert" className="workspace-error">{error || status?.error}</p>}
     </section>
     <section>
-      <h3 id="workspace-picker-start-heading">{t("storage.workspacePickerStart")}</h3>
+      <SettingsHeading icon={FolderOpen} id="workspace-picker-start-heading">{t("storage.workspacePickerStart")}</SettingsHeading>
       <p id="workspace-picker-start-description">{t("storage.workspacePickerStartDescription")}</p>
       <form className="storage-path-form" onSubmit={(event) => { event.preventDefault(); void savePickerStart(); }}>
         <div>
@@ -169,9 +171,7 @@ export function StorageSettings({ active = true }: { active?: boolean }) {
     </section>
     {/* Default workspace parent on the server */}
     <section style={{ marginTop: 32 }}>
-      <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-        {t("settings.defaultWorkspaceParent")}
-      </h3>
+      <SettingsHeading icon={FolderTree}>{t("settings.defaultWorkspaceParent")}</SettingsHeading>
       <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 12, lineHeight: 1.5 }}>
         {t("settings.defaultWorkspaceParentDescription")}
       </p>

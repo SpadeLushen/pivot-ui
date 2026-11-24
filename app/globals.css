@@ -1955,6 +1955,11 @@ html.dark .terminal-tool-xterm .xterm-viewport {
 }
 .session-search-status { padding: 5px 14px; font-size: 11px; color: var(--text-muted); }
 
+.settings-heading { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.settings-heading svg, .settings-tab svg { flex-shrink: 0; display: block; }
+.settings-tab span { line-height: 16px; transform: translateY(-1px); }
+.settings-enable { display: flex; align-items: center; gap: 8px; }
+.settings-enable input { accent-color: var(--accent); }
 .storage-settings { padding: 24px; height: 100%; overflow-y: auto; color: var(--text); }
 .storage-settings section + section { margin-top: 32px; }
 .storage-settings h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }

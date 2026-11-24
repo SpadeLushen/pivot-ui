@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Cpu, Database, ChartNoAxesCombined, GitFork, Keyboard, Clock, X } from "lucide-react";
+import { Palette, SunMoon, Globe, Cpu, Database, ChartNoAxesCombined, GitFork, Keyboard, Clock, X } from "lucide-react";
 import { useI18n, type Locale } from "@/lib/i18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useBackdropDismiss } from "@/hooks/useBackdropDismiss";
@@ -56,7 +56,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
     }
   };
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: "appearance", label: t("settings.appearance"), icon: <Globe size={15} strokeWidth={1.8} aria-hidden="true" /> },
+    { id: "appearance", label: t("settings.appearance"), icon: <Palette size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "behavior", label: t("settings.behavior"), icon: <Keyboard size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "storage", label: t("settings.storage"), icon: <Database size={15} strokeWidth={1.8} aria-hidden="true" /> },
     { id: "models", label: t("settings.models"), icon: <Cpu size={15} strokeWidth={1.8} aria-hidden="true" /> },
@@ -74,9 +74,6 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
   const handleLocaleChange = (newLocale: Locale) => {
     setLocale(newLocale);
   };
-
-  const themeIcon =
-    theme === "light" ? "🌙" : theme === "dark" ? "👁️" : "☀️";
 
   const themes: { key: "light" | "dark" | "eye"; label: string }[] = [
     { key: "light", label: t("settings.light") },
@@ -158,6 +155,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
             return (
               <button
                 key={tab.id}
+                className="settings-tab"
                 onClick={() => selectTab(tab.id)}
                 style={{
                   display: "flex",
@@ -183,7 +181,7 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                 }}
               >
                 {tab.icon}
-                {tab.label}
+                <span>{tab.label}</span>
               </button>
             );
           })}
@@ -283,7 +281,8 @@ export function SettingsModal({ onClose, onModelsChanged, showTps, onTpsToggle, 
                     gap: 8,
                   }}
                 >
-                  {themeIcon} {t("settings.theme")}
+                  <SunMoon size={16} strokeWidth={1.8} aria-hidden="true" />
+                  {t("settings.theme")}
                 </h3>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   {themes.map((th) => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { SettingsHeading } from "./SettingsHeading";
+import { ListTree } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { SessionIndexStatus } from "@/lib/session-index-types";
@@ -51,7 +53,7 @@ export function SessionListIndexSettings({ active }: { active: boolean }) {
     finally { setStarting(false); }
   };
   return <section>
-    <h3>{t("storage.sessionListIndex")}</h3>
+    <SettingsHeading icon={ListTree}>{t("storage.sessionListIndex")}</SettingsHeading>
     <button type="button" disabled={starting || status?.rebuilding} onClick={() => void rebuild()}>
       {t("storage.rebuildSessionListIndex")}
     </button>
